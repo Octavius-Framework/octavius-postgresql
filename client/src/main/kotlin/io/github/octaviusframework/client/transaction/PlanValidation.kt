@@ -7,7 +7,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
  * Checks what can be checked about a plan without running any of it, before a transaction is opened.
  *
  * A plan is assembled by one layer and run by another, so it can arrive malformed in ways the caller never
- * saw. Both faults below are properties of the plan itself rather than of the data, which is what makes them
+ * saw. The faults below are properties of the plan itself rather than of the data, which is what makes them
  * worth finding here: run instead, they surface partway through, after the steps before them have already
  * done their work and with a transaction to unwind - and on a plan whose first eighteen steps are slow, after
  * those eighteen.
@@ -16,24 +16,23 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
  * per step, since rendering is not cached. Against a transaction's round trips that is nothing, and it buys
  * the whole plan being legible before any of it is committed to.
  *
- * What is deliberately **not** checked is a step depending on a later one. A [StepHandle] comes from
- * [TransactionPlan.add] and from nowhere else, so within the plan that made it a handle always names a step
- * already added - which is to say an earlier one, and a forward reference has no way to be written.
- * [TransactionPlan.addPlan] does not open that up: it appends whole plans in order, which preserves the
- * relative order inside each, and a result is filed under the handle itself rather than under a position, so
- * nothing about the merged sequence depends on where a step now sits. Checking for a forward reference would
- * describe a hazard the design has closed.
+ * The one that needs explaining is a step depending on a later one. Within the plan that made it, a [StepHandle]
+ * always names a step already added - it comes from [TransactionPlan.add] and from nowhere else - so a forward
+ * reference has no way to be written there. Across plans it has: a step can hold another plan's handle, and
+ * [TransactionPlan.addPlan] appends that plan wherever the merge puts it, which is after the step when the two
+ * were merged the wrong way round. Left to run, that is a result not there yet, found partway through.
  *
- * A handle belonging to a plan that was never merged in is a different fault, and is caught below.
+ * A handle belonging to a plan that was never merged in is caught by the same walk: it names no step here at
+ * all.
  *
- * The index it builds to answer that is returned rather than discarded, because resolving a parameter needs
+ * The index it builds to answer both is returned rather than discarded, because resolving a parameter needs
  * the same map to say which step a value was taken from - and a handle's own index is the one it was created
  * at, which after [TransactionPlan.addPlan] is not where its step sits in the plan being run.
  *
  * @param steps The plan's steps, in the order they will run.
  * @return Where each step sits, by handle.
  * @throws InvalidOperationException `INVALID_ARGUMENT` where a step's query cannot render, or a step binds a
- * parameter to a handle from another plan.
+ * parameter to a handle from another plan or to a step that runs after it.
  */
 internal fun validatePlan(steps: List<TransactionPlan.PlannedStep>): Map<StepHandle<*>, Int> {
     val indexByHandle = HashMap<StepHandle<*>, Int>(steps.size)
@@ -71,11 +70,18 @@ private fun checkHandles(
         is TransactionValue.Value -> Unit
         is TransactionValue.Transformed<*, *> -> checkHandles(value.source, stepIndex, paramName, indexByHandle)
         is TransactionValue.FromStep -> {
-            if (!indexByHandle.containsKey(value.handle)) {
-                throw InvalidOperationException(
+            val source = indexByHandle[value.handle]
+                ?: throw InvalidOperationException(
                     InvalidOperationExceptionReason.INVALID_ARGUMENT,
                     details = "Step $stepIndex binds '$paramName' to ${value.handle}, which is not a step of " +
                         "this plan. A handle is useful only inside the plan whose add() returned it."
+                )
+            if (source >= stepIndex) {
+                throw InvalidOperationException(
+                    InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                    details = "Step $stepIndex binds '$paramName' to step $source, which runs after it. A step " +
+                        "can only use results from steps ahead of it, so a plan using another plan's handles " +
+                        "has to be merged in after that plan, not before it."
                 )
             }
         }

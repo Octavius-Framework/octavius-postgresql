@@ -449,6 +449,30 @@ class TransactionPlanTest {
     }
 
     @Test
+    fun `a plan merged in ahead of the one it takes values from is refused before anything runs`() {
+        // The one order a handle cannot enforce by itself: tail is built against head's handle, and merging
+        // the two the wrong way round puts the step that needs the id ahead of the step that generates it.
+        val head = TransactionPlan()
+        val edictId = head.add(
+            db.insertInto("plan_edicts").values(listOf("title", "tribute")).returning("id")
+                .asStep().fetchFieldStrict<Int>("title" to "De Provinciis", "tribute" to 90)
+        )
+
+        val tail = TransactionPlan()
+        tail.add(
+            db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
+                .asStep().update("edict_id" to edictId.value(), "province" to "Asia", "amount" to 90)
+        )
+        tail.addPlan(head)
+
+        val thrown = assertFailsWith<InvalidOperationException> { db.executeTransactionPlan(tail) }
+
+        assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, thrown.reason)
+        assertTrue(thrown.details!!.contains("step 1, which runs after it"), thrown.details!!)
+        assertTrue(thrown.path.isEmpty(), "refused by validation, not by the executor partway through")
+    }
+
+    @Test
     fun `an empty plan runs and produces nothing`() {
         val results = db.executeTransactionPlan(TransactionPlan())
         assertEquals(0, results.size)

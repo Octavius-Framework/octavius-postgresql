@@ -1,3 +1,17 @@
+## Version 1.0.1 (v1.0.1)
+
+### Client
+
+#### Fixed
+
+- **Plans merged the wrong way round are refused before they run.** A step can hold another plan's handle,
+  and `addPlan` appends, so merging the plan that uses a handle ahead of the plan that produces it put the
+  step before the result it needs. Validation let that through and it failed partway through the transaction,
+  once the step reached for the value — while the documentation said such a plan could not be written. It is
+  refused before the transaction opens now, still as `INVALID_ARGUMENT` and naming both steps:
+  `Step 0 binds 'edict_id' to step 1, which runs after it`. The `@throws` on `executeTransactionPlan` says so,
+  where it still described the shape checks that left with `field` and `column`.
+
 ## Version 1.0.0 (v1.0.0) - Renovatio Imperii
 
 ### Project

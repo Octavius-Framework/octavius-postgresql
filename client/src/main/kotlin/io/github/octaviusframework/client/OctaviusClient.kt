@@ -258,7 +258,8 @@ interface OctaviusClient : AutoCloseable {
      * @param transactionTimeout Aborts the transaction once it has been open longer than this.
      * @return Every step's result, by handle.
      * @throws io.github.octaviusframework.driver.exception.InvalidOperationException `INVALID_ARGUMENT` where
-     * a step refers to an earlier result in a way its shape does not allow.
+     * a step's query cannot be rendered or a step binds a handle whose step is not ahead of it in this plan,
+     * both found before any step runs.
      */
     fun executeTransactionPlan(
         plan: TransactionPlan,

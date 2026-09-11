@@ -79,6 +79,11 @@ class TransactionPlan {
      * [TransactionPlanResult]: a result is filed under the handle itself rather than under a position, so
      * where a step ends up in the merged sequence changes nothing about how it is referred to.
      *
+     * Where one plan uses the other's handles, the order is the one thing to get right. A step can take a value
+     * only from a step ahead of it, so [other]'s steps may use handles from the steps already here and not the
+     * other way round. Merged the other way round, the plan is refused when it is executed, before any of it
+     * runs.
+     *
      * [other] is not consumed and not changed - it can still be run on its own, or merged elsewhere.
      *
      * @param other The plan whose steps to take.
