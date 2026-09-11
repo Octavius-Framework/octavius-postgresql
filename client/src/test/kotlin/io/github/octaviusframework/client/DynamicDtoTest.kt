@@ -75,6 +75,12 @@ class DynamicDtoTest {
         @Contextual val until: LocalDate
     ) : Benefit
 
+    data class Decorated(val id: Int, val name: String, val award: LandGrant)
+
+    data class Awarded(val id: Int, val name: String, val awards: List<LandGrant>)
+
+    data class Archived(val id: Int, val record: Benefit)
+
     companion object {
         private lateinit var dataSource: HikariDataSource
         private lateinit var db: OctaviusClient
@@ -114,10 +120,21 @@ class DynamicDtoTest {
             db.rawQuery(
                 """
                 CREATE TABLE IF NOT EXISTS dyn_veterans (
-                    id      SERIAL PRIMARY KEY,
-                    name    TEXT NOT NULL,
-                    benefit public.dynamic_dto,
-                    office  public.magistrature
+                    id       SERIAL PRIMARY KEY,
+                    name     TEXT NOT NULL,
+                    benefit  public.dynamic_dto,
+                    benefits public.dynamic_dto[],
+                    office   public.magistrature
+                );
+                CREATE TABLE IF NOT EXISTS dyn_grants (
+                    veteran_id INT  NOT NULL,
+                    province   TEXT NOT NULL,
+                    iugera     INT  NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS dyn_archives (
+                    id          SERIAL PRIMARY KEY,
+                    record_type TEXT  NOT NULL,
+                    payload     JSONB NOT NULL
                 )
                 """.trimIndent()
             ).execute()
@@ -126,7 +143,7 @@ class DynamicDtoTest {
         @AfterAll
         @JvmStatic
         fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS dyn_veterans").execute()
+            db.rawQuery("DROP TABLE IF EXISTS dyn_veterans, dyn_grants, dyn_archives").execute()
             db.rawQuery("DROP TYPE IF EXISTS public.magistrature").execute()
             db.close()
             dataSource.close()
@@ -135,7 +152,7 @@ class DynamicDtoTest {
 
     @BeforeEach
     fun clearTable() {
-        db.rawQuery("TRUNCATE dyn_veterans RESTART IDENTITY").execute()
+        db.rawQuery("TRUNCATE dyn_veterans, dyn_grants, dyn_archives RESTART IDENTITY").execute()
     }
 
     // Unwrapped, which is what the default mode makes possible and what nearly every test here goes through.
@@ -239,6 +256,90 @@ class DynamicDtoTest {
         db.insertInto("dyn_veterans").values(listOf("name")).update("name" to "Sine Praemio")
 
         assertEquals(null, db.select("benefit").from("dyn_veterans").fetchFieldStrict<Benefit?>())
+    }
+
+    // --- Where else it goes -----------------------------------------------------------------------
+
+    @Test
+    fun `several shapes in one array column come back as a list of their supertype`() {
+        val benefits = listOf(LandGrant("Gallia Narbonensis", 120), MilitaryPension("X Gemina", 300))
+        db.insertInto("dyn_veterans").values(listOf("name", "benefits"))
+            .update("name" to "Marcus", "benefits" to benefits)
+
+        val asSupertype: List<Benefit> = db.select("benefits").from("dyn_veterans").fetchFieldStrict()
+        val asAny: List<Any> = db.select("benefits").from("dyn_veterans").fetchFieldStrict()
+
+        assertEquals(benefits, asSupertype)
+        assertEquals(benefits, asAny)
+    }
+
+    @Test
+    fun `an object built in the projection lands in a property`() {
+        db.rawQuery("INSERT INTO dyn_veterans (name) VALUES ('Marcus'), ('Gaius')").execute()
+        db.rawQuery("INSERT INTO dyn_grants VALUES (2, 'Asia', 7)").execute()
+
+        val decorated = db.rawQuery(
+            """
+            SELECT v.id, v.name,
+                   dynamic_dto('land_grant', jsonb_build_object('province', g.province, 'iugera', g.iugera)) AS award
+            FROM dyn_veterans v JOIN dyn_grants g ON g.veteran_id = v.id
+            """
+        ).fetchObjects<Decorated>()
+
+        assertEquals(listOf(Decorated(2, "Gaius", LandGrant("Asia", 7))), decorated)
+    }
+
+    @Test
+    fun `an array built in the projection is a list property, children and parent in one query`() {
+        db.rawQuery("INSERT INTO dyn_veterans (name) VALUES ('Marcus'), ('Gaius'), ('Sine Praemio')").execute()
+        db.rawQuery("INSERT INTO dyn_grants VALUES (1, 'Gallia', 120), (1, 'Hispania', 40), (2, 'Asia', 7)").execute()
+
+        val awarded = db.rawQuery(
+            """
+            SELECT v.id, v.name,
+                   ARRAY(
+                       SELECT dynamic_dto('land_grant', jsonb_build_object('province', g.province, 'iugera', g.iugera))
+                       FROM dyn_grants g WHERE g.veteran_id = v.id ORDER BY g.province
+                   ) AS awards
+            FROM dyn_veterans v ORDER BY v.id
+            """
+        ).fetchObjects<Awarded>()
+
+        assertEquals(
+            listOf(
+                Awarded(1, "Marcus", listOf(LandGrant("Gallia", 120), LandGrant("Hispania", 40))),
+                Awarded(2, "Gaius", listOf(LandGrant("Asia", 7))),
+                Awarded(3, "Sine Praemio", emptyList())
+            ),
+            awarded
+        )
+    }
+
+    @Test
+    fun `plain columns take the type apart on the way in and put it back together on the way out`() {
+        val benefits = listOf(LandGrant("Gallia Narbonensis", 120), MilitaryPension("X Gemina", 300))
+        db.rawQuery("INSERT INTO dyn_archives (record_type, payload) SELECT type_name, data_payload FROM UNNEST(@records)")
+            .update("records" to benefits)
+        db.rawQuery("INSERT INTO dyn_archives (record_type, payload) SELECT (@r).type_name, (@r).data_payload")
+            .update("r" to LandGrant("Asia", 7))
+
+        // Stored as nothing but text and jsonb, which is the point: the table reads without the type.
+        assertEquals(
+            listOf("land_grant", "military_pension", "land_grant"),
+            db.select("record_type").from("dyn_archives").orderBy("id").fetchFields<String>()
+        )
+
+        val archived = db.rawQuery("SELECT id, dynamic_dto(record_type, payload) AS record FROM dyn_archives ORDER BY id")
+            .fetchObjects<Archived>()
+
+        assertEquals(
+            listOf(
+                Archived(1, LandGrant("Gallia Narbonensis", 120)),
+                Archived(2, MilitaryPension("X Gemina", 300)),
+                Archived(3, LandGrant("Asia", 7))
+            ),
+            archived
+        )
     }
 
     // --- A different Json, for one query --------------------------------------------------------------

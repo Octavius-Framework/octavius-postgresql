@@ -39,6 +39,98 @@ Where the shape *is* fixed, use a composite. It is cheaper in every direction �
 discriminator to keep honest — and the driver maps one onto a data class reflectively. See
 [Composites and Reflection](../driver/composites-reflection.md).
 
+## Where It Goes
+
+A column is one place. There are three more, and none of them needs anything the column did not.
+
+### Several shapes in one array
+
+An array of them is an array like any other: `benefits public.dynamic_dto[]` holds a grant and a pension side
+by side.
+
+```kotlin
+val benefits = listOf(LandGrant("Gallia Narbonensis", 120), MilitaryPension("X Gemina", 300))
+
+db.insertInto("veterans").values(listOf("name", "benefits"))
+    .update("name" to "Marcus", "benefits" to benefits)
+
+val back: List<Benefit> = db.select("benefits").from("veterans").where("name = @n")
+    .fetchFieldStrict("n" to "Marcus")
+```
+
+Each element is written and read on the column's terms: the list needs no wrapping, and comes back as the
+supertype asked for — or as `List<Any>` where the shapes have nothing in common, and a `when` sorts them out.
+
+### An object built in the query
+
+The value does not have to be stored at all. Built in the projection, it lands in a property like any other
+column, which reads a join as a nested object without a type for it in the schema:
+
+```kotlin
+data class Decorated(val id: Int, val name: String, val award: LandGrant)
+
+val decorated = db.rawQuery(
+    """
+    SELECT v.id, v.name,
+           dynamic_dto('land_grant', jsonb_build_object('province', g.province, 'iugera', g.iugera)) AS award
+    FROM veterans v JOIN grants g ON g.veteran_id = v.id
+    """
+).fetchObjects<Decorated>()
+```
+
+An `ARRAY` of them is a list property, which is the 1:N case — a parent and its children in one query, rather
+than one query for the parents and another per parent:
+
+```kotlin
+data class Veteran(val id: Int, val name: String, val awards: List<LandGrant>)
+
+val veterans = db.rawQuery(
+    """
+    SELECT v.id, v.name,
+           ARRAY(
+               SELECT dynamic_dto('land_grant', jsonb_build_object('province', g.province, 'iugera', g.iugera))
+               FROM grants g WHERE g.veteran_id = v.id
+           ) AS awards
+    FROM veterans v
+    """
+).fetchObjects<Veteran>()
+```
+
+The keys `jsonb_build_object` is given are the class's property names. A payload named the way SQL names
+things reads under [a `Json` of its own](#a-different-json-for-one-query). Where the nested shape has no class
+at all, a plain `ROW(...)` comes back with its types intact instead — see
+[the raw forms](../driver/composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord).
+
+### Plain columns, the type only in transit
+
+Storing the composite ties the table to it: anything else reading `veterans` meets a `dynamic_dto` it has to
+take apart. Where the table should stay plain — read by a report, a script, a service with no Octavius in it —
+the discriminator and the payload can live in columns of their own, and the type exist only on the way in and
+out:
+
+```sql
+CREATE TABLE archives (
+    id          SERIAL PRIMARY KEY,
+    record_type TEXT  NOT NULL,
+    payload     JSONB NOT NULL
+);
+```
+
+```kotlin
+data class Archived(val id: Int, val record: Benefit)
+
+// In: each value arrives as a dynamic_dto and is taken apart in SQL
+db.rawQuery("INSERT INTO archives (record_type, payload) SELECT type_name, data_payload FROM UNNEST(@records)")
+    .update("records" to benefits)
+
+// Out: put back together in the projection
+val archived = db.rawQuery("SELECT id, dynamic_dto(record_type, payload) AS record FROM archives")
+    .fetchObjects<Archived>()
+```
+
+A single value goes in the same way, as `SELECT (@r).type_name, (@r).data_payload`. What this costs is the
+column doing it for you: every statement that touches the table spells the conversion out itself.
+
 ## Creating the Type
 
 The type and its constructor functions are **not** created behind your back:

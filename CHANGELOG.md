@@ -27,6 +27,13 @@
   now, and the KDoc of `toTransactionValue` says what it is for — giving a known value the type a step's result
   has, so that a helper takes a `TransactionValue` rather than an `Any?` — rather than a parameter map mixing
   the two, which never needed it. Documentation only; no signature changed.
+- **[`dynamic_dto`](docs/client/dynamic-dto.md#where-it-goes) says where else it goes.** An array of several
+  shapes in one column, read back as their supertype or as `List<Any>`; an object built in the projection and
+  landing in a property, and an `ARRAY` of them landing in a list — a parent and its children in one query,
+  with no type for them in the schema; and plain `text` and `jsonb` columns holding the discriminator and the
+  payload, the type existing only on the way in and out. All three were in octavius-database's documentation
+  and worked here, unmentioned and untested; `DynamicDtoTest` covers them now. Documentation only; no
+  signature changed.
 
 #### Fixed
 

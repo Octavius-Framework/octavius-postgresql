@@ -63,6 +63,7 @@ it again.
 
 ### `dynamic_dto`
 - [The Case a Composite Cannot Cover](dynamic-dto.md#the-case-a-composite-cannot-cover) — Shape per row, not per schema
+- [Where It Goes](dynamic-dto.md#where-it-goes) — Arrays, objects built in the query, plain columns
 - [Creating the Type](dynamic-dto.md#creating-the-type) — `DYNAMIC_DTO_DDL`, a migration, or `install()`
 - [Registering a Class](dynamic-dto.md#registering-a-class) — And why the name is stated rather than derived
 - [Reading](dynamic-dto.md#reading) — As the class, as a supertype, as the raw form, as a map
