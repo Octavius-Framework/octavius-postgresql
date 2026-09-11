@@ -6,6 +6,13 @@ package io.github.octaviusframework.driver.exception
 enum class InvalidOperationExceptionReason {
     /** Transaction operations like commit or savepoint used when auto-commit is enabled. */
     AUTO_COMMIT_VIOLATION,
+    /**
+     * A commit asked of a transaction an earlier error already aborted - by `commit()`, or by switching
+     * auto-commit back on, which commits. PostgreSQL would carry the `COMMIT` out as a `ROLLBACK` and report
+     * nothing, so the driver refuses it instead of sending it: the transaction stays aborted, and rolling it back
+     * is the way out, as it is for every other statement there.
+     */
+    COMMIT_OF_FAILED_TRANSACTION,
     /** Provided savepoint is invalid or belongs to another connection. */
     INVALID_SAVEPOINT,
     /**
@@ -73,6 +80,7 @@ class InvalidOperationException(
 private fun generateDeveloperMessage(reason: InvalidOperationExceptionReason): String =
     when (reason) {
         InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION -> "Operation (like setting a savepoint or commit/rollback) is not allowed when auto-commit is enabled."
+        InvalidOperationExceptionReason.COMMIT_OF_FAILED_TRANSACTION -> "An earlier error aborted this transaction, so a COMMIT would only roll it back. Nothing was sent: roll back, and look for that earlier failure."
         InvalidOperationExceptionReason.INVALID_SAVEPOINT -> "Invalid savepoint operation."
         InvalidOperationExceptionReason.RESOURCE_CLOSED -> "The statement, Large Object or COPY handle this was asked of is already closed. See the details for which; handles are single-use, so the answer is a new one."
         InvalidOperationExceptionReason.INVALID_ARGUMENT -> "An argument passed to this operation is not acceptable. See the details for the value the driver rejected."

@@ -250,10 +250,11 @@ the same arrangement that makes a repository function composable, with a plan as
 
 **Joined, a plan is all-or-nothing only together with the block.** Its failure is the block's failure, and
 catching it inside the block — a `try`, a `dbResult` — does not give the plan a boundary of its own. A step the
-server refused has doomed the transaction: PostgreSQL refuses every statement after it until the rollback. A
-step that failed on this side of the wire — in a `map`, in mapping its result, on a strict fetch that found no
-row — has left the steps before it in place, and a block that carries on commits them. Where the block has to
-survive the plan failing, `NESTED` gives the plan its boundary back: whatever fails in it rolls back to the
+server refused has doomed the transaction: PostgreSQL refuses every statement after it until the rollback, and
+the driver refuses the block's commit rather than let it turn quietly into one. A step that failed on this side
+of the wire — in a `map`, in mapping its result, on a strict fetch that found no row — has left the steps before
+it in place, and a block that carries on commits them. Where the block has to survive the plan failing,
+`NESTED` gives the plan its boundary back: whatever fails in it rolls back to the
 savepoint, taking all of the plan and nothing the block did before it.
 
 What `executeTransactionPlan` is given for isolation, read-only and the timeouts reaches only a transaction it

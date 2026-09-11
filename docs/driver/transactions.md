@@ -173,12 +173,16 @@ runCatching { session.createNativeQuery("INSERT INTO senators (id) VALUES (1)").
 session.transactionState                                  // FAILED
 session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>()
 // throws TransactionStateException(IN_FAILED_TRANSACTION) - the transaction is aborted
+session.commit()
+// throws InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION) - nothing sent, still FAILED
 
 session.rollback()
 session.transactionState                                  // IN_TRANSACTION again, and usable
 ```
 
 Two ways out: `rollback()`, which discards the whole transaction and opens a fresh one, or — if you saw it coming — a `nested { }` block around the risky part, whose savepoint rollback clears the failure while keeping everything before it. That is the practical reason to reach for `nested` rather than `required`.
+
+**`commit()` is not a third.** PostgreSQL answers a `COMMIT` in an aborted transaction with a `ROLLBACK` and no error, so sent, it would report a commit that never happened — the work before the failure gone, and nobody told. The driver does not send it: `commit()` raises `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)`, and so does switching `autoCommit` back on, which commits. It knows the state from the last `ReadyForQuery`, so the refusal costs no round trip. A `required { }` block that caught a failure and carried on meets the same refusal at its own commit, and rolls back as it would for any other throw.
 
 ## Terms for one transaction
 

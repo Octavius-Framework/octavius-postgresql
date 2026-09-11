@@ -160,11 +160,21 @@ interface OctaviusSession : OctaviusSessionOperations, AutoCloseable {
     /**
      * Specifies whether the session operates in auto-commit mode.
      * If `true`, each individual statement is treated as a separate transaction.
+     *
+     * Switching it back on commits the transaction that is open, and is refused on the same terms as
+     * [commit] where an earlier error aborted that transaction.
      */
     var autoCommit: Boolean
 
     /**
      * Commits the current transaction, persisting all changes made within it.
+     *
+     * A transaction an earlier error aborted is not committed and not quietly rolled back either. PostgreSQL
+     * would answer the `COMMIT` with a `ROLLBACK` and report nothing, so the driver does not send it: the
+     * transaction stays [FAILED][TransactionState.FAILED], and [rollback] is the way out.
+     *
+     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException `AUTO_COMMIT_VIOLATION`
+     * where auto-commit is on, `COMMIT_OF_FAILED_TRANSACTION` where an earlier error aborted the transaction.
      */
     fun commit()
 

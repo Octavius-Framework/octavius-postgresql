@@ -456,6 +456,7 @@ The object-identifying fields come straight from the server's error message, so 
 | Reason (`InvalidOperationExceptionReason`) | Description                                                                                                                                                                                                                                                                                |
 |:-------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `AUTO_COMMIT_VIOLATION`                    | `commit()`, `rollback()` or a savepoint attempted while auto-commit is enabled.                                                                                                                                                                                                            |
+| `COMMIT_OF_FAILED_TRANSACTION`             | `commit()`, or switching auto-commit back on, in a transaction an earlier error aborted. The server would carry the `COMMIT` out as a `ROLLBACK` and report nothing, so nothing is sent; the transaction stays `FAILED` until it is rolled back.                                           |
 | `INVALID_SAVEPOINT`                        | Savepoint is unknown, already released, or belongs to another connection.                                                                                                                                                                                                                  |
 | `RESOURCE_CLOSED`                          | The statement, Large Object or `COPY` handle is already closed. `details` names it; handles are single-use, so the answer is a new one.                                                                                                                                                    |
 | `INVALID_ARGUMENT`                         | An argument is not acceptable — a negative timeout, a null SQL string, an unsupported isolation level, a non-positive COPY `bufferSize`, a `PgTyped` wrapping another, a `PgRecord` read out of a result and handed back as a parameter. `details` names the rejected value.               |
@@ -715,8 +716,10 @@ restates whatever a pool refuses a connection with, and the Spring translator al
 * **One failed statement poisons the whole transaction.** After any error inside an explicit transaction, PostgreSQL
   marks the session aborted (`ReadyForQuery` reports `E`) and rejects every further statement with `25P02` →
   `TransactionStateException(IN_FAILED_TRANSACTION)` until you roll back. That exception is the *consequence*; the
-  failure that caused it is the one before it. If a failure is *expected* — a speculative insert, say — isolate it in
-  `session.transaction.nested { }` so only its savepoint is discarded. See [Transactions](transactions.md).
+  failure that caused it is the one before it. The commit is refused too, by the driver rather than the server —
+  `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)` — because the server would carry it out as a rollback and
+  report nothing. If a failure is *expected* — a speculative insert, say — isolate it in `session.transaction.nested { }`
+  so only its savepoint is discarded. See [Transactions](transactions.md).
 
 * **`queryContext` is nullable, and the driver sets it once.** The first frame to unwind with a null context fills it
   in. Errors raised outside a query — handshake, `commit()`, savepoint misuse — never get one. You may overwrite it

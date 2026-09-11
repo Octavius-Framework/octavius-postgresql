@@ -168,9 +168,10 @@ interface OctaviusClient : AutoCloseable {
      *
      * This is [transaction] for the result style, and it exists because the two do not compose by themselves.
      * A plain transaction rolls back on a throw and on nothing else, so a `dbResult` inside one turns the
-     * failure into a value, the block finishes normally, and the transaction **commits over the very failure
-     * that was caught** - the same trap `runCatching` sets in the same place. Here a returned
-     * [DataResult.Failure] rolls back, and comes out as the value it already was.
+     * failure into a value, the block finishes normally, and the transaction **goes on to commit** - the same
+     * trap `runCatching` sets in the same place. Over a failure the block made itself that commit goes through;
+     * over one the server raised the driver refuses it, and the failure arrives as that refusal, at the end of
+     * the block. Here a returned [DataResult.Failure] rolls back, and comes out as the value it already was.
      *
      * ```kotlin
      * val created = db.transactionResult {

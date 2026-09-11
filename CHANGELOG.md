@@ -1,5 +1,18 @@
 ## Version 1.0.1 (v1.0.1)
 
+### Driver
+
+#### Fixed
+
+- **`commit()` refuses a transaction an earlier error aborted, instead of reporting a commit that never
+  happened.** PostgreSQL answers a `COMMIT` there with a `ROLLBACK` and no error, and the driver took that for
+  success: a block that caught a failure and carried on returned normally, the log said the transaction was
+  committed, and none of it was. `commit()` raises `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)`
+  now, without sending anything, and so does setting `autoCommit` back to `true`, which commits; `required { }`
+  rolls back on it as on any other throw. pgjdbc accepts such a commit as silently as this did. **A caller that
+  swallowed a failure inside a transaction and returned normally now gets an exception at the commit**, where
+  it used to get nothing — and nothing saved either way.
+
 ### Client
 
 #### Added
@@ -24,6 +37,12 @@
   refused before the transaction opens now, still as `INVALID_ARGUMENT` and naming both steps:
   `Step 0 binds 'edict_id' to step 1, which runs after it`. The `@throws` on `executeTransactionPlan` says so,
   where it still described the shape checks that left with `field` and `column`.
+- **[The Combination That Misleads](docs/client/transactions-failures.md#the-combination-that-misleads) says what
+  the commit does.** A `dbResult` inside a plain `transaction { }` was said to commit over the failure it
+  caught; for a failure the server raised it never did — the server rolled the work back and the driver
+  reported a commit. With the driver's fix that commit is refused instead, and the page, the KDoc of
+  `transactionResult` and that of `dbResult` say so, keeping "commits over it" for a failure the block made
+  itself.
 
 ## Version 1.0.0 (v1.0.0) - Renovatio Imperii
 

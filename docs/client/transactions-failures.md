@@ -7,7 +7,8 @@ done.*
 
 Two questions, and one page because the interesting part is where they meet. A transaction commits or unwinds.
 A failure is thrown or handed back as a value. What binds them is that **a failure turned into a value stops
-being a throw** — and a transaction that only rolls back on a throw will happily commit over one.
+being a throw** — and a transaction that only rolls back on a throw carries on past one as though nothing had
+happened.
 
 > Savepoints, manual `begin`/`commit`, transaction state and the isolation levels themselves are the driver's
 > and are unchanged here. See [Transaction Management](../driver/transactions.md).
@@ -150,13 +151,21 @@ intact. It has `map`, `onSuccess`, `onFailure`, `getOrNull`, `getOrThrow` and `g
 // Wrong
 db.transaction {
     val result = dbResult { insertInto("edicts")… }   // the failure is caught here
-    // …and the block ends normally, so the transaction COMMITS over it
+    // …and the block ends normally, so the transaction goes on to its commit
 }
 ```
 
 A plain transaction rolls back on a throw and on nothing else. A failure caught into a value inside one is no
-longer a throw, so the transaction finishes and commits — the auspice was taken, the sign was bad, somebody
-wrote it down instead of stopping, and the business stands.
+longer a throw, so the transaction finishes and goes on to commit — the auspice was taken, the sign was bad,
+and somebody wrote it down instead of stopping.
+
+What happens at the commit depends on where the failure came from. One the server raised — a constraint, a
+deadlock, a `RAISE EXCEPTION`, the kind `dbResult` hands back as a value — has already doomed the transaction,
+and PostgreSQL would carry the commit out as a rollback while reporting none. The driver refuses it instead,
+with `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)`: nothing is saved and nothing pretends
+otherwise, but the failure surfaces at the end of the block rather than where it happened, and as the refusal
+rather than as itself. One the server never saw — a `Failure` the block made itself and carried on past — dooms
+nothing, and there the business stands: the transaction commits over it.
 
 `transactionResult` is what closes that gap, and it is why the two are not left to composition:
 

@@ -352,6 +352,7 @@ internal class OctaviusConnection(
     override fun setAutoCommit(autoCommit: Boolean) = wrapSqlException { // required by Hikari
         checkClosed()
         if (this.autoCommitFlag != autoCommit) {
+            if (autoCommit) refuseCommitOfFailedTransaction()
             this.autoCommitFlag = autoCommit
             if (autoCommit) {
                 queryExecutor.execute("COMMIT")
@@ -371,8 +372,16 @@ internal class OctaviusConnection(
     override fun commit() = wrapSqlException {
         checkClosed()
         if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION)
+        refuseCommitOfFailedTransaction()
         queryExecutor.execute("COMMIT; BEGIN")
         logger.debug { "$pid Transaction committed; new transaction started" }
+    }
+
+    /** Raises `COMMIT_OF_FAILED_TRANSACTION` where an earlier error aborted the transaction. */
+    private fun refuseCommitOfFailedTransaction() {
+        if (transactionState == TransactionState.FAILED) {
+            throw InvalidOperationException(InvalidOperationExceptionReason.COMMIT_OF_FAILED_TRANSACTION)
+        }
     }
 
     override fun rollback() = wrapSqlException { // required by Hikari

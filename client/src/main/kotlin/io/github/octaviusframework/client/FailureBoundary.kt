@@ -36,8 +36,10 @@ import io.github.octaviusframework.driver.exception.TypeException
  * ```
  *
  * **Not around the queries inside a transaction.** A `dbResult` there catches the failure, the block finishes
- * normally, and [OctaviusClient.transaction] commits over the very failure that was caught - the same trap
- * `runCatching` sets in the same place. [transactionResult][io.github.octaviusframework.client.OctaviusClient.transactionResult] is the door for that width, and it rolls back on a
+ * normally, and [OctaviusClient.transaction] goes on to commit - the same trap `runCatching` sets in the same
+ * place. Over a failure the server raised, the driver refuses that commit, so the caller hears of it at the end
+ * of the block rather than where it happened; over one the block made itself, the commit goes through.
+ * [transactionResult][io.github.octaviusframework.client.OctaviusClient.transactionResult] is the door for that width, and it rolls back on a
  * returned failure rather than committing over one.
  *
  * @param block The work to run under the boundary.

@@ -132,6 +132,58 @@ class TransactionTest {
     }
 
     @Test
+    fun `commit refuses a transaction an earlier error aborted`() {
+        session.autoCommit = false
+        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        assertThrows<OctaviusException> {
+            session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES ('INVALID_INT', 'B')").execute()
+        }
+
+        // Sent, the COMMIT would come back as a ROLLBACK and nothing else, with row 1 gone and nobody told.
+        val thrown = assertThrows<InvalidOperationException> { session.commit() }
+
+        assertEquals(InvalidOperationExceptionReason.COMMIT_OF_FAILED_TRANSACTION, thrown.reason)
+        assertEquals(TransactionState.FAILED, session.transactionState, "nothing was sent; the rollback is still owed")
+        session.rollback()
+        assertEquals(0L, countRows())
+    }
+
+    @Test
+    fun `switching auto-commit back on refuses it on the same terms`() {
+        session.autoCommit = false
+        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        assertThrows<OctaviusException> {
+            session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES ('INVALID_INT', 'B')").execute()
+        }
+
+        val thrown = assertThrows<InvalidOperationException> { session.autoCommit = true }
+
+        assertEquals(InvalidOperationExceptionReason.COMMIT_OF_FAILED_TRANSACTION, thrown.reason)
+        assertFalse(session.autoCommit, "still inside the transaction it could not commit")
+        session.rollback()
+        session.autoCommit = true
+        assertEquals(0L, countRows())
+    }
+
+    @Test
+    fun `a required block that swallowed a server error fails at its commit`() {
+        val thrown = assertThrows<InvalidOperationException> {
+            session.transaction.required {
+                createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+                try {
+                    createNativeQuery("INSERT INTO test_trx (id, value) VALUES ('INVALID_INT', 'B')").execute()
+                } catch (e: OctaviusException) {
+                    // Caught and carried on from, so the block returns normally over an aborted transaction.
+                }
+            }
+        }
+
+        assertEquals(InvalidOperationExceptionReason.COMMIT_OF_FAILED_TRANSACTION, thrown.reason)
+        assertEquals(0L, countRows())
+        assertEquals(true, session.autoCommit)
+    }
+
+    @Test
     fun `test transaction manager successful block`() {
         session.transaction.required {
             createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
