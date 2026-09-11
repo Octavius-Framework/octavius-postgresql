@@ -2,7 +2,7 @@
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.octavius-framework/driver)](https://central.sonatype.com/artifact/io.github.octavius-framework/driver)
 
-A native, high-performance, lightweight PostgreSQL driver for Kotlin.
+A PostgreSQL 18+ driver for Kotlin.
 
 > The lowest layer of [Octavius for PostgreSQL](../README.md), and usable entirely on its own. Everything else
 > in this repository is built on it; nothing in it is built on anything else here.

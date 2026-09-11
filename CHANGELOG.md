@@ -2,6 +2,19 @@
 
 ### Client
 
+#### Added
+
+- **[Transaction Plans](docs/client/plans.md) says what a plan has that a block has not, and what a
+  transaction around one does to it.** Both write the same things with the same branches; a plan exists
+  before it runs — settled and checked first, a value to hand back, merge, describe and run again, given to
+  its helpers rather than found on their thread — and gives up deciding as it goes. A graph written in one
+  call shows it, and so does a record created or edited by one code path, beside the same save as a block. A
+  plan run inside a `transaction { }` block joins it under `REQUIRED` — all-or-nothing only together with the
+  block, and given a boundary of its own by `NESTED`. The example that inserted a row per step is one `UNNEST`
+  now, and the KDoc of `toTransactionValue` says what it is for — giving a known value the type a step's result
+  has, so that a helper takes a `TransactionValue` rather than an `Any?` — rather than a parameter map mixing
+  the two, which never needed it. Documentation only; no signature changed.
+
 #### Fixed
 
 - **Plans merged the wrong way round are refused before they run.** A step can hold another plan's handle,

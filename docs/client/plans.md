@@ -11,48 +11,262 @@ went into it.
 
 ## When a Block Is Not Enough
 
-Reach for a plan when the sequence is decided somewhere other than where it runs — a screen with a variable
-number of rows on it, a service turning a request into operations. The block form would mean passing a lambda
-that closes over everything it touched.
+A block and a plan write the same things — [a graph](#writing-a-graph) whose later rows need keys the earlier
+ones generate, [a record that may be new or may be edited](#creating-or-editing), the rows around it — and with
+the same branches, since those come from the data rather than from the tool. What differs is when the work
+exists.
+
+A block runs as it is decided. Its values are plain Kotlin locals, it can read inside the transaction and
+decide on what it read, and a repository function called from inside it joins its transaction without being
+told.
+
+A plan exists before any of it runs, and that is what it is for:
+
+- **Settled before it starts.** Every step is decided and every statement rendered before the transaction
+  opens, so a malformed plan — an `UPDATE` without its `WHERE`, a handle out of order — is
+  [refused before any of it runs](#checked-before-it-runs).
+- **A value.** The function that knows the tables can [hand its part back](#returning-a-fragment) instead of
+  doing it, and the caller merges it with other work, [describes it](#reading-one-that-went-wrong),
+  [runs it again](#running-one-twice), or runs it [inside a block](#inside-a-block) of its own.
+- **Handed, not found.** A helper adding to a plan takes the plan as a parameter, where one called inside a
+  block finds the transaction on its thread — the same work, with the dependency in the signature.
+
+What it gives up is deciding as it goes. Its shape is fixed before it runs: a step can use what an earlier one
+produced, but whether a step runs at all is settled from what was known beforehand. Until then an id is a
+`TransactionValue` rather than an `Int`, and afterwards it is reached through the handle of the step that
+produced it.
+
+## Writing a Graph
+
+In a block the parent's id is a local by the time the children need it. In a plan nothing has run yet, so there
+is no id to pass — a handle stands in for it, the way an ORM lets a new child point at its parent's *object*
+before the parent has one. `edictId.value()` below is the id the edict will have: usable by any step added
+after it, resolved when that step runs, and the statements, and the order they run in, are the ones you wrote.
 
 ```kotlin
-val plan = TransactionPlan()
+fun planEdict(draft: EdictDraft): Pair<TransactionPlan, StepHandle<Int>> {
+    val plan = TransactionPlan()
 
-val edictId = plan.add(
-    db.insertInto("edicts").values(listOf("title", "tribute")).returning("id")
-        .asStep().fetchFieldStrict<Int>("title" to edict.title, "tribute" to edict.tribute)
-)
-
-for (item in levy) {
-    plan.add(
-        db.insertInto("edict_items").values(listOf("edict_id", "province", "amount"))
-            .asStep().update(
-                "edict_id" to edictId.value(),
-                "province" to item.province,
-                "amount" to item.amount
-            )
+    val edictId = plan.add(
+        db.insertInto("edicts").values(listOf("title", "tribute")).returning("id")
+            .asStep().fetchFieldStrict<Int>("title" to draft.title, "tribute" to draft.tribute)
     )
+
+    if (draft.levy.isNotEmpty()) {
+        plan.add(
+            db.rawQuery(
+                """
+                INSERT INTO edict_items (edict_id, province, amount)
+                SELECT @edict_id, u.province, u.amount
+                FROM UNNEST(@provinces::text[], @amounts::int[]) AS u(province, amount)
+                """
+            ).asStep().update(
+                "edict_id" to edictId.value(),
+                "provinces" to draft.levy.map { it.province },
+                "amounts" to draft.levy.map { it.amount }
+            )
+        )
+    }
+
+    return plan to edictId
 }
 
-val results = db.executeTransactionPlan(plan)
-val id = results[edictId]
+val (plan, edictId) = planEdict(draft)
+val id = db.executeTransactionPlan(plan)[edictId]
 ```
 
-Where the sequence is fixed and written out in one place, a block says the same thing with fewer moving parts
-and the values in plain Kotlin locals. Use a plan when the sequence is not known where it is executed.
+**Two steps, however many items.** The items go in as one statement, the rows turned sideways into one array
+per column — [the bulk-write form](../driver/bulk-writes.md#inserting), one round trip where a step per item
+would cost one per item. A plan's size should follow the tables a graph touches rather than the rows in them;
+a loop belongs around what cannot share a statement, such as a parent per iteration whose children need its
+key.
+
+The items step is added only where there are items. Two empty lists carry no element type to send them as —
+see [Empty batches need a type](../driver/bulk-writes.md#empty-batches-need-a-type) — and a plan being data, a
+step with nothing to do can simply be left out of it.
 
 `asStep()` turns any query into a step builder. Its terminals are the `fetch*` family and `update` — the
 `forEach*` family is absent on purpose, a plan keeping every result so that later steps can use it, and a walk
 over rows too large to hold having nothing to keep. So is `RawQuery.execute()`, which speaks a protocol that
 binds nothing and could therefore take no reference to an earlier step.
 
-`executeTransactionPlan` takes the same propagation, isolation, read-only and timeout arguments as
-[`transaction`](transactions-failures.md#propagation).
+## Creating or Editing
+
+The same save often has to create a record or edit one that is already there, and both forms write it as one
+path with the same branches: an insert or an update, and a dependent row kept, added, removed or never there. A
+block has the id as a local from the first statement:
+
+```kotlin
+fun save(edict: Edict, sealExists: Boolean): Int = db.transaction {
+    val row = mapOf("title" to edict.title, "tribute" to edict.tribute)
+
+    val edictId = when (val id = edict.id) {
+        null -> insertInto("edicts").values(row).returning("id").fetchFieldStrict<Int>(row)
+        else -> {
+            update("edicts").setValues(row).where("id = @id").update(row + ("id" to id))
+            id
+        }
+    }
+
+    // Kept, added, removed, or never there - the last runs nothing
+    val sealedBy = edict.sealedBy
+    when {
+        sealExists && sealedBy != null ->
+            update("edict_seals").setValues(listOf("sealed_by")).where("edict_id = @edict_id")
+                .update("sealed_by" to sealedBy, "edict_id" to edictId)
+        sealedBy != null ->
+            insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
+                .update("edict_id" to edictId, "sealed_by" to sealedBy)
+        sealExists ->
+            deleteFrom("edict_seals").where("edict_id = @edict_id").update("edict_id" to edictId)
+    }
+
+    edictId
+}
+```
+
+A plan has no id yet when it is built: it is either one that is already there or one an insert will generate.
+A `TransactionValue` can be either — `toTransactionValue()` wraps the known one, a handle's `value()` stands for
+the generated one — and every step after binds it without knowing which it got:
+
+```kotlin
+fun planSave(edict: Edict, sealExists: Boolean): TransactionPlan {
+    val plan = TransactionPlan()
+    val row = mapOf("title" to edict.title, "tribute" to edict.tribute)
+
+    val edictId: TransactionValue<Int> = when (val id = edict.id) {
+        null -> plan.add(
+            db.insertInto("edicts").values(row).returning("id")
+                .asStep().fetchFieldStrict<Int>(row)
+        ).value()
+
+        else -> {
+            plan.add(
+                db.update("edicts").setValues(row).where("id = @id")
+                    .asStep().update(row + ("id" to id))
+            )
+            id.toTransactionValue()
+        }
+    }
+
+    // Kept, added, removed, or never there - the last adds no step
+    val sealedBy = edict.sealedBy
+    when {
+        sealExists && sealedBy != null -> plan.add(
+            db.update("edict_seals").setValues(listOf("sealed_by")).where("edict_id = @edict_id")
+                .asStep().update("sealed_by" to sealedBy, "edict_id" to edictId)
+        )
+        sealedBy != null -> plan.add(
+            db.insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
+                .asStep().update("edict_id" to edictId, "sealed_by" to sealedBy)
+        )
+        sealExists -> plan.add(
+            db.deleteFrom("edict_seals").where("edict_id = @edict_id")
+                .asStep().update("edict_id" to edictId)
+        )
+    }
+
+    return plan
+}
+```
+
+The branches are the same two `when`s, and the plan is the longer of the two by its `plan.add`, `asStep()` and
+the wrapping of the id. The block has two things the plan has not: the id comes back as its result, where the
+plan reaches it only through the insert's handle, which exists on one branch of the two; and `sealExists` could
+be read inside the transaction — a `SELECT … FOR UPDATE` on the seal — instead of taken from whoever loaded the
+edict. What the plan has in return is [what a plan is for](#when-a-block-is-not-enough): none of it runs until
+all of it is decided, nothing inside it can catch a step's failure and carry on to the next, and the whole of it
+is a value — run on its own, handed back to a caller that merges it, or run again:
+
+```kotlin
+val saved = dbResult { db.executeTransactionPlan(planSave(edict, sealExists)) }
+```
+
+## Returning a Fragment
+
+`planEdict` and `planSave` hand their plans back instead of running them, and that is the whole of the
+pattern. A fragment that needs a value from another takes it as a `TransactionValue` — what `value()` returns —
+and puts it among its parameters like any other:
+
+```kotlin
+fun planAudit(entityId: TransactionValue<Int>, summary: String): TransactionPlan =
+    TransactionPlan().apply {
+        add(
+            db.insertInto("audit").values(listOf("entity_id", "summary"))
+                .asStep().update("entity_id" to entityId, "summary" to summary)
+        )
+    }
+
+val (edictPlan, edictId) = planEdict(draft)
+edictPlan.addPlan(planAudit(edictId.value(), "edict issued"))
+
+val id = db.executeTransactionPlan(edictPlan)[edictId]
+```
+
+`addPlan` appends the other plan's steps, in their order, after the ones already there. Handles either plan
+handed out keep working, against the merged plan and against its result: a result is filed under the handle
+itself rather than under a position, so where a step ends up in the merged sequence changes nothing about how
+it is referred to.
+
+**Merge the fragment that produces a value ahead of the one that uses it.** Inside one plan the order cannot
+come out wrong, a handle only ever naming a step already added. Across two it can, and the other way round is
+[refused before any of it runs](#checked-before-it-runs), naming both steps.
+
+The plan merged in is not consumed and not changed: it can still be run on its own, or merged elsewhere.
+Merging the same plan twice is refused — directly, or through two plans that both hold it. Its steps would run
+twice under one handle, and only the last result of each would be reachable.
+
+## Inside a Block
+
+`executeTransactionPlan` opens its transaction through `transaction`, and takes the same
+[propagation](transactions-failures.md#propagation). Under the default, `REQUIRED`, a plan run inside a block
+joins the block's transaction — so the two are not alternatives. The block reads, locks and decides, in plain
+Kotlin; the plan writes what was decided.
+
+```kotlin
+fun answer(petitionId: Int, draft: EdictDraft): Int = db.transaction {
+    val status = select("status").from("petitions").where("id = @id").forUpdate()
+        .fetchFieldStrict<String>("id" to petitionId)
+    if (status != "OPEN") throw PetitionClosedException(petitionId)
+
+    val (edictPlan, edictId) = planEdict(draft)
+    val id = executeTransactionPlan(edictPlan)[edictId]
+
+    rawQuery("UPDATE petitions SET status = 'ANSWERED', edict_id = @edict WHERE id = @id")
+        .update("edict" to id, "id" to petitionId)
+    id
+}
+```
+
+The lock the first statement takes holds until the block ends, and the edict, its items and the answered
+petition commit together or not at all. `planEdict` does not know it ran inside somebody else's transaction —
+the same arrangement that makes a repository function composable, with a plan as one more thing that joins.
+
+| Propagation    | A plan run inside a block                                                                                |
+|----------------|----------------------------------------------------------------------------------------------------------|
+| `REQUIRED`     | Joins the block's transaction, and commits or rolls back with it.                                        |
+| `NESTED`       | Runs in a savepoint. A failure rolls the plan back to it and still throws; caught, the block carries on. |
+| `REQUIRES_NEW` | Runs on a session of its own and commits on its own. It cannot see the block's uncommitted rows.         |
+
+**Joined, a plan is all-or-nothing only together with the block.** Its failure is the block's failure, and
+catching it inside the block — a `try`, a `dbResult` — does not give the plan a boundary of its own. A step the
+server refused has doomed the transaction: PostgreSQL refuses every statement after it until the rollback. A
+step that failed on this side of the wire — in a `map`, in mapping its result, on a strict fetch that found no
+row — has left the steps before it in place, and a block that carries on commits them. Where the block has to
+survive the plan failing, `NESTED` gives the plan its boundary back: whatever fails in it rolls back to the
+savepoint, taking all of the plan and nothing the block did before it.
+
+What `executeTransactionPlan` is given for isolation, read-only and the timeouts reaches only a transaction it
+opens itself. Joined, or on `NESTED`'s savepoint path, the terms already in force stand, and a warning names
+what was dropped — see [Isolation, Read-Only and Timeouts](transactions-failures.md#isolation-read-only-and-timeouts).
+
+A retry goes around whoever opened the transaction, which for a joined plan is the block — see
+[Running One Twice](#running-one-twice).
 
 ## Handles and What They Reach
 
 `plan.add` returns a `StepHandle`. It is identity and nothing else — two handles are the same handle or they
-are not — and it is useful only inside the plan whose `add` returned it.
+are not — and it is useful only inside the plan whose `add` returned it, or a plan that one is merged into.
 
 A handle reaches one thing, `value()`: the step's result, whole, as its terminal produced it. The type comes
 with it, so reaching *into* a result is ordinary Kotlin, written in `map { }`:
@@ -159,37 +373,19 @@ can still be done first:
 `spread()` is the last thing written: what it returns is not a `TransactionValue`, so `map` cannot follow
 it.
 
-## Merging Plans
-
-```kotlin
-head.addPlan(tail)
-```
-
-One layer builds the plan for its part of the work, another for its part, and something above them runs the two
-as one transaction without knowing what either put in. Handles the merged plan handed out keep working, a
-result being filed under the handle itself rather than under a position — so where a step ends up in the merged
-sequence changes nothing about how it is referred to.
-
-`tail` is not consumed and not changed: it can still be run on its own, or merged elsewhere.
-
-Merging the same plan twice is refused — directly, or through two plans that both hold it. Its steps would run
-twice under one handle, and only the last result of each would be reachable.
-
 ## Checked Before It Runs
 
-A plan is validated before its transaction is opened rather than partway through it:
+A plan is validated before any of it runs rather than partway through it — and before its transaction is
+opened, where it opens one:
 
 - **Every step's SQL is rendered.** An `UPDATE` that never got its `WHERE` is refused naming the step, instead
   of surfacing once the steps before it have already done their work — which on a plan whose first eighteen
   steps are slow matters rather a lot.
-- **Every parameter is walked for handles**, through however many `map { }` wrap them, so one belonging to
-  another plan is caught before anything runs.
+- **Every parameter is walked for handles**, through however many `map { }` wrap them, and each has to name
+  a step ahead of the one using it. A handle from a plan that was never merged in fails that, and so does one
+  from a [fragment merged the wrong way round](#returning-a-fragment).
 
 An empty plan returns an empty result without opening a transaction at all.
-
-What is deliberately **not** checked is a step depending on a later one. A handle comes from `add` and nowhere
-else, and `addPlan` appends whole plans in order, so a forward reference has no way to be written. Checking for
-one would describe a hazard the design has closed.
 
 The cost is one extra `toSql()` per step, rendering not being cached. Against a transaction's round trips that
 is nothing.
@@ -275,13 +471,15 @@ repeat(3) { attempt ->
 Retrying a serialization failure or a deadlock is a plain loop rather than a rebuild — and each run resolves its
 handles against its own results, so the second run reads what the second run produced.
 
-The loop belongs exactly here and not further in. A retry has to restart the **whole** transaction, only a new
-one getting a new snapshot, so the wrapper goes around the frame that owns the boundary — and
-`executeTransactionPlan` is that frame, since it is what opens the transaction. See
-[Catching at the Right Altitude](../driver/exceptions.md#catching-at-the-right-altitude) for what the server
-does to a doomed transaction in the meantime.
+The loop goes around the frame that owns the boundary and not further in. A retry has to restart the
+**whole** transaction, only a new one getting a new snapshot — and `executeTransactionPlan` is that frame where
+it opens the transaction itself. Where it [joined a block's](#inside-a-block), the frame is the block, and the
+loop goes around that instead: retried inside it, the plan would run again in a transaction the server has
+already refused. See [Catching at the Right Altitude](../driver/exceptions.md#catching-at-the-right-altitude)
+for what the server does to a doomed transaction in the meantime.
 
 ## Next
 
 - [Transactions and Failures](transactions-failures.md) — the propagation and timeout arguments a plan takes
+- [Bulk Writes](../driver/bulk-writes.md) — the one statement a graph's rows go in as
 - [Queries](queries.md) — what `asStep()` is called on

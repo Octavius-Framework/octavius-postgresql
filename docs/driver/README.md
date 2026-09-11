@@ -5,7 +5,7 @@ traveler would meet along the way. Nobody carried one to admire it; they carried
 These pages are the itinerarium of the **driver**. The API reference has every declaration in the library; what
 follows is the map of how they behave together.*
 
-Detailed documentation for Octavius Driver — a native, Kotlin-first PostgreSQL driver speaking Wire Protocol v3.2.
+Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin that speaks Wire Protocol v3.2.
 
 ## Guides
 

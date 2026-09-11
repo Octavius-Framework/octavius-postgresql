@@ -19,7 +19,7 @@ it again.
 | [Quickstart](quickstart.md)                           | From a pool to a row, and the one line that stops appearing in your signatures                |
 | [Queries](queries.md)                                 | The builders, clauses that disappear, `QueryFragment`, `toSql`, raw SQL, per-query converters |
 | [Transactions and Failures](transactions-failures.md) | Propagation, isolation, timeouts, `SessionProvider`, and when a failure is a value            |
-| [Transaction Plans](plans.md)                         | A sequence as data: handles, `TransactionValue`, merging, and what is checked before it runs  |
+| [Transaction Plans](plans.md)                         | Graphs, create-or-edit, fragments, plans inside a block, and what is checked before it runs   |
 | [`dynamic_dto`](dynamic-dto.md)                       | One column, several unrelated shapes, and the three ways a value gets written as one          |
 | [Annotation Scanning](scanner.md)                     | `client-scanner`: finding annotated types and registering them, and what it reports           |
 
@@ -49,13 +49,16 @@ it again.
 - [`SessionProvider`](transactions-failures.md#sessionprovider) — The seam, and Spring in under thirty lines
 
 ### Transaction Plans
-- [When a Block Is Not Enough](plans.md#when-a-block-is-not-enough) — The sequence as data
-- [Handles and What They Reach](plans.md#handles-and-what-they-reach) — `value`, `field`, `column`, `row`
+- [When a Block Is Not Enough](plans.md#when-a-block-is-not-enough) — What each has that the other has not
+- [Writing a Graph](plans.md#writing-a-graph) — A handle for a key that does not exist yet
+- [Creating or Editing](plans.md#creating-or-editing) — The same save as a block and as a plan
+- [Returning a Fragment](plans.md#returning-a-fragment) — `addPlan`, handles across plans, and merge order
+- [Inside a Block](plans.md#inside-a-block) — Propagation, and where a joined plan's failure goes
+- [Handles and What They Reach](plans.md#handles-and-what-they-reach) — `value()`, and reaching into it
 - [What Binds and What Does Not](plans.md#what-binds-and-what-does-not) — The matrix, and the way across when
   a value cannot be sent
 - [`map` and the Spread](plans.md#map-and-the-spread) — Transforming a value, and the one thing that takes away
-- [Merging Plans](plans.md#merging-plans) — `addPlan`, and what it refuses
-- [Checked Before It Runs](plans.md#checked-before-it-runs) — And what is deliberately not checked
+- [Checked Before It Runs](plans.md#checked-before-it-runs) — Every step rendered, every handle in order
 - [Running One Twice](plans.md#running-one-twice) — Retrying a serialization failure as a plain loop
 
 ### `dynamic_dto`
