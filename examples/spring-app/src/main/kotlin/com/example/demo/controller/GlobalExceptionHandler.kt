@@ -19,7 +19,7 @@ class GlobalExceptionHandler {
 
         if (rootEx is ConstraintViolationException && rootEx.reason == ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(
-                mapOf("error" to "A user with this name already exists.", "details" to (rootEx.dbMessage ?: ""))
+                mapOf("error" to "A user with this name already exists.", "details" to rootEx.dbMessage)
             )
         }
 

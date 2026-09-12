@@ -17,6 +17,11 @@ dependencies {
     implementation("io.github.octavius-framework:driver-spring-integration:1.1.0-SNAPSHOT")
     implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
+
+    // The smoke test boots this application against a real PostgreSQL 18 - see
+    // DemoApplicationIntegrationTest for why compiling the example would prove nothing.
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation(kotlin("test"))
 }
 
 tasks.withType<Test> {
