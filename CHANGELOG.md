@@ -26,6 +26,20 @@
   swallowed a failure inside a transaction and returned normally now gets an exception at the commit**, where
   it used to get nothing — and nothing saved either way.
 
+- **A record read as a `Map` converts its keys instead of stringifying them.** `expectedType.arguments[1]` was
+  read for the value type and `arguments[0]` never read at all, so the value half of each pair went through the
+  converter chain while the key half went through `toString()` — an asymmetry in one function rather than a
+  decision about what a map key is. It lost fields three ways: a `NULL` key became the string `"null"`, and two
+  of them collapsed into one entry; a key equal to one already read replaced the field under it; and stringifying
+  manufactured duplicates that were not duplicates in SQL, an `int4` `1` and a `text` `'1'` being two keys in the
+  record and one in the map. `get<Map<Int, String>>` claimed to work as well, returning `String` keys that
+  erasure let through the cast, so it surfaced as a `ClassCastException` wherever the map was read rather than at
+  the conversion. Both halves go through the chain now, against the type arguments of the `Map` asked for, and
+  the three shapes above are refused with `MappingException(CONVERSION_ERROR)` naming the field's position — a
+  map quietly holding fewer fields than the record did being worse than a failure that says which one.
+  **`get<Map<String, Any?>>` against a record with non-text keys now fails with `NO_CONVERTER_FOUND`** rather
+  than stringifying them; name the key type the record carries.
+
 ### Client
 
 #### Added

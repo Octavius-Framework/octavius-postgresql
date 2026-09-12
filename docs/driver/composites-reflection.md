@@ -535,8 +535,13 @@ session.createNativeQuery("SELECT ROW('status', 'active', 'province', 7) AS r")
     .fetchRowStrict().get<Map<String, Any?>>("r")        // {status=active, province=7}
 ```
 
-Keys are stringified as they arrive. Values go through the full converter chain, so anything the driver can convert
-belongs on the right-hand side — a registered composite, an enum, an array, or another `ROW(...)`:
+Both halves of a pair go through the converter chain, against the type arguments of the `Map` asked for, so
+`Map<Int, String>` reads a record keyed by `int4` and `Map<Tribute, Int>` one keyed by a registered composite. Asked for
+as `Any`, or as a `Map` with nothing said about its arguments, each half is what the chain makes of it with nothing
+narrower named — a registered composite still arriving as its class.
+
+Values go through the same chain, so anything the driver can convert belongs on the right-hand side — a registered
+composite, an enum, an array, or another `ROW(...)`:
 
 ```sql
 SELECT ROW(
@@ -547,8 +552,13 @@ SELECT ROW(
 -- {tags=[a, b], payload=Tribute(amount=10, currency=denarii), inner={depth=2}}
 ```
 
-That is the shape to reach for when a query needs to return something keyed that no declared type covers. An odd number
-of fields throws `MappingException(CONVERSION_ERROR)` — *"Record fields must be in key-value pairs"*.
+That is the shape to reach for when a query needs to return something keyed that no declared type covers.
+
+Three shapes are refused with `MappingException(CONVERSION_ERROR)` rather than guessed at, each of them one that would
+otherwise leave the map holding fewer fields than the record did: an odd number of fields — *"Record fields must be in
+key-value pairs"* — a `NULL` key, and a key equal to one already read. A key that converts to none of what was asked for
+fails where it is met instead, `NO_CONVERTER_FOUND` at the field's position, which is how an `int4` key under
+`Map<String, Any?>` arrives.
 
 The raw container is there when you want the positional view instead:
 
