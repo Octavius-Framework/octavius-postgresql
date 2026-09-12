@@ -261,9 +261,10 @@ server refuses a moment later with `42804` and nothing pointing at the class res
 
 ## What JSON Does Not Carry
 
-The payload is JSON, and a few kinds of value mean less there than they do in a column of their own. The
-driver maps every one of them correctly in a `numeric`, a `date`, a `timestamptz` or an enum column; put the
-same value in a `jsonb` payload and the default serializer writes something else.
+The payload is [JSON](../driver/arrays-ranges-json.md#json-and-jsonb), and a few kinds of value mean less there
+than they do in a column of their own. The driver maps every one of them correctly in a `numeric`, a `date`, a
+`timestamptz` or an enum column; put the same value in a `jsonb` payload and the default serializer writes
+something else.
 
 | Type              | What the default serializer writes    | What that costs                                                   |
 |:------------------|:--------------------------------------|:------------------------------------------------------------------|

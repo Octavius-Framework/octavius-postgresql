@@ -103,8 +103,68 @@ table name are configurable, and the schema is created if it is missing.
 
 Nothing else. No types, no functions, no triggers.
 
+## A migration that creates a type
+
+The driver reads a database's type catalogue **once**, when the first connection to it is opened, and DDL that
+runs afterwards is invisible to it until it is told. For most applications that is a footnote. Here it is not:
+running DDL after the pool is up is the whole job. `CREATE TYPE ... AS ENUM`, `CREATE TYPE ... AS (...)` and —
+because a table has a row type — a plain `CREATE TABLE` all leave the catalogue a version behind.
+
+So a run is followed by one call:
+
+```kotlin
+val report = OctaviusMigrator(dataSource).migrate()
+dataSource.getOctaviusSession().use { it.reloadTypes() }
+```
+
+[`reloadTypes()`](../driver/type-system.md#keeping-the-catalog-fresh--reloadtypes) refreshes the registry for
+the **whole database** rather than for the session that called it, so one call covers every pool in the
+process. It also wants to be made while nothing else is querying — which is exactly where this one is, at
+startup, before the application has served anything.
+
+Without it, the first query against a type the migration just created fails to map, and the
+`TypeException(TYPE_NOT_FOUND)` it raises
+[says nothing about migrations](../driver/exceptions.md#13-typeexception) — it is a question about a registry,
+asked hours after the answer was decided.
+
+### Where it goes in a startup sequence
+
+An application that also registers annotated types has three things to do and one order that makes them read
+correctly:
+
+```kotlin
+OctaviusMigrator(dataSource).migrate()                   // 1. the schema, types included
+dataSource.getOctaviusSession().use { it.reloadTypes() } // 2. the catalogue catches up
+db.registerAnnotatedTypes("com.roma.domain")             // 3. mappings, against types that now exist
+```
+
+Scanning first also works — [registration is not checked against the
+database](../client/scanner.md#what-a-scan-reports), and converters survive a reload untouched — but every
+type the migration was about to create comes back in `ScanReport.unresolved`, and a warning that is expected
+every single startup is one nobody reads. Migrating first is what makes that list mean something.
+
+## In a Spring application
+
+One bean, and whatever needs the schema depends on it:
+
+```kotlin
+@Bean
+fun migrations(dataSource: DataSource): MigrationReport =
+    OctaviusMigrator(dataSource).migrate()
+        .also { dataSource.getOctaviusSession().use { session -> session.reloadTypes() } }
+```
+
+Returning the report rather than `Unit` is what gives the ordering a handle: a bean that must not start against
+a schema it is older than takes `MigrationReport` in its constructor, and Spring works the rest out. An
+`ApplicationRunner` or an `ApplicationReadyEvent` listener is too late for that — the context is already up by
+then, and anything that queried on the way there queried the old schema.
+
+There is no starter and no auto-configuration to add; the driver's own is
+[Spring Integration](../driver/spring-integration.md), and this sits beside it rather than inside it.
+
 ## Where next
 
 - [Writing Migrations](writing-migrations.md) — the naming rules, and what to do about `CREATE INDEX CONCURRENTLY`
 - [History and Validation](history-and-validation.md) — what stops a run, and how to adopt a database that already exists
 - [Logging](logging.md) — what a run narrates at each level, and why a run that says nothing is not reassuring
+- [When a Run Is Refused](exceptions.md) — the seven reasons, and which one a retry can do anything about

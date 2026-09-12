@@ -194,6 +194,18 @@ and a window function or a `DISTINCT ON` goes in `select` — there is not much 
 for `rawQuery` when you would rather write the statement whole: because it already exists, because it came from
 somewhere else, or because assembling it a clause at a time buys nothing.
 
+The builders cover four statements, so anything that is a fifth arrives here by default — a `CALL` among them.
+It is still an ordinary query read with an ordinary terminal, the `OUT` parameters coming back as the columns
+of the single row it returns:
+
+```kotlin
+// CREATE PROCEDURE province_census(uid int, OUT population int)
+val population = db.rawQuery("CALL province_census(@uid, NULL)").fetchFieldStrict<Int>("uid" to 7)
+```
+
+The `NULL` is PostgreSQL's rule rather than anything here — `CALL` wants a value in every argument position,
+outbound ones included. See [Functions and Procedures](../driver/functions-procedures.md#out-and-inout-parameters-in-a-call).
+
 It also has one terminal nothing else has:
 
 ```kotlin

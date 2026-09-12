@@ -90,6 +90,8 @@ then delete its row from the history table so the run can go on.
 ```
 
 That is the whole recovery: look, fix by hand, delete the row. There is no setting that carries on past it.
+The exception that says so is `MigrationException(HISTORY_INCOMPLETE)` — see [When a Run Is
+Refused](exceptions.md) for the rest of them.
 
 A row still saying `RUNNING` means the process died in the middle rather than a statement failing — same
 refusal, same answer.

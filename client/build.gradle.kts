@@ -23,7 +23,6 @@ dependencies {
 
     implementation(libs.kotlin.reflect)
 
-
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
     testImplementation(hikari.hikaricp)

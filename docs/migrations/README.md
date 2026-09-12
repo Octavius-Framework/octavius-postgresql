@@ -18,6 +18,7 @@ required nor consulted.
 | [Writing Migrations](writing-migrations.md)         | Naming, `.sql` and Kotlin, placeholders, and the migration that cannot run in a transaction |
 | [History and Validation](history-and-validation.md) | The history table, checksums, what stops a run and why, baseline, `target`, out of order    |
 | [Logging](logging.md)                               | What a run narrates at each level, and where the statements themselves are                  |
+| [When a Run Is Refused](exceptions.md)              | `MigrationException`, its seven reasons, and the one worth retrying                         |
 
 ## What a run does
 

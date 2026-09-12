@@ -17,6 +17,19 @@
 
 #### Added
 
+- **The client says what it logs, which is nothing.** Every line under a query built here is the driver's, and
+  [the README](docs/client/README.md#logging) now says so with the reason: a builder logging the SQL it
+  assembled would report a second time on a statement the driver already traces in the form the server
+  actually received. What does log is the separate `client-scanner`, and
+  [its four lines](docs/client/scanner.md#what-a-scan-logs) are written down - including why the two warnings
+  repeat in a log what `ScanReport` already carries.
+- **The Quickstart says what `db.execute { }` is not for.** It listed `largeObjects` and `notifications` among
+  the things to reach through it, and the session it lends lasts exactly as long as the block: a large object
+  descriptor is dead by the first write without `db.transaction { }`, and a `LISTEN` is undone by the
+  `UNLISTEN *` a session issues on its way back to the pool, silently. Something that listens holds its
+  connection, so it wants the driver rather than a block's loan. [Raw SQL](docs/client/queries.md#raw-sql)
+  gains the case the four builders cannot reach - a `CALL`, read with an ordinary terminal.
+
 - **[Transaction Plans](docs/client/plans.md) says what a plan has that a block has not, and what a
   transaction around one does to it.** Both write the same things with the same branches; a plan exists
   before it runs — settled and checked first, a value to hand back, merge, describe and run again, given to
@@ -35,6 +48,12 @@
   and worked here, unmentioned and untested; `DynamicDtoTest` covers them now. Documentation only; no
   signature changed.
 
+#### Changed
+
+- **`client` stops declaring `kotlin-logging` and `slf4j-api`.** It writes no log lines of its own and never
+  used either; both arrive through the driver regardless, so nothing changes on a runtime classpath - the
+  published POM simply stops listing them twice.
+
 #### Fixed
 
 - **Plans merged the wrong way round are refused before they run.** A step can hold another plan's handle,
@@ -50,6 +69,36 @@
   reported a commit. With the driver's fix that commit is refused instead, and the page, the KDoc of
   `transactionResult` and that of `dbResult` say so, keeping "commits over it" for a failure the block made
   itself.
+
+### Migrations
+
+#### Added
+
+- **[Logging](docs/migrations/logging.md) is a page, as the driver's is.** What a run narrates at `info` and
+  spells out at `debug`, the four logger names, and the short list of things the migrator handles itself
+  instead of raising. Two of them were written nowhere: that `info()` runs the same discovery `migrate()`
+  does, so a health check on it writes a line per poll unless the scan's own logger is turned down; and that
+  the statements are the driver's `trace`, where a transactional migration is *one* traced statement carrying
+  the whole file and one without a transaction is a traced line each - the same asymmetry that decides
+  whether `failed_statement` can name anything.
+- **[When a Run Is Refused](docs/migrations/exceptions.md) covers `MigrationException`.** Seven reasons were
+  in the enum and two were named anywhere. They are laid out in the order a run can reach them, so what has
+  not happened yet is visible; with them, that it carries no `sqlState` and no query context, that a failed
+  migration's real explanation is in the `cause`, and that a run lets the driver's own exception through
+  untouched where it has no opinion of its own - the history table failing to be read, a connection dying
+  mid-run.
+- **The Quickstart says to call `reloadTypes()` after a run.** The driver says it in three places; migrations,
+  which is the thing that actually runs DDL after the pool is up, said it in none. A migration creating an
+  enum, a composite or a plain table leaves the type catalogue a version behind, and the
+  `TypeException(TYPE_NOT_FOUND)` that follows says nothing about migrations. With it, where it sits in a
+  startup sequence against `registerAnnotatedTypes`, and a short Spring section: one bean returning
+  `MigrationReport` so ordering has a handle, and why an `ApplicationRunner` is too late to be that.
+
+#### Fixed
+
+- **A migration's label has no `V` in it, and the KDoc of both `label` properties now agrees.** They gave
+  `V2 add indexes` as the example where the code renders `2 add indexes`, the prefix being a marker in the
+  file name rather than part of the version.
 
 ## Version 1.0.0 (v1.0.0) - Renovatio Imperii
 

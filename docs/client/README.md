@@ -56,6 +56,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 
 ### Transactions and Failures
 - [Which Session Am I On](transactions-failures.md#which-session-am-i-on) — The question the client exists to answer
+- [Querying From Inside a Result](transactions-failures.md#querying-from-inside-a-result) — A nested query in a `forEach*` block, and why it fails only sometimes
 - [Propagation](transactions-failures.md#propagation) — `REQUIRED`, `REQUIRES_NEW`, `NESTED`
 - [Isolation, Read-Only and Timeouts](transactions-failures.md#isolation-read-only-and-timeouts) — What applies where, and why
 - [Thrown or Returned](transactions-failures.md#thrown-or-returned) — The split, and that it reads only the exception's type

@@ -108,14 +108,25 @@ on the same thread, it joins that transaction, commits with it and rolls back wi
 saying so and without knowing which it is. That is the question the driver leaves open, being
 session-per-connection, and the one the client answers.
 
-Where the work is not a query at all — `copy`, `largeObjects`, `notifications`, or several statements that must
-share a session — `db.execute { }` hands over the driver's own session operations and gets out of the way:
+Where the work is not a query at all — a [`COPY`](../driver/copy.md), or several statements that must share a
+session — `db.execute { }` hands over the driver's own session operations and gets out of the way:
 
 ```kotlin
 db.execute {
     copy.fromStream("COPY census(name, tribe) FROM STDIN WITH (FORMAT csv)", file.inputStream())
 }
 ```
+
+**The session lives for the block and no longer**, which decides what belongs here and what does not:
+
+* **[Large objects](../driver/large-objects.md) want `db.transaction { }` instead.** A descriptor is only valid
+  inside the transaction that opened it — PostgreSQL's rule, not the driver's — and under `execute` each
+  statement commits on its own, so the descriptor is dead by the first write.
+* **A [listener](../driver/listen-notify.md) wants the driver directly.** A subscription lives on the
+  connection, and a session issues `UNLISTEN *` on its way back to the pool — so a `LISTEN` registered inside
+  `execute { }` is gone at the closing brace, with nothing said about it. Something that listens holds its
+  connection for as long as it listens, which is a session you keep rather than one the client lends you for a
+  block.
 
 ## Next
 

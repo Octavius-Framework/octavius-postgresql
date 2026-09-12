@@ -266,4 +266,5 @@ the driver's dial rather than the migrator's, and it is worth turning back down 
 ## Next
 
 - [History and Validation](history-and-validation.md) — the table these lines are about, and what stops a run
+- [When a Run Is Refused](exceptions.md) — what the migrator throws instead of logging it
 - [The driver's Logging](../driver/logging.md) — the statements, the timings, and the backend id under all of it
