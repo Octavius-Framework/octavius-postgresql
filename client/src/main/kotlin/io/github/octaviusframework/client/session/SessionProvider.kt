@@ -20,8 +20,14 @@ interface SessionProvider : AutoCloseable {
      * Runs [action] on the session for the current context.
      *
      * Inside a [transaction] on this thread that is the transaction's session, and the work joins it.
-     * Outside one, a session is obtained for this call and given back when it returns - so two calls in a
-     * row are two transactions of the server's own making, exactly as two auto-commit statements are.
+     * Inside another [execute] it is that one's session, for a plainer reason: a connection carries one
+     * exchange at a time, so borrowing a second would buy nothing and cost one connection per level of
+     * nesting. Outside both, a session is obtained for this call and given back when it returns - so two
+     * calls in a row are two transactions of the server's own making, exactly as two auto-commit statements
+     * are.
+     *
+     * Sharing across levels is what an implementation is expected to do rather than something this interface
+     * can enforce; one backed by a framework shares whatever that framework binds.
      *
      * @param action The work to run against the session.
      * @return Whatever [action] produced.

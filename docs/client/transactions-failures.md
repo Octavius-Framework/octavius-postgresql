@@ -31,7 +31,71 @@ which, and does not need to.
 
 That binding is **per thread**. Work handed to another one does not inherit it: a coroutine launched on a
 different dispatcher inside the block gets a session of its own and a transaction of its own, and the commit
-outside says nothing about it.
+outside says nothing about it. What a session can and cannot be shared with is the driver's subject rather than
+this page's — see [Concurrency](../driver/concurrency.md#what-can-cross-a-thread-boundary).
+
+### One Session per Thread, Not One per Level
+
+Nesting does not multiply connections. The session `execute` borrows is bound for as long as that call lasts,
+so a client call made from inside another lands on the same one — transaction or no transaction:
+
+```kotlin
+db.execute {
+    db.select("id").from("senate").fetchFields<Int>()   // runs on the session this block already holds
+}
+```
+
+Nothing is given up by sharing, because a connection carries one exchange at a time regardless: the levels are
+sequential whether they share or not. What it buys is that a pool of `N` serves `N` callers rather than `N / D`
+at nesting depth `D`, and that nesting inside a pool of one is not a deadlock against itself — the outer level
+holding the only connection while the inner one waits for a second that can never come.
+
+Composing functions that each do a query is the ordinary way to use this client, so this is not an edge case;
+it is what the binding is for.
+
+The one exception is `REQUIRES_NEW`, and it is not an oversight. A transaction that has to survive the failure
+of the one around it cannot share that one's connection — a connection carries one transaction — so it takes a
+second deliberately. [Propagation](#propagation) says what that costs.
+
+> [!NOTE]
+> That is `DefaultSessionProvider`'s behaviour — what `fromDataSource` gives you. A provider written against a
+> framework shares whatever that framework binds, which for Spring means inside `@Transactional` and not
+> necessarily outside it.
+
+## Querying From Inside a Result
+
+Sharing has one limit, and it is the driver's. Some of your code runs *while a result is still being read* — a
+`forEach*` block, and a `ResultConverter` under any mapping fetch — and there the level above has not finished
+with the connection. The driver's rule for that position is
+[do not re-enter the session](../driver/queries.md#do-not-re-enter-the-session-while-rows-are-being-read):
+
+```kotlin
+db.select("label").from("census").forEachRow(fetchSize = 500) { row ->
+    db.select("count(*)").from("census").fetchFieldStrict<Long>()   // ← refused
+}
+```
+
+`InvalidOperationException(CONNECTION_BUSY)`, on the first nested call, and the walk stops there. It is refused
+**before anything reaches the wire**: nothing is corrupted, the connection stays healthy, the next statement
+works normally, and nothing is left checked out.
+
+The refusal is the same whether or not a transaction is open, and that uniformity is the point. The
+alternative — a client that quietly finds a second connection in this one position — turns a mistake here into
+a pool problem that surfaces somewhere else entirely, under load, as a timeout about connecting.
+
+Two ways out, both of them ordinary:
+
+* **Collect first, query after.** `fetchRows()` into a list and do the nested work outside the walk — the
+  exchange is over by then, and it is the right answer whenever the result is one you can hold.
+* **Keep the block to the row.** Writing a file, pushing to a queue, folding a total: none of that touches the
+  session, and streaming exists for results too large to collect.
+
+If the nested work genuinely needs a second connection while the first is mid-result, take one deliberately out
+of the `DataSource` rather than leaving the client to guess:
+
+```kotlin
+dataSource.getOctaviusSession().use { second -> … }
+```
 
 ## Propagation
 
@@ -51,6 +115,14 @@ db.transaction(propagation = TransactionPropagation.REQUIRES_NEW) { … }
 the price of holding two connections at once, and of the inner transaction not seeing the outer one's
 uncommitted rows.
 
+**Two connections at once means the pool has to have two.** Where it has not, the outer transaction holds its
+connection while the inner one waits for a second that only the outer could release, and what ends the wait is
+the pool's `connectionTimeout`: [`InitializationException(CONNECTION_UNAVAILABLE)`](../driver/exceptions.md#4-initializationexception),
+an exception about connecting raised by code that was starting a transaction — its `details` carry the pool's
+own census, which is the part that says so. This is the one place in the client where a connection per
+level is the design rather than an accident, so it is the one place to size a pool for — work that goes
+`REQUIRES_NEW` `D` levels deep needs `D` connections to itself.
+
 `NESTED` is still the same transaction and the same connection, so the outer one failing later discards this
 work anyway.
 
@@ -69,7 +141,8 @@ db.transaction(
 cannot change the level it began at, and a timeout applied to somebody else's transaction would stand over the
 rest of it after this block returned — so under `REQUIRED` inside an existing transaction, and under `NESTED`
 on its savepoint path, they are ignored and a warning says which ones were dropped. `REQUIRES_NEW` is what to
-reach for where the terms have to hold.
+reach for where the terms have to hold. A `db.transaction { }` written inside a `db.execute { }` *is* starting
+one — `execute` binds a session, not a transaction — so there its terms apply in full.
 
 **All four are scoped to the transaction and travel as one statement**, sent immediately after the `BEGIN`:
 `SET TRANSACTION` for isolation and `readOnly`, `SET LOCAL` for the timeouts, in a single round trip. Nothing

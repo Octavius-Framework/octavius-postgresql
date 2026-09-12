@@ -69,6 +69,21 @@
 
 #### Fixed
 
+- **`DefaultSessionProvider` binds the session it borrows, so nested client calls share it instead of
+  borrowing one each.** `execute` bound nothing outside a transaction, so a client call made from inside
+  another took a connection of its own: two for work that needs one, a pool of `N` serving `N / D` callers at
+  nesting depth `D`, and on a pool of one a deadlock against itself - the outer level holding the only
+  connection while the inner waited out `connectionTimeout` for a second, surfacing as
+  `InitializationException(CONNECTION_ERROR)`, an exception about connecting raised by code that was querying.
+  Composing functions that each do a query is the ordinary way to use this client, so that was the ordinary
+  case and not an edge one. The binding carries whether a transaction is open as well as which session, and a
+  `transaction { }` entered on a session `execute` bound is the scope that opens it - isolation, read-only and
+  both timeouts apply in full there, and `NESTED` opens a transaction rather than attempting a savepoint with
+  none to take it in. **A query made from inside a `forEach*` block or a `ResultConverter` now raises
+  `InvalidOperationException(CONNECTION_BUSY)` whether or not a transaction is open**, where outside one it
+  used to pass by quietly taking a second connection. Code that genuinely needs a second connection while the
+  first is mid-result should take it out of the `DataSource` deliberately.
+
 - **Plans merged the wrong way round are refused before they run.** A step can hold another plan's handle,
   and `addPlan` appends, so merging the plan that uses a handle ahead of the plan that produces it put the
   step before the result it needs. Validation let that through and it failed partway through the transaction,
