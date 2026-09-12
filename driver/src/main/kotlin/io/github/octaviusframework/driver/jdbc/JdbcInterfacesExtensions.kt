@@ -8,6 +8,7 @@ import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSessionImpl
 import java.sql.Connection
 import java.sql.SQLException
+import java.sql.SQLTransientConnectionException
 import javax.sql.DataSource
 
 /**
@@ -27,7 +28,11 @@ private inline fun <T> obtainingSession(from: Any, block: () -> T): T {
         return block()
     } catch (e: SQLException) {
         throw e.findOctaviusCause() ?: InitializationException(
-            InitializationExceptionReason.CONNECTION_ERROR,
+            // Having none to give and failing to open one are different failures, and only the first is
+            // worth retrying. JDBC has a class for exactly that distinction - which a pool reporting a
+            // borrow that timed out raises - so it is read rather than guessed at from the message.
+            if (e is SQLTransientConnectionException) InitializationExceptionReason.CONNECTION_UNAVAILABLE
+            else InitializationExceptionReason.CONNECTION_ERROR,
             "Could not obtain a session from ${from.javaClass.name}: ${e.message}",
             e
         )

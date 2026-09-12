@@ -79,17 +79,17 @@ Decoding and mapping happen *while* the result stream is being consumed, so a ma
 
 Plenty of failures are decided locally, before a single byte goes out. They have no `sqlState` (except where the driver picks a conventional one) and no `serverErrorMessage`:
 
-| Situation                                                            | Exception                                            |
-|:---------------------------------------------------------------------|:-----------------------------------------------------|
-| Unclosed quote / dollar-quote / comment found while parsing `@names` | `StatementException(UNCLOSED_TOKEN)`                 |
-| A named parameter present in the SQL has no value supplied           | `InvalidOperationException(MISSING_NAMED_PARAMETER)` |
-| `fetchRowStrict` got 0 rows, `fetchRow` got 2+                       | `InvalidOperationException(INCORRECT_RESULT_SIZE)`   |
-| Commit on an auto-commit session, closed statement, unwrap failure   | `InvalidOperationException`                          |
-| Type missing from the registry, no codec for an OID                  | `TypeException`                                      |
-| A codec's `toBinary` / `fromBinary` blew up                          | `CodecException`                                     |
-| A column is missing, a non-nullable property got `null`              | `MappingException`                                   |
-| Socket timeout, broken pipe, use of a closed connection              | `NetworkException`                                   |
-| Handshake, authentication, SSL negotiation, version check            | `InitializationException`                            |
+| Situation                                                                                             | Exception                                            |
+|:------------------------------------------------------------------------------------------------------|:-----------------------------------------------------|
+| Unclosed quote / dollar-quote / comment found while parsing `@names`                                  | `StatementException(UNCLOSED_TOKEN)`                 |
+| A named parameter present in the SQL has no value supplied                                            | `InvalidOperationException(MISSING_NAMED_PARAMETER)` |
+| `fetchRowStrict` got 0 rows, `fetchRow` got 2+                                                        | `InvalidOperationException(INCORRECT_RESULT_SIZE)`   |
+| Commit on an auto-commit session, closed statement, unwrap failure                                    | `InvalidOperationException`                          |
+| Type missing from the registry, no codec for an OID                                                   | `TypeException`                                      |
+| A codec's `toBinary` / `fromBinary` blew up                                                           | `CodecException`                                     |
+| A column is missing, a non-nullable property got `null`                                               | `MappingException`                                   |
+| Socket timeout, broken pipe, use of a closed connection                                               | `NetworkException`                                   |
+| Handshake, authentication, SSL, version check — and a `DataSource` that would not hand a session over | `InitializationException`                            |
 
 ## Message format and logging
 
@@ -329,23 +329,44 @@ Every reason here is about the statement itself, and `position` is the evidence 
 
 ### 4. `InitializationException`
 
-**Thrown when:** the driver fails to establish a connection or authenticate.
-**Raised by:** `OctaviusConnectionFactory`, `Authenticator`, `SslNegotiator`, `PgStream` — and by the translator for any SQLSTATE class `28`.
+**Thrown when:** no session could be obtained at all — the driver failed to establish a connection or authenticate, or a `DataSource` would not hand one over.
+**Raised by:** `OctaviusConnectionFactory`, `Authenticator`, `SslNegotiator`, `PgStream` — by the translator for any SQLSTATE class `28`, and by `getOctaviusSession()` for anything a `DataSource` refuses.
 **Properties:** `reason`, `details`, `cause`.
 
-| Reason (`InitializationExceptionReason`) | Description                                                                |
-|:-----------------------------------------|:---------------------------------------------------------------------------|
-| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                              |
-| `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.    |
-| `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.               |
-| `PROTOCOL_VIOLATION`                     | Unexpected message received during the authentication exchange.            |
-| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from the server's authentication challenge.   |
-| `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                 |
-| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18 — Octavius speaks Wire Protocol v3.2 exclusively. |
-| `CONNECTION_ERROR`                       | General connection failure before authentication could begin.              |
+| Reason (`InitializationExceptionReason`) | Description                                                                                                                                                                |
+|:-----------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                                              |
+| `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                                                    |
+| `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                                               |
+| `PROTOCOL_VIOLATION`                     | Unexpected message received during the authentication exchange.                                                                                                            |
+| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from the server's authentication challenge.                                                                                                   |
+| `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                                                 |
+| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18 — Octavius speaks Wire Protocol v3.2 exclusively.                                                                                                 |
+| `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one.                                               |
+| `CONNECTION_UNAVAILABLE`                 | The data source had none to give rather than failing to open one — a pool that ran out of time waiting for a free one. Nothing reached the server. |
 
 > [!NOTE]
-> This is a login-time failure, and the authorization statements a live session can run do not produce it.
+> The authorization statements a live session runs do not produce this — a permission refused mid-session is
+> `PermissionDeniedException`. This one is about not having a working session in the first place.
+
+> [!NOTE]
+> **A pool timeout is `CONNECTION_UNAVAILABLE`, not `CONNECTION_ERROR`.** From the call site the two look
+> alike — no session either way — but they are not the same failure. One is the database or the network
+> refusing; the other never reached either, and is the application asking for more connections at once than it
+> has. The distinction is read from JDBC's own `SQLTransientConnectionException` rather than guessed at from
+> the message, so any data source that reports a transient failure lands on it, not only HikariCP.
+>
+> `details` and the `cause` carry the data source's own account, which for a pool includes its census:
+>
+> ```text
+> Reason: No connection was available. The data source had none to give rather than failing to open one.
+> Details: Could not obtain a session from com.zaxxer.hikari.HikariDataSource: probe - Connection is not
+> available, request timed out after 1001ms (total=1, active=1, idle=0, waiting=0)
+> ```
+>
+> `total`, `active` and `waiting` are what say whether the pool is simply too small for what the application
+> is doing. [Nesting is one way to make it too
+> small](../client/transactions-failures.md#propagation).
 
 ### 5. `NetworkException`
 

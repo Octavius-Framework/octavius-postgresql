@@ -23,7 +23,18 @@ enum class InitializationExceptionReason {
     /** The server version is too old for this driver to support. */
     UNSUPPORTED_SERVER_VERSION,
     /** A generic connection error occurred before authentication could begin. */
-    CONNECTION_ERROR
+    CONNECTION_ERROR,
+
+    /**
+     * The data source had no connection to give, rather than failing to open one - a pool that ran out of
+     * time waiting for a free one, most often.
+     *
+     * Nothing reached the server. The database and the credentials are not what is in question here; there
+     * was simply nothing free at that moment, which is a fact about the application's own demand for
+     * connections. `details` carries what the data source said, which for a pool includes its own count of
+     * how many were in play.
+     */
+    CONNECTION_UNAVAILABLE
 }
 
 /**
@@ -61,4 +72,6 @@ private fun generateDeveloperMessage(reason: InitializationExceptionReason): Str
         InitializationExceptionReason.SSL_ERROR -> "SSL negotiation failed or is not supported by the server."
         InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION -> "Unsupported PostgreSQL server version. Octavius requires version 18 or higher."
         InitializationExceptionReason.CONNECTION_ERROR -> "Could not connect to the database."
+        InitializationExceptionReason.CONNECTION_UNAVAILABLE ->
+            "No connection was available. The data source had none to give rather than failing to open one."
     }

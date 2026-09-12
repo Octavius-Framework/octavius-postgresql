@@ -9,6 +9,7 @@ import io.github.octaviusframework.driver.exception.NetworkExceptionReason
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertInstanceOf
 import org.junit.jupiter.api.assertThrows
@@ -37,13 +38,20 @@ class PooledSessionExceptionTest {
     private fun closedPort(): Int = ServerSocket(0).use { it.localPort }
 
     @Test
-    fun `should report a borrow that timed out as an Octavius failure`() {
+    fun `should report a borrow that timed out as a connection the pool did not have`() {
         pool { connectionTimeout = 500 }.use { ds ->
             ds.getOctaviusSession().use {
                 val ex = assertThrows<InitializationException> { ds.getOctaviusSession() }
 
-                assertEquals(InitializationExceptionReason.CONNECTION_ERROR, ex.reason)
+                // Having none to give is not failing to open one: nothing reached the server here, and
+                // what ran out was this application's own supply. The closed-pool case below is the other
+                // side of that line - a pool that is gone rather than busy.
+                assertEquals(InitializationExceptionReason.CONNECTION_UNAVAILABLE, ex.reason)
                 assertInstanceOf<SQLTransientConnectionException>(ex.cause)
+                assertTrue(
+                    ex.details!!.contains("Connection is not available"),
+                    "the pool's own account of it has to survive the restatement: ${ex.details}"
+                )
             }
         }
     }

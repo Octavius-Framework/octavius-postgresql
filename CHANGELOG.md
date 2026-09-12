@@ -2,6 +2,19 @@
 
 ### Driver
 
+#### Changed
+
+- **A data source with no connection free reports `CONNECTION_UNAVAILABLE` rather than `CONNECTION_ERROR`.**
+  Both are `InitializationException` and the type was right either way - the point of failure is that there is
+  no session - but the reason read "Could not connect to the database" for a pool that had run out of time
+  waiting for a free connection. Nothing had connected and nothing had failed to connect, so anything keying a
+  metric or a log filter on the reason filed pool exhaustion under connectivity. The new
+  `InitializationExceptionReason.CONNECTION_UNAVAILABLE` names that case instead, and it is read off JDBC's
+  `SQLTransientConnectionException` rather than guessed at from the message, so any data source reporting a
+  transient failure lands on it and not only HikariCP. `details` and the `cause` are untouched and still carry
+  the pool's own census. **This adds a constant to a public enum: an exhaustive
+  `when` over `InitializationExceptionReason` with no `else` needs a branch for it.**
+
 #### Fixed
 
 - **`commit()` refuses a transaction an earlier error aborted, instead of reporting a commit that never
