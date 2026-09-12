@@ -107,3 +107,4 @@ Nothing else. No types, no functions, no triggers.
 
 - [Writing Migrations](writing-migrations.md) — the naming rules, and what to do about `CREATE INDEX CONCURRENTLY`
 - [History and Validation](history-and-validation.md) — what stops a run, and how to adopt a database that already exists
+- [Logging](logging.md) — what a run narrates at each level, and why a run that says nothing is not reassuring

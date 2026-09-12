@@ -21,7 +21,22 @@ it again.
 | [Transactions and Failures](transactions-failures.md) | Propagation, isolation, timeouts, `SessionProvider`, and when a failure is a value            |
 | [Transaction Plans](plans.md)                         | Graphs, create-or-edit, fragments, plans inside a block, and what is checked before it runs   |
 | [`dynamic_dto`](dynamic-dto.md)                       | One column, several unrelated shapes, and the three ways a value gets written as one          |
-| [Annotation Scanning](scanner.md)                     | `client-scanner`: finding annotated types and registering them, and what it reports           |
+| [Annotation Scanning](scanner.md)                     | `client-scanner`: finding annotated types and registering them, what it reports and logs      |
+
+## Logging
+
+The client writes **no log lines of its own**, at any level. Everything that appears while a query built here
+runs is the driver's, under the driver's logger names, meaning what it means there — so [the driver's Logging
+page](../driver/logging.md) is the whole of it, and there is nothing on this side to turn up.
+
+That is the claim at the top of this page, in the place it is easiest to doubt. A builder that logged the SQL
+it assembled would be reporting a second time on a statement the driver already traces in the form the server
+actually received — which is the form worth having, [`toSql()`](queries.md#a-query-is-a-value) being there for
+the other question. A transaction block that logged its own propagation would be describing a `BEGIN` or a
+`SAVEPOINT` that the driver names as it issues it.
+
+The exception is the separate `client-scanner` artifact, which has something to say that happens nowhere else —
+see [What a Scan Logs](scanner.md#what-a-scan-logs).
 
 ## Quick Links
 
@@ -74,6 +89,7 @@ it again.
 - [Why It Is a Module of Its Own](scanner.md#why-it-is-a-module-of-its-own) — One dependency, kept off everyone else
 - [The Annotations](scanner.md#the-annotations) — What each one registers, and where they live
 - [What a Scan Reports](scanner.md#what-a-scan-reports) — `ScanReport`, and why `unresolved` is not a refusal
+- [What a Scan Logs](scanner.md#what-a-scan-logs) — The four lines, and the one part of the client that writes any
 - [What It Does Not Scan](scanner.md#what-it-does-not-scan) — Converters, and why their order is not a scanner's to decide
 
 ## API Reference

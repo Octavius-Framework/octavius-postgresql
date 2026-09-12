@@ -69,8 +69,8 @@ data class ScanReport(
 )
 ```
 
-`total` and `isEmpty()` come with it. A scan that matched nothing logs a warning rather than passing quietly —
-a package name with a typo in it otherwise registers nothing and says nothing.
+`total` and `isEmpty()` come with it. A scan that matched nothing [logs a warning](#what-a-scan-logs) rather
+than passing quietly — a package name with a typo in it otherwise registers nothing and says nothing.
 
 Each enum and composite name is checked against the database, and the ones the database has no type for go into
 `unresolved`. **Reported, not refused.**
@@ -90,6 +90,41 @@ that; it only says what it saw.
 
 `registerAnnotatedTypes` takes an optional `classLoader` for the container that does not hand its classes to
 the context loader.
+
+## What a Scan Logs
+
+This is the only part of the client that logs at all — [the client itself writes
+nothing](README.md#logging) — and it is on the class doing the work,
+`io.github.octaviusframework.client.scanner.TypeScanner`. Four lines, and none of them per type:
+
+| Level   | When                                | What it says                                                             |
+|---------|-------------------------------------|--------------------------------------------------------------------------|
+| `info`  | A scan that registered something    | The `ScanReport`, and the packages it walked                             |
+| `debug` | The same scan                       | The three lists spelled out, class by class and name by name             |
+| `warn`  | A scan that matched nothing at all  | That it found nothing, and that the package names are what to check      |
+| `warn`  | Anything went into `unresolved`     | Which names the database has no type for, and the two ways that happens  |
+
+The `info` line is the one worth keeping, and it is the whole of a successful startup:
+
+```
+Registered ScanReport(3 enums, 7 composites, 2 dynamic types) from com.roma.domain, com.roma.dto
+```
+
+`debug` under it is the same scan with the derived names filled in, which is where to look when a type
+registered under a name you did not expect:
+
+```
+enums=[ScanRank -> scan_rank, Province -> province], composites=[Senator -> senator], dynamic=[Edict -> edict]
+```
+
+Both warnings say in a log what the report already says in code, and that repetition is the point. `unresolved`
+is a list you can `check()` on and an empty scan is an empty `ScanReport` — but a value is only read by an
+application that thought to read it, and the failure this module exists to make visible is the one nobody
+thought about. A registration that quietly did nothing stays invisible until a query, months later, cannot map
+a column.
+
+Registration itself is not logged, per type or at all. Thirty types registered is the one `info` line above,
+which is rather the point of the module.
 
 ## What It Does Not Scan
 

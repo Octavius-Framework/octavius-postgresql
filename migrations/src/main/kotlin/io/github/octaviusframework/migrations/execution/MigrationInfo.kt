@@ -67,7 +67,7 @@ class MigrationInfo internal constructor(
     val status: MigrationStatus,
     val applied: AppliedMigration?
 ) {
-    /** How this migration is named in a message: `V2 add indexes`, or `R rebuild views`. */
+    /** How this migration is named in a message: `2 add indexes`, or `R rebuild views`. */
     val label: String get() = "${version?.canonical ?: "R"} $description"
 
     override fun toString(): String = "$label [$status]"

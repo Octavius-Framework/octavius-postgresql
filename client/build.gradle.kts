@@ -22,8 +22,7 @@ dependencies {
     api(projects.driver)
 
     implementation(libs.kotlin.reflect)
-    implementation(libs.kotlin.logging)
-    implementation(libs.slf4j.api)
+
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)

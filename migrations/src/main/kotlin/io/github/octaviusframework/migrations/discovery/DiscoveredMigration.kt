@@ -84,6 +84,6 @@ internal sealed interface DiscoveredMigration {
     }
 }
 
-/** How a migration is named in a message: `V2 add indexes`, or `R rebuild views` for a repeatable one. */
+/** How a migration is named in a message: `2 add indexes`, or `R rebuild views` for a repeatable one. */
 internal val DiscoveredMigration.label: String
     get() = "${version?.text ?: "R"} $description"
