@@ -17,7 +17,7 @@ it again.
 | Document                                              | Description                                                                                   |
 |-------------------------------------------------------|-----------------------------------------------------------------------------------------------|
 | [Quickstart](quickstart.md)                           | From a pool to a row, and the one line that stops appearing in your signatures                |
-| [Queries](queries.md)                                 | The builders, clauses that disappear, `QueryFragment`, `toSql`, raw SQL, per-query converters |
+| [Queries](queries.md)                                 | The builders, clauses that disappear, `QueryFragment`, expressions, upserts, `toSql`, raw SQL |
 | [Transactions and Failures](transactions-failures.md) | Propagation, isolation, timeouts, `SessionProvider`, and when a failure is a value            |
 | [Transaction Plans](plans.md)                         | Graphs, create-or-edit, fragments, plans inside a block, and what is checked before it runs   |
 | [`dynamic_dto`](dynamic-dto.md)                       | One column, several unrelated shapes, and the three ways a value gets written as one          |
@@ -50,6 +50,8 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [A Name That Comes From Outside](queries.md#a-name-that-comes-from-outside) — Values are placeholders; names are SQL
 - [Clauses That Disappear](queries.md#clauses-that-disappear) — `where(null)`, and the filter assembled at runtime
 - [`QueryFragment`](queries.md#queryfragment) — A condition and the parameters it names, kept together
+- [A Value, or an Expression](queries.md#a-value-or-an-expression) — `valueExpression`, `setExpression`, and the decrement no parameter can send
+- [Upserts](queries.md#upserts) — `onConflict { }`, `excluded`, the conditional update, and the row `DO NOTHING` does not return
 - [A Query Is a Value](queries.md#a-query-is-a-value) — `toSql()`, `copy()`, and embedding one in another
 - [Raw SQL](queries.md#raw-sql) — `rawQuery`, and the one terminal only it has
 - [Per-Query Converters](queries.md#per-query-converters) — A mapping for one call and nothing else

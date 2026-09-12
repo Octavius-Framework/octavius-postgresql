@@ -215,12 +215,20 @@ Doing it per request isn't just wasted work — registries are copy-on-write lis
 The one genuinely session-scoped ingredient is the schema search path. `TypeManager` is constructed with a `searchPathProvider` bound to its connection, and `resolveOid` passes it through:
 
 ```kotlin
-session.setSearchPath("imperium", "public")
+session.createNativeQuery("SET search_path TO imperium, public").execute()
 session.searchPath // -> [imperium, public]
 
 session.typeManager.resolveOid("legio_status")             // resolved via search_path
 session.typeManager.resolveOid("legio_status", "imperium") // explicit schema, search_path ignored
 ```
+
+`searchPath` is read-only and has no setter to pair with it, which is deliberate rather than missing. The path
+is moved the way PostgreSQL moves it — a `SET search_path`, or a `search_path` among the
+[startup parameters](initialization.md#startup-parameters) so that every session opens with it — and read back
+from what the server announced: PostgreSQL 18 sends `search_path` in `ParameterStatus` and sends it again
+whenever it moves, so whatever moved it — this session, or any other code holding this same connection — shows
+up here with no round trip of its own. A setter would be a second way to say it, and one that could disagree
+with the first.
 
 Resolution order for a name with no explicit schema:
 
@@ -280,7 +288,7 @@ The `io.github.octaviusframework.driver.codec` package ships the codecs translat
 | `timestamp`                                                 | `kotlinx.datetime.LocalDateTime`                                          | <sup>1</sup>                                     |
 | `date`                                                      | `kotlinx.datetime.LocalDate`                                              | <sup>1</sup>                                     |
 | `time`                                                      | `kotlinx.datetime.LocalTime`                                              |                                                  |
-| `interval`                                                  | `PgInterval`                                                              |                                                  |
+| `interval`                                                  | `PgInterval`                                                              | <sup>1</sup> Sealed — see [PgInterval](#pginterval) |
 | `bool`                                                      | `Boolean`                                                                 |                                                  |
 | `bytea`                                                     | `ByteArray`                                                               |                                                  |
 | `uuid`                                                      | `kotlin.uuid.Uuid`                                                        |                                                  |
@@ -337,15 +345,22 @@ session.createNamedQuery("INSERT INTO senators (dossier) VALUES (@dossier)")
     .update("dossier" to jsonString.withPgType("jsonb"))
 ```
 
-### Infinity Values for Date/Time
+### Infinity Values for Date, Time and Interval
 
-<sup>1</sup> PostgreSQL's special `infinity` / `-infinity` values are fully supported for date and timestamp types, via dedicated constants:
+<sup>1</sup> PostgreSQL's special `infinity` / `-infinity` values are fully supported for the date, timestamp and interval types:
 
-| PostgreSQL Type | Special Values          | Kotlin Constants                                             |
+| PostgreSQL Type | Special Values          | Kotlin                                                       |
 |-----------------|-------------------------|--------------------------------------------------------------|
 | `date`          | `infinity`, `-infinity` | `LocalDate.DISTANT_FUTURE`, `LocalDate.DISTANT_PAST`         |
 | `timestamp`     | `infinity`, `-infinity` | `LocalDateTime.DISTANT_FUTURE`, `LocalDateTime.DISTANT_PAST` |
 | `timestamptz`   | `infinity`, `-infinity` | `Instant.DISTANT_FUTURE`, `Instant.DISTANT_PAST`             |
+| `interval`      | `infinity`, `-infinity` | `PgInterval.Infinity`, `PgInterval.MinusInfinity`            |
+
+The first three are constants, and that is all they can be: a `LocalDate` has no room for a fourth state
+beside a date, so the infinity is carried as the extreme value the class already holds and you have to know the
+constant to recognise it. `interval` is the one that does have room, `PgInterval` being sealed — there the
+infinities are cases of the type rather than values of it, and a `when` over them is checked rather than
+remembered. [PgInterval](#pginterval) below has the rest.
 
 Handy, incidentally, for anything modeled as lasting "in perpetuity" — an empire's founding decree, say, with no scheduled end date.
 
@@ -375,7 +390,45 @@ That's a deliberate choice — there's no single clean equivalent in the Kotlin 
 * **`Duration` has limits.** It's tempting to reach for `Duration`, but it's based on absolute time and can't represent variable-length calendar units — days and months — accurately. Converting approximately (assuming 1 month = 30 days, 1 day = 24 hours) can quietly introduce drift.
 * **`DateTimePeriod` has its own limits.** It's exact, and does support months/days, but it's often awkward to actually compute with.
 
-So when you extract an interval, you get a `PgInterval` that preserves the raw database representation — months, days, microseconds — as-is. `PgInterval` exposes explicit extensions like `toDurationApproximate()`, `toDurationExact()`, and `toDateTimePeriod()`, so you decide how (and whether) to collapse it.
+So when you extract an interval, you get a `PgInterval` holding the raw database representation as-is, and
+explicit extensions — `toDurationApproximate()`, `toDurationExact()`, `toDateTimePeriod()` — so you decide how
+(and whether) to collapse it.
+
+It is a **sealed interface** rather than a single class, because PostgreSQL's `interval` is three things and only
+one of them has components to read:
+
+```kotlin
+sealed interface PgInterval {
+    data class Finite(val time: Long, val days: Int, val months: Int) : PgInterval  // time in microseconds
+    data object Infinity : PgInterval
+    data object MinusInfinity : PgInterval
+}
+```
+
+So `interval.months` does not compile — the fields live on `Finite`, and getting at them means saying what to do
+about the other two:
+
+```kotlin
+val term = session.createNativeQuery("SELECT term FROM magistracies WHERE id = $1")
+    .fetchFieldStrict<PgInterval>(id)
+
+when (term) {
+    is PgInterval.Finite      -> "${term.months} months, ${term.days} days"
+    PgInterval.Infinity       -> "for life"
+    PgInterval.MinusInfinity  -> "expired before it began"
+}
+```
+
+That is the whole reason for the shape. A finite interval and an unbounded one are not the same kind of value,
+and the alternative — `Finite` alone, with `infinity` smuggled in as `Long.MAX_VALUE` microseconds — is the
+arrangement `date` and `timestamp` are stuck with, where nothing in the type says the sentinel exists and
+arithmetic on it silently produces nonsense. Here the compiler asks.
+
+The conversions carry the cases across rather than refusing them: `toDateTimePeriod()` gives
+`DateTimePeriod.INFINITY` and `DateTimePeriod.MINUS_INFINITY`, `toDurationExact()` and
+`toDurationApproximate()` give `Duration.INFINITE` and `-Duration.INFINITE`, and each runs back the other way.
+`DateTimePeriod.INFINITY` is a marker and nothing more — it is `Int.MAX_VALUE` years and days at once, so
+`date + DateTimePeriod.INFINITY` overflows rather than meaning anything.
 
 The same extensions run the other way, for the parameter you are about to send:
 
@@ -434,7 +487,7 @@ These translate your Kotlin objects into a shape the codec layer can serialize.
 | `CollectionArrayParameterConverter`                           | `Collection<T>`           | Packs a Kotlin collection into structures for database array serialization.                                           |
 | `PrimitiveArrayParameterConverter`                            | Kotlin Array              | Packs a standard Kotlin array into structures for database array serialization.                                       |
 | `JsonElementParameterConverter`                               | `JsonElement`             | Adapts Kotlinx JSON elements for serialization to PostgreSQL `JSON`/`JSONB`.                                          |
-| `RangeParameterConverter` <br> `MultiRangeParameterConverter` | `PgRange`, `PgMultiRange` | Converts Kotlin range wrappers into PostgreSQL range/multirange types.                                                |
+| `RangeParameterConverter` <br> `MultiRangeParameterConverter` | `PgRange`, `PgMultirange` | Converts Kotlin range wrappers into PostgreSQL range/multirange types.                                                |
 
 ### How a converter gets chosen
 

@@ -64,7 +64,7 @@ val table = tenantTable.quoteAsPgIdentifier()   // legio X  ->  "legio X"
 session.createNativeQuery("SELECT count(*) FROM $table").fetchFieldStrict<Long>()
 ```
 
-It wraps the name in double quotes and doubles every quote inside it; a NUL character, which PostgreSQL cannot hold in an identifier at all, throws `StatementException(SYNTAX_ERROR)`. The driver uses it on its own behalf for `LISTEN` channels, savepoint names and `setSearchPath()`, so those already take arbitrary strings safely. It always quotes, which makes the name case-sensitive — `CREATE TABLE MixedCase` stores `mixedcase`, and quoting the string `MixedCase` matches nothing.
+It wraps the name in double quotes and doubles every quote inside it; a NUL character, which PostgreSQL cannot hold in an identifier at all, throws `StatementException(SYNTAX_ERROR)`. The driver uses it on its own behalf for `LISTEN` and `UNLISTEN` channels and for savepoint names, so those already take arbitrary strings safely. It always quotes, which makes the name case-sensitive — `CREATE TABLE MixedCase` stores `mixedcase`, and quoting the string `MixedCase` matches nothing.
 
 ## Choosing a fetch method
 
@@ -112,9 +112,12 @@ The rest of the surface is metadata, useful when the shape of the result is not 
 |:-----------------------|:-----------------------------------------------------------------------------------|
 | `columnNames`          | Every column name, in order.                                                       |
 | `getColumnIndex(name)` | The index for a name, or `MappingException(COLUMN_NOT_FOUND)`.                     |
+| `hasColumn(name)`      | Whether a column carries that name — what `getColumnIndex` answers by raising.      |
 | `getRaw(index)`        | The decoded value *before* conversion — `Int`, `String`, `PgComposite`, `PgArray`. |
 | `getOid(index)`        | The PostgreSQL OID of that column's type.                                          |
 | `metadata`             | `RowMetadata` — what the result says about its own columns.                        |
+
+`hasColumn` is there for a result whose shape is not fixed — a projection assembled at runtime, or a `RETURNING` that differs by branch. Asking is what such code means; a `try`/`catch` around a lookup is not, and it catches the mapping failures you did want to hear about along with the one you were testing for.
 
 Because decoding is eager and conversion is lazy, asking one row for two different shapes costs one decode and two conversions:
 

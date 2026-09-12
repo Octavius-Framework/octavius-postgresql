@@ -113,7 +113,7 @@ session — `db.execute { }` hands over the driver's own session operations and 
 
 ```kotlin
 db.execute {
-    copy.fromStream("COPY census(name, tribe) FROM STDIN WITH (FORMAT csv)", file.inputStream())
+    copy.copyIn("COPY census(name, tribe) FROM STDIN WITH (FORMAT csv)", file.inputStream())
 }
 ```
 

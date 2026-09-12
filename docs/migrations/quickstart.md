@@ -162,6 +162,28 @@ then, and anything that queried on the way there queried the old schema.
 There is no starter and no auto-configuration to add; the driver's own is
 [Spring Integration](../driver/spring-integration.md), and this sits beside it rather than inside it.
 
+## Configuration reference
+
+`MigratorConfig` has a default for every field, so a config states only what differs from it. `baselineVersion`
+and `target` are parsed when the config is built rather than when a run reaches them, so a `"1.x"` is refused
+by whoever wrote it instead of by the first `migrate()` that gets there.
+
+| Option            | Default                        | Meaning                                                                                                                                                                                                                              |
+|:------------------|:-------------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `sqlLocations`    | `["db/migration"]`             | Where the `.sql` files are — a classpath path, `classpath:` optional because it is the usual case, or a directory under `filesystem:`. Subdirectories are searched, and anything that is not a `.sql` file is walked past.            |
+| `codePackages`    | empty                          | Packages holding [migrations written in Kotlin](writing-migrations.md#in-kotlin), subpackages included.                                                                                                                              |
+| `placeholders`    | empty                          | Values pasted into `.sql` before it runs — see [Placeholders](writing-migrations.md#placeholders). Empty means nothing is scanned for, so a migration carrying a `${` of its own is left alone.                                       |
+| `classLoader`     | `null` — the scan's own        | Where to look for classes and classpath resources, for an application whose own are not on the loader the scan would otherwise find: an OSGi container, a plugin host.                                                               |
+| `historySchema`   | `public`                       | Schema the history table lives in, created if it is not there.                                                                                                                                                                      |
+| `historyTable`    | `octavius_migration_history`   | What that table is called. Worth changing only where two applications keep separate histories in one database — and then they take separate locks too, the key being a CRC32 of `schema.table`.                                      |
+| `lockTimeout`     | 30 seconds                     | How long to wait for the migration lock. Applied as the session's `lock_timeout` and put back afterwards; running out is [`LOCK_NOT_ACQUIRED`](exceptions.md).                                                                       |
+| `outOfOrder`      | `false`                        | Whether to apply a migration whose version is below one already applied — see [`target` and `outOfOrder`](history-and-validation.md#target-and-outoforder).                                                                          |
+| `baselineVersion` | none                           | The version an existing database is taken to already be at, written once when this migrator first meets a database with no history table — see [Adopting a database that already exists](history-and-validation.md#adopting-a-database-that-already-exists). |
+| `target`          | none — all of them             | The highest version to apply, for a release that ships the migrations before the code that needs them.                                                                                                                               |
+
+`sqlLocations` and `codePackages` may each be empty, for a project whose migrations are all of the other kind.
+Both empty is refused with `MigrationException(CONFIGURATION)`: there is nothing to do.
+
 ## Where next
 
 - [Writing Migrations](writing-migrations.md) — the naming rules, and what to do about `CREATE INDEX CONCURRENTLY`

@@ -93,6 +93,21 @@ The failure is an `InvalidOperationException` naming the table and pointing at `
 when the SQL is rendered — which is when a terminal runs, or when
 [a plan is validated](plans.md#checked-before-it-runs).
 
+Beyond `with` / `recursive`, which all four carry, each has the clauses its statement has:
+
+| Builder                | Clauses                                                                                                        |
+|------------------------|----------------------------------------------------------------------------------------------------------------|
+| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `orderBy`, `limit`, `offset`, `page`, `forUpdate`        |
+| `db.insertInto(table)` | `value`, `values`, `valueExpression`, `valuesExpressions`, `columns` + `fromSelect`, `onConflict`, `returning` |
+| `db.update(table)`     | `setValue`, `setValues`, `setExpression`, `setExpressions`, `from`, `where`, `returning`                       |
+| `db.deleteFrom(table)` | `using`, `where`, `returning`                                                                                  |
+
+`fromSubquery(sql, alias)` parenthesises and aliases for you, which is all it does — `from("(…) AS t")` is the
+same statement. `using` is `DELETE`'s join clause, as `from` is `UPDATE`'s. `columns(…)` names the target
+columns of an `INSERT … SELECT` and goes with `fromSelect`, never with `values`: the `VALUES` forms declare
+their columns themselves, and an `INSERT` taking its rows from both is refused when it renders. `fromSelect`
+takes SQL, so [another builder's `toSql()`](#a-query-is-a-value) fits there.
+
 ## Clauses That Disappear
 
 This is the reason to reach for a builder at all:
@@ -112,7 +127,11 @@ clause either has something to say or is not rendered.
 `offset` and `page` are the exception and take non-null values, an offset without a limit being a question
 rather than a filter. `page(page, size)` is `limit(size).offset(page * size)`, counted from zero.
 
-`forUpdate(of, mode)` adds row locking, `mode` being the driver's `LockWaitMode` — `NOWAIT` or `SKIP LOCKED`.
+`forUpdate(of, mode)` adds row locking. `of` names which of the query's tables to lock, or `null` for all of
+them; `mode` is `LockWaitMode.NOWAIT` (fail rather than wait) or `LockWaitMode.SKIP_LOCKED` (leave the locked
+rows out and carry on), `null` waiting for them. Worth calling only inside
+[`db.transaction { }`](transactions-failures.md#propagation): the lock is held until the transaction ends, and
+outside one that is until the statement finishes, which is no lock at all.
 
 ## `QueryFragment`
 
@@ -151,6 +170,138 @@ db.rawQuery("SELECT id, cognomen FROM senate ${where.sql}").fetchObjects<Senator
 ```
 
 The builders supply their own keyword, so leave it empty there.
+
+## A Value, or an Expression
+
+`value("tribe")` and `setValue("tribe")` write the column on one side and the `@tribe` placeholder on the
+other, which is the pairing the builder exists to keep. Some assignments have no value to send, though, because
+what goes on the right is computed where the row is:
+
+```kotlin
+db.insertInto("edicts")
+    .values(listOf("province_id", "text"))
+    .valueExpression("issued_at", "now()")
+    .valueExpression("seq", "nextval('edict_seq')")
+    .returning("id")
+    .fetchFieldStrict<Int>("province_id" to 3, "text" to body)
+```
+
+`valueExpression(column, sql)` puts SQL on the right instead of a placeholder, and `valuesExpressions(map)`
+does several at once. `UPDATE` has the same pair under `setExpression` / `setExpressions`, and there it reaches
+the case a parameter cannot express at all — an expression may read the column it is assigning:
+
+```kotlin
+db.update("legion_supplies")
+    .setExpression("quantity", "quantity - @taken")
+    .setValue("last_drawn_at")
+    .where("id = @id")
+    .update("taken" to 1, "last_drawn_at" to now, "id" to supplyId)
+```
+
+`quantity - @taken` is the decrement done in the database. Reading the row, subtracting in Kotlin and sending
+the result back is two round trips and a lost update between them; there is no parameter that can stand for the
+old value, because the old value never left the server.
+
+Note what that example is not. The expression still carries `@taken`, so this is not "an expression *instead
+of* parameters" but an expression *around* them — the placeholders work inside it exactly as everywhere else,
+and every value in the statement is still bound. The rule that follows is
+[the one above](#a-name-that-comes-from-outside) and not a new one: an expression is SQL text, passed through
+unread, so nothing that arrived in a request belongs in the string. It belongs in an `@name` inside it.
+
+## Upserts
+
+`onConflict { }` configures the `ON CONFLICT` clause:
+
+```kotlin
+db.insertInto("census")
+    .values(listOf("citizen_id", "tribe", "assessed_at"))
+    .onConflict {
+        onColumns("citizen_id")
+        doUpdate("tribe = excluded.tribe, assessed_at = excluded.assessed_at")
+    }
+    .update("citizen_id" to id, "tribe" to tribe, "assessed_at" to assessedAt)
+```
+
+Two decisions go in it. **What to conflict on** — `onColumns("citizen_id", …)` for a unique index over those
+columns, or `onConstraint("census_citizen_uq")` for a named one. **What to do about it** — `doNothing()`, or
+`doUpdate(…)`.
+
+The target is optional and the action is not: a clause saying what to conflict on and nothing about what to do
+is not a clause, and it is refused when the query renders. Whether you may leave the target out is
+PostgreSQL's rule rather than this builder's — it infers one for `DO NOTHING`, and requires one for
+`DO UPDATE`.
+
+`doUpdate` takes the `SET` body as it stands, as column-to-expression pairs, or as a map — the same assignment
+three ways:
+
+```kotlin
+doUpdate("tribe = excluded.tribe, assessed_at = now()")
+doUpdate("tribe" to "excluded.tribe", "assessed_at" to "now()")
+doUpdate(mapOf("tribe" to "excluded.tribe", "assessed_at" to "now()"))
+```
+
+`excluded` is PostgreSQL's name for the row that could not be inserted, so `excluded.tribe` is the value this
+statement was carrying and a bare `tribe` is the one already in the table. Both are in scope, which is what
+makes the conditional form worth having:
+
+```kotlin
+.onConflict {
+    onColumns("citizen_id")
+    doUpdate(
+        "tribe = excluded.tribe, assessed_at = excluded.assessed_at",
+        whereCondition = "census.assessed_at < excluded.assessed_at"
+    )
+}
+```
+
+That writes only where the incoming assessment is newer than the stored one. Without it a late-arriving message
+overwrites a later one, which is the ordinary failure of an upsert fed by a queue.
+
+A `doUpdate` can also report what it overwrote, `RETURNING` having read the row both ways since PostgreSQL 18:
+
+```kotlin
+db.insertInto("census")
+    .values(listOf("citizen_id", "tribe"))
+    .onConflict {
+        onColumns("citizen_id")
+        doUpdate("tribe = excluded.tribe")
+    }
+    .returning("citizen_id", "old.tribe AS previous_tribe", "(old.citizen_id IS NULL) AS inserted")
+    .fetchRowStrict("citizen_id" to id, "tribe" to tribe)
+```
+
+`old` is the row as it stood before this statement, `new` the row as it stands after, and a bare column name is
+already `new`. A row that was *inserted* rather than updated has no old row at all, so every `old.` reference on
+it is `NULL` — which is how the statement tells you whether it created the row or overwrote one, the thing
+`ON CONFLICT` otherwise never says. It holds row by row where several rows go in at once — see
+[Bulk Writes](../driver/bulk-writes.md#upserts) for that shape.
+
+`returning` passes its list through unread like every other clause, so an expression with an alias sits there
+as readily as a column name.
+
+> **A `DO NOTHING` that conflicts returns no row**, whatever the `RETURNING` asks for — `old` included, there
+> being no row in the result to carry an `old` for. The row exists and the statement still hands back nothing,
+> because this statement did not write it.
+>
+> So `returning("id")` leaves the terminal with an empty result. `fetchFieldStrict<Int>()` raises
+> `InvalidOperationException(INCORRECT_RESULT_SIZE)`, and `fetchField<Int>()` raises
+> `MappingException(REQUIRED_ATTRIBUTE_MISSING)` — a non-nullable `T` counts no rows as a missing value.
+> `fetchField<Int?>()` is the one that comes back rather than raising, but what it comes back with is `null`,
+> which says "nothing was inserted" and is not the id of the row that is sitting there. Reach for it when that
+> was the question; it is no use when the id was.
+>
+> **When you want the id either way, `doUpdate` is the answer** — an `UPDATE` happened, so `RETURNING` reports
+> it. Where there is nothing worth updating, the idiom is to assign a column to itself:
+> `doUpdate("citizen_id = excluded.citizen_id")`. That is a real write, not a no-op — the row is rewritten in
+> place of being left alone, so an upsert run hot leaves dead tuples behind for rows that did not change. A
+> `whereCondition` excluding the row puts you back in the empty-result case, for the same reason as
+> `DO NOTHING`.
+>
+> The whole matrix is under
+> [Nullability and the Strict variants](../driver/queries.md#nullability-and-the-strict-variants).
+
+Bulk upserts are a different shape and belong to the driver: one `UNNEST` statement with `ON CONFLICT` over it
+beats a loop of these by the round trips alone. See [Bulk Writes](../driver/bulk-writes.md#upserts).
 
 ## A Query Is a Value
 
