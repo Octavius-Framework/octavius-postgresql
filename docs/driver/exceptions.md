@@ -38,15 +38,15 @@ abstract class OctaviusException(
 ) : RuntimeException(message, cause)
 ```
 
-| Member                 | Type                  | What it holds                                                                                                |
-|:-----------------------|:----------------------|:-------------------------------------------------------------------------------------------------------------|
-| `message`              | `String`              | The machine-readable identifier, `EXCEPTION_NAME[:REASON_ENUM]` — never prose.                               |
-| `sqlState`             | `String?`             | The five-character SQLSTATE. `null` for purely client-side failures that never reached the server.           |
-| `serverErrorMessage`   | `ServerErrorMessage?` | The complete parsed `ErrorResponse` from PostgreSQL. `null` when the error originated in the driver.         |
-| `queryContext`         | `QueryContext?`       | What *your application* executed — SQL, parameters, and their database-level forms. Attached on the way out. |
+| Member                 | Type                  | What it holds                                                                                                                          |
+|:-----------------------|:----------------------|:---------------------------------------------------------------------------------------------------------------------------------------|
+| `message`              | `String`              | The machine-readable identifier, `EXCEPTION_NAME[:REASON_ENUM]` — never prose.                                                         |
+| `sqlState`             | `String?`             | The five-character SQLSTATE. `null` for purely client-side failures that never reached the server.                                     |
+| `serverErrorMessage`   | `ServerErrorMessage?` | The complete parsed `ErrorResponse` from PostgreSQL. `null` when the error originated in the driver.                                   |
+| `queryContext`         | `QueryContext?`       | What *your application* executed — SQL, parameters, and their database-level forms. Attached on the way out.                           |
 | `path`                 | `MutableList<String>` | Where the failure happened, innermost first — an attribute five levels down a composite, a step of a plan. Appended to on the way out. |
-| `cause`                | `Throwable?`          | The underlying exception, where one exists (an `IOException` under a `NetworkException`, for example).       |
-| `getDetailedMessage()` | `String?`             | The human-readable explanation, assembled per subclass. This is what the log block renders.                  |
+| `cause`                | `Throwable?`          | The underlying exception, where one exists (an `IOException` under a `NetworkException`, for example).                                 |
+| `getDetailedMessage()` | `String?`             | The human-readable explanation, assembled per subclass. This is what the log block renders.                                            |
 
 `path` and `queryContext` are the two things a frame can add to an exception **without replacing it**, which is why both live on the base class rather than on the subclass that happens to need them. Replacing an exception costs the type the caller catches on — a `ConstraintViolationException` restated as a mapping failure stops being the thing a retry loop matches — so a layer that knows *where* it was appends a segment and rethrows the exception it was given. Both are rendered into `toString()`: `path` reversed, outermost first, on a `PATH:` line.
 
@@ -333,16 +333,16 @@ Every reason here is about the statement itself, and `position` is the evidence 
 **Raised by:** `OctaviusConnectionFactory`, `Authenticator`, `SslNegotiator`, `PgStream` — by the translator for any SQLSTATE class `28`, and by `getOctaviusSession()` for anything a `DataSource` refuses.
 **Properties:** `reason`, `details`, `cause`.
 
-| Reason (`InitializationExceptionReason`) | Description                                                                                                                                                                |
-|:-----------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                                              |
-| `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                                                    |
-| `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                                               |
-| `PROTOCOL_VIOLATION`                     | Unexpected message received during the authentication exchange.                                                                                                            |
-| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from the server's authentication challenge.                                                                                                   |
-| `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                                                 |
-| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18 — Octavius speaks Wire Protocol v3.2 exclusively.                                                                                                 |
-| `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one.                                               |
+| Reason (`InitializationExceptionReason`) | Description                                                                                                                                        |
+|:-----------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                      |
+| `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                            |
+| `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                       |
+| `PROTOCOL_VIOLATION`                     | Unexpected message received during the authentication exchange.                                                                                    |
+| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from the server's authentication challenge.                                                                           |
+| `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                         |
+| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18 — Octavius speaks Wire Protocol v3.2 exclusively.                                                                         |
+| `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one.                       |
 | `CONNECTION_UNAVAILABLE`                 | The data source had none to give rather than failing to open one — a pool that ran out of time waiting for a free one. Nothing reached the server. |
 
 > [!NOTE]
