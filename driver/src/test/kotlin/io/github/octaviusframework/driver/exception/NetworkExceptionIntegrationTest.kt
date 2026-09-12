@@ -24,7 +24,7 @@ class NetworkExceptionIntegrationTest {
     @Test
     fun `should throw NetworkException with CONNECTION_TIMEOUT when socket timeout is reached`() {
         val props = OctaviusProperties().apply {
-            socketTimeout = 1 // Ustawiamy 1 sekundę timeout na socket
+            socketTimeout = 1 // A one-second socket timeout
         }
 
         getSession(props).use { session ->

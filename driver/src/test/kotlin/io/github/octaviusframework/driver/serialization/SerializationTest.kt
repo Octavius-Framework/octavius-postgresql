@@ -34,7 +34,7 @@ class SerializationTest {
 
         val typeRegistry = GlobalTypeRegistry.getRegistry(RegistryKey.from(OctaviusProperties.parse(url)))
 
-        // 1. Zbudowanie kompozytu fabryką od zera
+        // 1. Build the composite from scratch through the factory
         val composite = session.typeManager.containers.createComposite("ser_test_composite")
         composite["id"] = 777
         composite["name"] = "factory_test"
@@ -43,7 +43,7 @@ class SerializationTest {
         ContainerCodec.serializeContainer(composite, writer1, typeRegistry)
         val builtCompositeBytes = writer1.toByteArray()
 
-        // Porównanie z bazą
+        // Compare against the database
         val expectedCompositeRow =
             session.createNativeQuery("SELECT ROW(777, 'factory_test')::ser_test_composite as my_comp").fetchRowStrict()
         val expectedComposite = expectedCompositeRow.get<PgComposite>(0)
@@ -53,10 +53,10 @@ class SerializationTest {
         assertContentEquals(
             writerComp.toByteArray(),
             builtCompositeBytes,
-            "Zbudowany kompozyt musi zgadzać się z Postgresowym"
+            "The composite built here must match PostgreSQL's own"
         )
 
-        // 2. Zbudowanie tablicy ręcznie od zera
+        // 2. Build the array by hand from scratch
         val array = PgArray(
             arrayOid = 1007,
             elementOid = 23,
@@ -76,7 +76,7 @@ class SerializationTest {
         assertContentEquals(
             writerArr.toByteArray(),
             builtArrayBytes,
-            "Zbudowana tablica musi zgadzać się z Postgresową"
+            "The array built here must match PostgreSQL's own"
         )
         session.close()
     }
@@ -112,7 +112,7 @@ class SerializationTest {
 
         val typeRegistry = GlobalTypeRegistry.getRegistry(RegistryKey.from(OctaviusProperties.parse(url)))
 
-        // Tablica 2x3 (2 wiersze, 3 kolumny)
+        // A 2x3 array (2 rows, 3 columns)
         val multiArray = PgArray(
             arrayOid = 1007,
             elementOid = 23,
@@ -138,7 +138,7 @@ class SerializationTest {
         assertContentEquals(
             writerArr.toByteArray(),
             serializedArray,
-            "Zbudowana tablica wielowymiarowa musi zgadzać się z Postgresową"
+            "The multidimensional array built here must match PostgreSQL's own"
         )
         session.close()
     }

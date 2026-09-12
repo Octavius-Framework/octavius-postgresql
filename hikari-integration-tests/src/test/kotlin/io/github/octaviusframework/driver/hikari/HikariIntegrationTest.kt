@@ -15,7 +15,7 @@ class HikariIntegrationTest {
         config.jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
         config.username = "postgres"
         config.password = "1234"
-        config.maximumPoolSize = 1 // Pula ma rozmiar 1, żebyśmy od razu wiedzieli czy połączenie zostało zwrócone
+        config.maximumPoolSize = 1 // A pool of one, so a connection that was not returned shows up immediately
 
         val dataSource = HikariDataSource(config)
 

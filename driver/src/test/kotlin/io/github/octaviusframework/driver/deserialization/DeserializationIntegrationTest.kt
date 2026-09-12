@@ -36,7 +36,7 @@ class DeserializationIntegrationTest {
 
             val result = session.createNativeQuery("SELECT ROW(10, 'Jan Kowalski', ROW('Marszałkowska', 'Warszawa')::integ_address)::integ_user AS usr").fetchRowStrict()
             
-            // Oczekujemy, że mechanizm automatycznie użyje domyślnego deserializera zaimplementowanego w Row.get
+            // The default deserializer in Row.get should be picked automatically
             val parsedUser = result.get<IntegrationUser>("usr")
 
             assertNotNull(parsedUser)
@@ -68,7 +68,7 @@ class DeserializationIntegrationTest {
 
             val result = session.createNativeQuery("SELECT ARRAY[ROW('M1', 'W1')::integ_address, ROW('M2', 'W2')::integ_address] AS addresses").fetchRowStrict()
 
-            // Oczekujemy, że mechanizm automatycznie użyje domyślnego deserializera zaimplementowanego w Row.get
+            // The default deserializer in Row.get should be picked automatically
             val parsedList = result.get<List<IntegrationAddress>>("addresses")
 
             assertNotNull(parsedList)
@@ -133,7 +133,7 @@ class DeserializationIntegrationTest {
         val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
 
         try {
-            // Rejestracja własnych, jawnych konwerterów
+            // Register explicit converters of our own
             session.typeManager.registerResultConverter(object : ResultConverter<Any, TestStatus> {
                 override val supportedSourceClass = Any::class
                 override fun canConvert(sourceClass: kotlin.reflect.KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
@@ -172,7 +172,7 @@ class DeserializationIntegrationTest {
                 }
             })
 
-            // Utworzenie typów w bazie
+            // Create the types in the database
             session.createNativeQuery("DROP TYPE IF EXISTS test_root_composite CASCADE").execute()
             session.createNativeQuery("DROP TYPE IF EXISTS test_user_data CASCADE").execute()
             session.createNativeQuery("DROP TYPE IF EXISTS test_status_enum CASCADE").execute()
@@ -181,15 +181,15 @@ class DeserializationIntegrationTest {
             session.createNativeQuery("CREATE TYPE test_user_data AS (code text, status test_status_enum)").execute()
             session.createNativeQuery("CREATE TYPE test_root_composite AS (main_status test_status_enum, user_data test_user_data)").execute()
 
-            // Odświeżenie rejestru typów, aby OID wczytały się do pamięci
+            // Refresh the type registry so the new OIDs are loaded
             session.reloadTypes()
 
-            // Zbudowanie zapytania, w którym tworzymy nasz kompozyt testowy
+            // Build a query that constructs the test composite
             val result = session.createNativeQuery(
                 "SELECT ROW('ACTIVE'::test_status_enum, ROW('CD123', 'INACTIVE')::test_user_data)::test_root_composite AS my_map"
             ).fetchRowStrict()
 
-            // Odbieramy kolumnę 'my_map' jako Map<String, Any?>
+            // Read the 'my_map' column as Map<String, Any?>
             val mappedResult = result.get<Map<String, Any?>>("my_map")
 
             assertNotNull(mappedResult)

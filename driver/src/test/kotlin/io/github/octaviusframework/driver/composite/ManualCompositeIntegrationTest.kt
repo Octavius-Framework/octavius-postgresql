@@ -44,14 +44,14 @@ class ManualCompositeIntegrationTest {
         override val supportedClass = PaymentInfo::class
 
         override fun convert(source: PaymentInfo, expectedOid: Int, context: SerializationContext): Any {
-            // Tworzenie kompozytu jest znacznie czystsze z użyciem TypeManager
+            // Building the composite is much cleaner through the TypeManager
             val composite = if (expectedOid.isKnownOid) {
                 context.typeManager.containers.createComposite(expectedOid)
             } else {
                 context.typeManager.containers.createComposite("payment_info")
             }
             
-            // Do atrybutów odwołujemy się po nazwie
+            // Attributes are addressed by name
             composite["amount"] = source.amount
             composite["currency"] = source.currency
             
@@ -87,21 +87,21 @@ class ManualCompositeIntegrationTest {
     fun testTransactionWithManualCompositeMapper() {
         val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
         try {
-            // Wymuszamy pobranie nowych typów (w tym payment_info)
+            // Force a fresh type load, payment_info included
             conn.reloadTypes()
             
-            // Rejestrujemy nasze ręczne mappery
+            // Register the hand-written mappers
             conn.typeManager.registerResultConverter(PaymentInfoResultConverter())
             conn.typeManager.registerParameterConverter(PaymentInfoParameterConverter())
 
             conn.transaction.required {
                 val payment = PaymentInfo(1500, "PLN")
                 
-                // Insert przy użyciu NamedQuery i rzutowania na typ payment_info
+                // Insert through a NamedQuery, cast to payment_info
                 val insertQuery = "INSERT INTO orders (id, payment) VALUES (1, @payment)"
                 conn.createNamedQuery(insertQuery).update("payment" to payment)
 
-                // Pobieramy wewnątrz transakcji
+                // Read it back inside the transaction
                 val selectQuery = "SELECT payment FROM orders WHERE id = 1"
                 val resultRow = conn.createNativeQuery(selectQuery).fetchRowStrict()
                 assertNotNull(resultRow)
@@ -111,7 +111,7 @@ class ManualCompositeIntegrationTest {
                 assertEquals("PLN", fetchedPayment.currency)
             }
             
-            // Sprawdzenie poza transakcją
+            // Check again outside the transaction
             val countRows = conn.createNativeQuery("SELECT COUNT(*) FROM orders").fetchRowStrict().get<Long>(0)
             assertEquals(1L, countRows)
 

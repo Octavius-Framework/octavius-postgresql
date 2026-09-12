@@ -131,7 +131,7 @@ class JsonElementIntegrationTest {
         try {
             conn.reloadTypes()
 
-            // Rejestrujemy ręczne konwertery dla naszego kompozytu
+            // Register hand-written converters for the composite
             conn.typeManager.registerResultConverter(MetadataHolderResultConverter())
             conn.typeManager.registerParameterConverter(MetadataHolderParameterConverter())
 
@@ -161,7 +161,7 @@ class JsonElementIntegrationTest {
                 buildJsonObject { put("key2", JsonPrimitive("val2")) }
             )
 
-            // Przekazujemy listę bez jawnego typu, powinno zostać wywnioskowane jako jsonb[]
+            // Pass the list with no explicit type; it should be inferred as jsonb[]
             val row = conn.createNamedQuery("SELECT @list as res")
                 .fetchRowStrict("list" to list)
 

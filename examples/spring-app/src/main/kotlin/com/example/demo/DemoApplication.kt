@@ -50,7 +50,7 @@ class DemoApplication {
     @Bean
     fun initDatabase(octaviusTemplate: OctaviusTemplate): CommandLineRunner = CommandLineRunner {
 
-        // Lokalny mapper tylko do jsonb w bazie, bez ruszania Springa
+        // A local mapper for jsonb only, leaving Spring's own untouched
         val dbObjectMapper = jacksonObjectMapper()
 
         octaviusTemplate.execute {
