@@ -17,7 +17,7 @@ logger.info { "Octavius registered $found" }
 
 ```kotlin
 dependencies {
-    implementation("io.github.octavius-framework:client-scanner:1.0.0")
+    implementation("io.github.octavius-framework:client-scanner:1.1.0")
 }
 ```
 

@@ -2,177 +2,90 @@
 
 ### Driver
 
-#### Added
-
-- **What walking the converter registry costs, with a number under it.** Every converter registered ahead of
-  the one that claims a value is asked about that value, and the question is per value rather than per row or
-  per query - a comment in `CompositesAsMaps` has said for a while that reading `expectedType.classifier` is
-  "enough dearer to show up once several of these are registered", without saying how much dearer.
-  [The type system page](docs/driver/type-system.md#how-a-converter-gets-chosen) now carries the measurement: a
-  converter that claims nothing still costs about 0.16 ms per 10 000 rows for being asked, and about 0.28 ms if
-  it resolves the classifier before declining, so twenty of them double the read without decoding a single
-  value. Two things follow and the page says both - order `canConvert`'s cheap axis first, the PostgreSQL type
-  being a field comparison where the classifier is a reflective one; and index a converter under its real
-  `supportedSourceClass` rather than `Any::class`, which keeps it out of the walk entirely instead of merely
-  making its refusal cheap.
-
 #### Changed
 
 - **A data source with no connection free reports `CONNECTION_UNAVAILABLE` rather than `CONNECTION_ERROR`.**
-  Both are `InitializationException` and the type was right either way - the point of failure is that there is
-  no session - but the reason read "Could not connect to the database" for a pool that had run out of time
-  waiting for a free connection. Nothing had connected and nothing had failed to connect, so anything keying a
-  metric or a log filter on the reason filed pool exhaustion under connectivity. The new
-  `InitializationExceptionReason.CONNECTION_UNAVAILABLE` names that case instead, and it is read off JDBC's
-  `SQLTransientConnectionException` rather than guessed at from the message, so any data source reporting a
-  transient failure lands on it and not only HikariCP. `details` and the `cause` are untouched and still carry
-  the pool's own census. **This adds a constant to a public enum: an exhaustive
-  `when` over `InitializationExceptionReason` with no `else` needs a branch for it.**
+  Both are `InitializationException`. It is read off JDBC's `SQLTransientConnectionException`. **This adds a constant to
+  a public enum: an exhaustive `when` over `InitializationExceptionReason` with no `else` needs a branch for it.**
 
-- **The performance page is re-measured, and several of its verdicts moved.** Every figure on it now comes from
-  one run of the whole suite rather than one run per class: arrays are ~20% behind pgjdbc rather than ~28%,
-  `UNNEST` is 43x faster than row-at-a-time insertion rather than 37x, and reflection on the write path costs
-  ~16% rather than ~23%. The claim that pgjdbc's array allocation "will not sit still" is gone, that figure
-  having sat still. Both performance pages also name Kotlin and `kotlin-reflect` in their environment notes
-  now: what a reflective property costs belongs to that pair rather than to the driver, and a Kotlin upgrade is
-  a reason to re-measure rather than to carry the tables forward.
+- **The driver's performance page is re-measured.** Performance pages name Kotlin and
+  `kotlin-reflect` in their environment notes now.
 
 #### Fixed
 
 - **`commit()` refuses a transaction an earlier error aborted, instead of reporting a commit that never
   happened.** PostgreSQL answers a `COMMIT` there with a `ROLLBACK` and no error, and the driver took that for
-  success: a block that caught a failure and carried on returned normally, the log said the transaction was
-  committed, and none of it was. `commit()` raises `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)`
-  now, without sending anything, and so does setting `autoCommit` back to `true`, which commits; `required { }`
-  rolls back on it as on any other throw. pgjdbc accepts such a commit as silently as this did. **A caller that
-  swallowed a failure inside a transaction and returned normally now gets an exception at the commit**, where
-  it used to get nothing — and nothing saved either way.
+  success. It raises `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)` now without sending anything, 
+  and so does setting `autoCommit` back to `true`. **A caller that swallowed a failure inside a transaction and returned
+  normally now gets an exception at the commit**, where it used to get nothing - and nothing saved either way.
 
-- **A record read as a `Map` converts its keys instead of stringifying them.** `expectedType.arguments[1]` was
-  read for the value type and `arguments[0]` never read at all, so the value half of each pair went through the
-  converter chain while the key half went through `toString()` — an asymmetry in one function rather than a
-  decision about what a map key is. It lost fields three ways: a `NULL` key became the string `"null"`, and two
-  of them collapsed into one entry; a key equal to one already read replaced the field under it; and stringifying
-  manufactured duplicates that were not duplicates in SQL, an `int4` `1` and a `text` `'1'` being two keys in the
-  record and one in the map. `get<Map<Int, String>>` claimed to work as well, returning `String` keys that
-  erasure let through the cast, so it surfaced as a `ClassCastException` wherever the map was read rather than at
-  the conversion. Both halves go through the chain now, against the type arguments of the `Map` asked for, and
-  the three shapes above are refused with `MappingException(CONVERSION_ERROR)` naming the field's position — a
-  map quietly holding fewer fields than the record did being worse than a failure that says which one.
-  **`get<Map<String, Any?>>` against a record with non-text keys now fails with `NO_CONVERTER_FOUND`** rather
-  than stringifying them; name the key type the record carries.
+- **A record read as a `Map` converts its keys instead of stringifying them.** the key half of each pair went through 
+  `toString()` where the value half went through the converter chain. Three shapes lost a field to it - a `NULL` key, 
+  a key equal to one already read, and an `int4` `1` beside a `text` `'1'` - each collapsing two fields into one entry, 
+  and `get<Map<Int, String>>` returned `String` keys that failed as a `ClassCastException` far from the conversion. 
+  Both halves go through the chain now, and the three are refused like any other conversion. **`get<Map<String, Any?>>` 
+  against a record with non-text keys now fails with `NO_CONVERTER_FOUND`** rather than stringifying them; 
+  name the key type the record carries.
 
 ### Client
 
 #### Added
 
-- **[A performance page of its own](docs/client/performance.md), answering three questions the driver's cannot.**
-  What the layer costs over calling the driver by hand: on the clock nothing resolves, on either a 45 us
-  statement or a 5 ms one, and on allocation it is 702 B a call - of which 645 are the query being assembled
-  again, and 58 the session being found, which is the thing the client exists to do. What this stack costs
-  beside Spring's `NamedParameterJdbcTemplate` and JDBI: three stacks rather than three libraries, since
-  neither of the other two runs on this driver, and the whole primary-key gap against Spring turns out to be
-  server-side prepared statements, measured with Spring against itself. And whether a column should hold a
-  composite or a `dynamic_dto`, written, read whole and filtered on, flat and nested.
+- **[A performance page of its own](docs/client/performance.md).** What the layer costs over calling the
+  driver by hand, how the stack lands beside Spring's `NamedParameterJdbcTemplate` and JDBI, and whether a
+  column should hold a composite or a `dynamic_dto`.
 
-- **The client says what it logs, which is nothing.** Every line under a query built here is the driver's, and
-  [the README](docs/client/README.md#logging) now says so with the reason: a builder logging the SQL it
-  assembled would report a second time on a statement the driver already traces in the form the server
-  actually received. What does log is the separate `client-scanner`, and
-  [its four lines](docs/client/scanner.md#what-a-scan-logs) are written down - including why the two warnings
-  repeat in a log what `ScanReport` already carries.
-- **The Quickstart says what `db.execute { }` is not for.** It listed `largeObjects` and `notifications` among
-  the things to reach through it, and the session it lends lasts exactly as long as the block: a large object
-  descriptor is dead by the first write without `db.transaction { }`, and a `LISTEN` is undone by the
-  `UNLISTEN *` a session issues on its way back to the pool, silently. Something that listens holds its
-  connection, so it wants the driver rather than a block's loan. [Raw SQL](docs/client/queries.md#raw-sql)
-  gains the case the four builders cannot reach - a `CALL`, read with an ordinary terminal.
+- **The client says what it logs, which is nothing.**
 
-- **[Transaction Plans](docs/client/plans.md) says what a plan has that a block has not, and what a
-  transaction around one does to it.** Both write the same things with the same branches; a plan exists
-  before it runs — settled and checked first, a value to hand back, merge, describe and run again, given to
-  its helpers rather than found on their thread — and gives up deciding as it goes. A graph written in one
-  call shows it, and so does a record created or edited by one code path, beside the same save as a block. A
-  plan run inside a `transaction { }` block joins it under `REQUIRED` — all-or-nothing only together with the
-  block, and given a boundary of its own by `NESTED`. The example that inserted a row per step is one `UNNEST`
-  now, and the KDoc of `toTransactionValue` says what it is for — giving a known value the type a step's result
-  has, so that a helper takes a `TransactionValue` rather than an `Any?` — rather than a parameter map mixing
-  the two, which never needed it. Documentation only; no signature changed.
-- **[`dynamic_dto`](docs/client/dynamic-dto.md#where-it-goes) says where else it goes.** An array of several
-  shapes in one column, read back as their supertype or as `List<Any>`; an object built in the projection and
-  landing in a property, and an `ARRAY` of them landing in a list — a parent and its children in one query,
-  with no type for them in the schema; and plain `text` and `jsonb` columns holding the discriminator and the
-  payload, the type existing only on the way in and out. All three were in octavius-database's documentation
-  and worked here, unmentioned and untested; `DynamicDtoTest` covers them now. Documentation only; no
-  signature changed.
+- **The Quickstart stops sending `largeObjects` and `notifications` through `db.execute { }`.**
+
+- **Transaction Plans says what a plan has that a block has not, and what a
+  transaction around one does to it.**
+
+- **`dynamic_dto` says where else it goes** - three shapes that
+  were in octavius-database's documentation and worked here, unmentioned and untested. `DynamicDtoTest` covers
+  them now.
 
 #### Changed
 
-- **The `dynamic_dto` page's "cheaper in every direction" has figures under it.** It was the one sentence on
-  that page asking to be taken on trust, and it holds: against a `dynamic_dto` carrying the same five-field
-  row, a composite is 3.4x on writing, 1.8x on reading and 1.8x on filtering, the last of those being the
-  server reaching into a structure rather than any codec. The page also names where the margin is narrowest -
-  a composite that is nested *and* mapped by `registerAutoComposite`, which matches attributes to constructor
-  parameters afresh at every level where a JSON payload is one parse however deep it goes.
+- **The `dynamic_dto` page's "cheaper in every direction" has figures under it.**
 
 - **`client` stops declaring `kotlin-logging` and `slf4j-api`.** It writes no log lines of its own and never
-  used either; both arrive through the driver regardless, so nothing changes on a runtime classpath - the
-  published POM simply stops listing them twice.
+  used either; both arrive through the driver regardless, so nothing changes on a runtime classpath.
 
 #### Fixed
 
 - **`DefaultSessionProvider` binds the session it borrows, so nested client calls share it instead of
   borrowing one each.** `execute` bound nothing outside a transaction, so a client call made from inside
-  another took a connection of its own: two for work that needs one, a pool of `N` serving `N / D` callers at
-  nesting depth `D`, and on a pool of one a deadlock against itself - the outer level holding the only
-  connection while the inner waited out `connectionTimeout` for a second, surfacing as
-  `InitializationException(CONNECTION_ERROR)`, an exception about connecting raised by code that was querying.
-  Composing functions that each do a query is the ordinary way to use this client, so that was the ordinary
-  case and not an edge one. The binding carries whether a transaction is open as well as which session, and a
-  `transaction { }` entered on a session `execute` bound is the scope that opens it - isolation, read-only and
-  both timeouts apply in full there, and `NESTED` opens a transaction rather than attempting a savepoint with
-  none to take it in. **A query made from inside a `forEach*` block or a `ResultConverter` now raises
-  `InvalidOperationException(CONNECTION_BUSY)` whether or not a transaction is open**, where outside one it
-  used to pass by quietly taking a second connection. Code that genuinely needs a second connection while the
-  first is mid-result should take it out of the `DataSource` deliberately.
+  another took a connection of its own. **A query made from inside a `forEach*` block or a
+  `ResultConverter` now raises `InvalidOperationException(CONNECTION_BUSY)` whether or not a transaction is
+  open**, where outside one it used to take a second connection quietly.
 
-- **Plans merged the wrong way round are refused before they run.** A step can hold another plan's handle,
-  and `addPlan` appends, so merging the plan that uses a handle ahead of the plan that produces it put the
-  step before the result it needs. Validation let that through and it failed partway through the transaction,
-  once the step reached for the value — while the documentation said such a plan could not be written. It is
-  refused before the transaction opens now, still as `INVALID_ARGUMENT` and naming both steps:
-  `Step 0 binds 'edict_id' to step 1, which runs after it`. The `@throws` on `executeTransactionPlan` says so,
-  where it still described the shape checks that left with `field` and `column`.
-- **[The Combination That Misleads](docs/client/transactions-failures.md#the-combination-that-misleads) says what
-  the commit does.** A `dbResult` inside a plain `transaction { }` was said to commit over the failure it
-  caught; for a failure the server raised it never did — the server rolled the work back and the driver
-  reported a commit. With the driver's fix that commit is refused instead, and the page, the KDoc of
-  `transactionResult` and that of `dbResult` say so, keeping "commits over it" for a failure the block made
-  itself.
+- **Plans merged the wrong way round are refused before they run.** A step can hold another plan's handle and
+  `addPlan` appends, so merging the plan that uses a handle ahead of the plan that produces it put the step
+  before the result it needs. It failed partway through the transaction where the documentation said such a
+  plan could not be written at all; it is refused before the transaction opens now, still as
+  `INVALID_ARGUMENT` and naming both steps.
+
+- **[The Combination That Misleads](docs/client/transactions-failures.md#the-combination-that-misleads) said a
+  commit went through that never did.** For a failure the server raised, the `transaction { }` around a
+  `dbResult` did not commit over it - the server had rolled the work back. The page and the KDoc of
+  `transactionResult` and `dbResult` say what happens now that the driver refuses that commit.
 
 ### Migrations
 
 #### Added
 
-- **[Logging](docs/migrations/logging.md) is a page, as the driver's is.** What a run narrates at `info` and
-  spells out at `debug`, the four logger names, and the short list of things the migrator handles itself
-  instead of raising. Two of them were written nowhere: that `info()` runs the same discovery `migrate()`
-  does, so a health check on it writes a line per poll unless the scan's own logger is turned down; and that
-  the statements are the driver's `trace`, where a transactional migration is *one* traced statement carrying
-  the whole file and one without a transaction is a traced line each - the same asymmetry that decides
-  whether `failed_statement` can name anything.
+- **[Logging](docs/migrations/logging.md) is a page, as the driver's is.**
+
 - **[When a Run Is Refused](docs/migrations/exceptions.md) covers `MigrationException`.** Seven reasons were
   in the enum and two were named anywhere. They are laid out in the order a run can reach them, so what has
-  not happened yet is visible; with them, that it carries no `sqlState` and no query context, that a failed
-  migration's real explanation is in the `cause`, and that a run lets the driver's own exception through
-  untouched where it has no opinion of its own - the history table failing to be read, a connection dying
-  mid-run.
-- **The Quickstart says to call `reloadTypes()` after a run.** The driver says it in three places; migrations,
-  which is the thing that actually runs DDL after the pool is up, said it in none. A migration creating an
-  enum, a composite or a plain table leaves the type catalogue a version behind, and the
-  `TypeException(TYPE_NOT_FOUND)` that follows says nothing about migrations. With it, where it sits in a
-  startup sequence against `registerAnnotatedTypes`, and a short Spring section: one bean returning
-  `MigrationReport` so ordering has a handle, and why an `ApplicationRunner` is too late to be that.
+  not happened yet is visible.
+
+- **The Quickstart says to call `reloadTypes()` after a run.** The driver says it in three places;
+  migrations, which is the thing that actually runs DDL after the pool is up, said it in none, and the
+  `TypeException(TYPE_NOT_FOUND)` that follows a migration creating a type says nothing about migrations.
+  With it, where it sits in a startup sequence, and a short Spring section.
 
 #### Fixed
 
