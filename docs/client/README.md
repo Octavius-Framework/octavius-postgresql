@@ -22,6 +22,7 @@ it again.
 | [Transaction Plans](plans.md)                         | Graphs, create-or-edit, fragments, plans inside a block, and what is checked before it runs   |
 | [`dynamic_dto`](dynamic-dto.md)                       | One column, several unrelated shapes, and the three ways a value gets written as one          |
 | [Annotation Scanning](scanner.md)                     | `client-scanner`: finding annotated types and registering them, what it reports and logs      |
+| [Performance](performance.md)                         | What the layer costs, how the stack lands beside Spring and JDBI, and composite or `dynamic_dto` |
 
 ## Logging
 
@@ -95,6 +96,11 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [What a Scan Reports](scanner.md#what-a-scan-reports) — `ScanReport`, and why `unresolved` is not a refusal
 - [What a Scan Logs](scanner.md#what-a-scan-logs) — The four lines, and the one part of the client that writes any
 - [What It Does Not Scan](scanner.md#what-it-does-not-scan) — Converters, and why their order is not a scanner's to decide
+
+### Performance
+- [What the Client Costs](performance.md#what-the-client-costs) — The ladder from driver to builder, and where its 702 bytes go
+- [Against Other Stacks](performance.md#against-other-stacks) — Spring and JDBI, and why only one row compares libraries
+- [A Composite or a `dynamic_dto`](performance.md#a-composite-or-a-dynamic_dto) — Written, read and filtered on, flat and nested
 
 ## API Reference
 

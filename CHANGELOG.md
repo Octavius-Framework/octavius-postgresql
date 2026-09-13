@@ -2,6 +2,20 @@
 
 ### Driver
 
+#### Added
+
+- **What walking the converter registry costs, with a number under it.** Every converter registered ahead of
+  the one that claims a value is asked about that value, and the question is per value rather than per row or
+  per query - a comment in `CompositesAsMaps` has said for a while that reading `expectedType.classifier` is
+  "enough dearer to show up once several of these are registered", without saying how much dearer.
+  [The type system page](docs/driver/type-system.md#how-a-converter-gets-chosen) now carries the measurement: a
+  converter that claims nothing still costs about 0.16 ms per 10 000 rows for being asked, and about 0.28 ms if
+  it resolves the classifier before declining, so twenty of them double the read without decoding a single
+  value. Two things follow and the page says both - order `canConvert`'s cheap axis first, the PostgreSQL type
+  being a field comparison where the classifier is a reflective one; and index a converter under its real
+  `supportedSourceClass` rather than `Any::class`, which keeps it out of the walk entirely instead of merely
+  making its refusal cheap.
+
 #### Changed
 
 - **A data source with no connection free reports `CONNECTION_UNAVAILABLE` rather than `CONNECTION_ERROR`.**
@@ -14,6 +28,14 @@
   transient failure lands on it and not only HikariCP. `details` and the `cause` are untouched and still carry
   the pool's own census. **This adds a constant to a public enum: an exhaustive
   `when` over `InitializationExceptionReason` with no `else` needs a branch for it.**
+
+- **The performance page is re-measured, and several of its verdicts moved.** Every figure on it now comes from
+  one run of the whole suite rather than one run per class: arrays are ~20% behind pgjdbc rather than ~28%,
+  `UNNEST` is 43x faster than row-at-a-time insertion rather than 37x, and reflection on the write path costs
+  ~16% rather than ~23%. The claim that pgjdbc's array allocation "will not sit still" is gone, that figure
+  having sat still. Both performance pages also name Kotlin and `kotlin-reflect` in their environment notes
+  now: what a reflective property costs belongs to that pair rather than to the driver, and a Kotlin upgrade is
+  a reason to re-measure rather than to carry the tables forward.
 
 #### Fixed
 
@@ -43,6 +65,15 @@
 ### Client
 
 #### Added
+
+- **[A performance page of its own](docs/client/performance.md), answering three questions the driver's cannot.**
+  What the layer costs over calling the driver by hand: on the clock nothing resolves, on either a 45 us
+  statement or a 5 ms one, and on allocation it is 702 B a call - of which 645 are the query being assembled
+  again, and 58 the session being found, which is the thing the client exists to do. What this stack costs
+  beside Spring's `NamedParameterJdbcTemplate` and JDBI: three stacks rather than three libraries, since
+  neither of the other two runs on this driver, and the whole primary-key gap against Spring turns out to be
+  server-side prepared statements, measured with Spring against itself. And whether a column should hold a
+  composite or a `dynamic_dto`, written, read whole and filtered on, flat and nested.
 
 - **The client says what it logs, which is nothing.** Every line under a query built here is the driver's, and
   [the README](docs/client/README.md#logging) now says so with the reason: a builder logging the SQL it
@@ -76,6 +107,13 @@
   signature changed.
 
 #### Changed
+
+- **The `dynamic_dto` page's "cheaper in every direction" has figures under it.** It was the one sentence on
+  that page asking to be taken on trust, and it holds: against a `dynamic_dto` carrying the same five-field
+  row, a composite is 3.4x on writing, 1.8x on reading and 1.8x on filtering, the last of those being the
+  server reaching into a structure rather than any codec. The page also names where the margin is narrowest -
+  a composite that is nested *and* mapped by `registerAutoComposite`, which matches attributes to constructor
+  parameters afresh at every level where a JSON payload is one parse however deep it goes.
 
 - **`client` stops declaring `kotlin-logging` and `slf4j-api`.** It writes no log lines of its own and never
   used either; both arrive through the driver regardless, so nothing changes on a runtime classpath - the

@@ -10,11 +10,11 @@ and is optional; its pages are written in terms the driver's pages define, and p
 restating them. **Migrations** sits on the driver too, beside the client rather than under it — an application
 may take either, both, or neither.
 
-| Guides                             | For                                                                          |
-|:-----------------------------------|:-----------------------------------------------------------------------------|
-| [The driver](driver/README.md)     | Sessions, queries, transactions, the type system, COPY, Spring, and more     |
-| [The client](client/README.md)     | Query builders, transaction plans, `dynamic_dto`, annotation scanning        |
-| [Migrations](migrations/README.md) | Versioned and repeatable migrations, the history table, and what stops a run |
+| Guides                             | For                                                                            |
+|:-----------------------------------|:-------------------------------------------------------------------------------|
+| [The driver](driver/README.md)     | Sessions, queries, transactions, the type system, COPY, Spring, and more       |
+| [The client](client/README.md)     | Query builders, transaction plans, `dynamic_dto`, annotation scanning and more |
+| [Migrations](migrations/README.md) | Versioned and repeatable migrations, the history table, and what stops a run   |
 
 If you have not connected yet, the driver's [Quickstart](driver/quickstart.md) is where to start; nothing in
 the client or in migrations is reachable before that.

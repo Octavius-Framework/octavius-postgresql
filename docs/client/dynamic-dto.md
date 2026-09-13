@@ -36,8 +36,15 @@ The column comes back as whatever supertype you ask for, each row decoded as the
 names. That is what a composite cannot do: its shape is decided once, in the schema, for every row at once.
 
 Where the shape *is* fixed, use a composite. It is cheaper in every direction — no JSON to encode, no
-discriminator to keep honest — and the driver maps one onto a data class reflectively. See
-[Composites and Reflection](../driver/composites-reflection.md).
+discriminator to keep honest, and no document for the server to walk into before it can compare a field.
+[Measured](performance.md#a-composite-or-a-dynamic_dto) on a five-field row: 3.4× on writing, 1.8× on reading,
+1.8× on filtering.
+
+The margin is narrowest where the composite is nested and mapped by
+[`registerAutoComposite`](../driver/composites-reflection.md), which matches attributes to constructor
+parameters afresh at every level, where a JSON payload is one parse however deep it goes. Reflection took 3.2×
+the allocation of a hand-written `ResultConverter` on a two-level row, against 2.7× on a flat one. A converter
+that names the attributes instead of discovering them is ahead of everything else here at either depth.
 
 ## Where It Goes
 

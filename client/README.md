@@ -95,6 +95,8 @@ parts company with octavius-database.
 - [`dynamic_dto`](../docs/client/dynamic-dto.md) — one column, several unrelated shapes
 - [Annotation Scanning](../docs/client/scanner.md) — [`client-scanner`](../client-scanner/README.md), which
   registers your annotated types for you
+- [Performance](../docs/client/performance.md) — what the layer costs, this stack beside Spring and JDBI, and
+  composite or `dynamic_dto`
 
 ## License
 

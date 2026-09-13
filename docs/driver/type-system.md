@@ -502,6 +502,14 @@ These translate your Kotlin objects into a shape the codec layer can serialize.
 
 Because `canConvert` receives both the expected Kotlin type *and* the source `PgType`, a converter can be as narrow as you like — matching only `tribute` composites in the `imperium` schema, for example — and simply decline everything else.
 
+**Keep converters out of the walk.** Every converter ahead of the one that claims a value is asked about that value, and
+the question is per value rather than per row or per query — a nested composite is several values, each walking the list
+again. So index a converter under the `supportedSourceClass` it actually handles: one registered under its real class is
+not in the walk at all for values of other classes, while `Any::class` buys the catch-all slot at the price of being
+asked about everything. Inside `canConvert`, compare the `PgType` first and reach for `expectedType.classifier` only once
+that has matched — the type is in hand and comparing it is a field comparison, while the classifier goes through
+`kotlin-reflect`.
+
 ## Registering your own mappings
 
 All of these go through `session.typeManager` and are, again, **global for the database**. Do them once at startup, after any DDL that creates the types involved.
