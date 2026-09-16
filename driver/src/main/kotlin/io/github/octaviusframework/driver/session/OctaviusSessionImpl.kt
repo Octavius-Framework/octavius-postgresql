@@ -12,7 +12,7 @@ import io.github.octaviusframework.driver.lo.LargeObjectManager
 import io.github.octaviusframework.driver.notification.NotificationManager
 import io.github.octaviusframework.driver.query.NamedParameterQuery
 import io.github.octaviusframework.driver.query.NativeQuery
-import io.github.octaviusframework.driver.registry.GlobalTypeRegistry
+import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.transaction.OctaviusSavepoint
 import io.github.octaviusframework.driver.transaction.TransactionManager
 import io.github.octaviusframework.driver.registry.TypeManager
@@ -56,7 +56,7 @@ internal class OctaviusSessionImpl(
     // manager holds the stream itself, and a listener loop reads messages off it directly - so the
     // check belongs at the point they are handed out. The rest are gated for one rule rather than a
     // rule with exceptions.
-    override val typeManager: TypeManager = TypeManager(octaviusConnection.typeRegistry) { octaviusConnection.getSearchPath() }
+    override val typeManager: TypeManager = TypeManager(octaviusConnection.catalogHolder) { octaviusConnection.getSearchPath() }
         get() { checkOpen(); return field }
 
     override val notifications: NotificationManager = NotificationManager(this)
@@ -96,8 +96,8 @@ internal class OctaviusSessionImpl(
 
     override fun reloadTypes() {
         checkOpen()
-        GlobalTypeRegistry.reload(
-            octaviusConnection.registryKey,
+        GlobalCatalogStore.reload(
+            octaviusConnection.databaseKey,
             octaviusConnection.queryExecutor
         )
     }

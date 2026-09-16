@@ -10,7 +10,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.type.PgTyped
-import io.github.octaviusframework.driver.registry.TypeManager
+import io.github.octaviusframework.driver.registry.TypeLookup
 import io.github.octaviusframework.driver.type.UNRESOLVED_OID
 import io.github.octaviusframework.driver.type.isKnownOid
 
@@ -33,16 +33,13 @@ private const val MAX_PARAMETER_LENGTH = 1073741819
  * encoded by the codec registered for its Kotlin class, which is what decides the type the parameter is
  * *declared* as. See [Type System](https://github.com/Octavius-Framework/octavius-postgresql/blob/master/docs/driver/type-system.md).
  *
- * It is public because the `fetch*` family is `inline` and this is inlined along with it. That also means its
- * signatures reach code compiled against this driver, so they are not free to change — the same constraint
- * [ResultMapper][io.github.octaviusframework.driver.converter.result.mapper.ResultMapper] is under. Construct
- * one you cannot: a query hands you its own.
+ * One of these belongs to each execution: the codecs it encodes with are the ones the execution pinned, taken
+ * from the [TypeLookup] it was built over. A query builds its own when a terminal runs.
  */
-class ParameterSerializer internal constructor(
-    private val typeManager: TypeManager,
+internal class ParameterSerializer(
+    private val types: TypeLookup,
     private val parameterMapper: ParameterMapper
 ) {
-    private val codecDictionary = typeManager.codecDictionary
 
     internal fun serializeAll(parameters: Array<out Any?>, writer: PgByteWriter): IntArray {
         writer.clear()
@@ -69,7 +66,7 @@ class ParameterSerializer internal constructor(
         var value = parameter
 
         if (value is PgTyped) {
-            oid = typeManager.resolveOid(value.pgType.name, value.pgType.schema, value.pgType.isArray)
+            oid = types.resolveOid(value.pgType.name, value.pgType.schema, value.pgType.isArray)
             value = value.value
         }
 
@@ -80,7 +77,7 @@ class ParameterSerializer internal constructor(
         value = parameterMapper.convert(value, oid)
 
         if (value is PgTyped) {
-            oid = typeManager.resolveOid(value.pgType.name, value.pgType.schema, value.pgType.isArray)
+            oid = types.resolveOid(value.pgType.name, value.pgType.schema, value.pgType.isArray)
             value = value.value
         }
 
@@ -102,7 +99,7 @@ class ParameterSerializer internal constructor(
     }
 
     private fun writeKnown(value: Any, oid: Int, writer: PgByteWriter, marker: Int): Int {
-        val codec = codecDictionary.getCodecByOid<Any>(oid)
+        val codec = types.codecs.getCodecByOid<Any>(oid)
             ?: throw TypeException(TypeExceptionReason.MISSING_CODEC, oid = oid, details = "Codec not found")
 
         codec.encodeSafely(value, writer)
@@ -111,13 +108,13 @@ class ParameterSerializer internal constructor(
     }
 
     private fun writeStandard(value: Any, writer: PgByteWriter, marker: Int): Int {
-        val codec = codecDictionary.getCodecByClass(value::class)
+        val codec = types.codecs.getCodecByClass(value::class)
             ?: throw TypeException(TypeExceptionReason.MISSING_CODEC, details = "Codec not found for: ${value::class.qualifiedName}")
 
         @Suppress("UNCHECKED_CAST")
         (codec as TypeCodec<Any>).encodeSafely(value, writer)
         writer.fillLengthInt(marker)
 
-        return codecDictionary.getOidForCodec(codec) ?: typeManager.resolveOid(codec.pgTypeName, codec.pgSchema)
+        return types.codecs.getOidForCodec(codec) ?: types.resolveOid(codec.pgTypeName, codec.pgSchema)
     }
 }

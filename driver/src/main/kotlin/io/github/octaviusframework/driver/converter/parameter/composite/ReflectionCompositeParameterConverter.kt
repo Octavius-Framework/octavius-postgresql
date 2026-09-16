@@ -15,18 +15,18 @@ internal object ReflectionCompositeParameterConverter : ParameterConverter<Any> 
 
     override fun canConvert(sourceClass: KClass<*>, expectedOid: Int, context: SerializationContext): Boolean {
         if (!sourceClass.isData) return false
-        val registration = context.typeManager.converterRegistry.registeredComposites[sourceClass]
+        val registration = context.types.catalog.registeredComposites[sourceClass]
         return registration != null
     }
 
     override fun convert(source: Any, expectedOid: Int, context: SerializationContext): Any {
-        val registration = context.typeManager.converterRegistry.registeredComposites[source::class] ?: error("Missing registration for composite")
+        val registration = context.types.catalog.registeredComposites[source::class] ?: error("Missing registration for composite")
 
         val type = if (expectedOid.isKnownOid) {
-            context.typeManager.typeDictionary.getPgType(expectedOid) as PgType.Composite
+            context.types.dictionary.getPgType(expectedOid) as PgType.Composite
         } else {
             val qName = registration
-            context.typeManager.typeDictionary.getPgType(context.typeManager.resolveOid(qName.name, qName.schema)) as PgType.Composite
+            context.types.dictionary.getPgType(context.types.resolveOid(qName.name, qName.schema)) as PgType.Composite
         }
 
         @Suppress("UNCHECKED_CAST")
@@ -54,7 +54,7 @@ internal object ReflectionCompositeParameterConverter : ParameterConverter<Any> 
     }
 
     override fun getDefaultTypeName(sourceClass: KClass<*>, context: SerializationContext): QualifiedName? {
-        return context.typeManager.converterRegistry.registeredComposites[sourceClass]
+        return context.types.catalog.registeredComposites[sourceClass]
     }
 }
 

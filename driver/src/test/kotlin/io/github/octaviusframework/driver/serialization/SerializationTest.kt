@@ -9,8 +9,11 @@ import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.properties.OctaviusProperties
-import io.github.octaviusframework.driver.registry.GlobalTypeRegistry
-import io.github.octaviusframework.driver.registry.RegistryKey
+import io.github.octaviusframework.driver.codec.encodeSafely
+import io.github.octaviusframework.driver.container.PgContainer
+import io.github.octaviusframework.driver.registry.CatalogHolder
+import io.github.octaviusframework.driver.registry.GlobalCatalogStore
+import io.github.octaviusframework.driver.registry.DatabaseKey
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -18,6 +21,16 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertNotNull
 
 class SerializationTest {
+
+    /**
+     * Encodes a container the way the driver does: through the codec the catalog binds to its OID, which is
+     * what carries the dictionaries the nested fields are resolved through.
+     */
+    private fun CatalogHolder.encode(container: PgContainer, writer: PgByteWriter) {
+        val codec = catalog.codecs.getCodecByOid<PgContainer>(container.containerOid)
+        assertNotNull(codec, "no codec for OID ${container.containerOid}")
+        codec.encodeSafely(container, writer)
+    }
 
     @Test
     fun testFactoryAndSerializationRoundtrip() {
@@ -32,7 +45,7 @@ class SerializationTest {
         session.createNativeQuery("CREATE TYPE ser_test_composite AS (id int, name text)").execute()
         session.reloadTypes()
 
-        val typeRegistry = GlobalTypeRegistry.getRegistry(RegistryKey.from(OctaviusProperties.parse(url)))
+        val catalogHolder = GlobalCatalogStore.holderFor(DatabaseKey.from(OctaviusProperties.parse(url)))
 
         // 1. Build the composite from scratch through the factory
         val composite = session.typeManager.containers.createComposite("ser_test_composite")
@@ -40,7 +53,7 @@ class SerializationTest {
         composite["name"] = "factory_test"
 
         val writer1 = PgByteWriter()
-        ContainerCodec.serializeContainer(composite, writer1, typeRegistry)
+        catalogHolder.encode(composite, writer1)
         val builtCompositeBytes = writer1.toByteArray()
 
         // Compare against the database
@@ -48,7 +61,7 @@ class SerializationTest {
             session.createNativeQuery("SELECT ROW(777, 'factory_test')::ser_test_composite as my_comp").fetchRowStrict()
         val expectedComposite = expectedCompositeRow.get<PgComposite>(0)
         val writerComp = PgByteWriter()
-        ContainerCodec.serializeContainer(expectedComposite, writerComp, typeRegistry)
+        catalogHolder.encode(expectedComposite, writerComp)
 
         assertContentEquals(
             writerComp.toByteArray(),
@@ -65,13 +78,13 @@ class SerializationTest {
         )
 
         val writer2 = PgByteWriter()
-        ContainerCodec.serializeContainer(array, writer2, typeRegistry)
+        catalogHolder.encode(array, writer2)
         val builtArrayBytes = writer2.toByteArray()
 
         val expectedArrayRow = session.createNativeQuery("SELECT ARRAY[10, 20, 30]::int[]").fetchRowStrict()
         val expectedArray = expectedArrayRow.get<PgArray>(0)
         val writerArr = PgByteWriter()
-        ContainerCodec.serializeContainer(expectedArray, writerArr, typeRegistry)
+        catalogHolder.encode(expectedArray, writerArr)
 
         assertContentEquals(
             writerArr.toByteArray(),
@@ -110,7 +123,7 @@ class SerializationTest {
         val url = "jdbc:octavius://localhost:5432/octavius_test"
         val session = getOctaviusSession(url, props)
 
-        val typeRegistry = GlobalTypeRegistry.getRegistry(RegistryKey.from(OctaviusProperties.parse(url)))
+        val catalogHolder = GlobalCatalogStore.holderFor(DatabaseKey.from(OctaviusProperties.parse(url)))
 
         // A 2x3 array (2 rows, 3 columns)
         val multiArray = PgArray(
@@ -124,7 +137,7 @@ class SerializationTest {
         )
 
         val writer = PgByteWriter()
-        ContainerCodec.serializeContainer(multiArray, writer, typeRegistry)
+        catalogHolder.encode(multiArray, writer)
         val serializedArray = writer.toByteArray()
 
         val rows = session.createNativeQuery(
@@ -133,7 +146,7 @@ class SerializationTest {
 
         val expectedArray = rows.first().get<PgArray>(0)
         val writerArr = PgByteWriter()
-        ContainerCodec.serializeContainer(expectedArray, writerArr, typeRegistry)
+        catalogHolder.encode(expectedArray, writerArr)
 
         assertContentEquals(
             writerArr.toByteArray(),

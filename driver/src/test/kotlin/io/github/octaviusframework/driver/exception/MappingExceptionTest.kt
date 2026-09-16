@@ -2,13 +2,13 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.converter.result.array.CollectionArrayConverter
 import io.github.octaviusframework.driver.converter.result.composite.ReflectionCompositeConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.container.ArrayDimension
 import io.github.octaviusframework.driver.container.PgArray
 import io.github.octaviusframework.driver.container.PgComposite
+import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.registry.TypeManager
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -22,14 +22,14 @@ class MappingExceptionTest {
         val logger = KotlinLogging.logger {}
     }
 
-    private val dummyRegistry = TypeRegistry().apply {
-        updateTypes(mapOf(
+    private val dummyRegistry = CatalogHolder().apply {
+        update { it.withTypes(mapOf(
             1 to PgType.Base(1, "dummy", "public"),
             2 to PgType.Array(2, "dummy_array", "public", 1)
-        ))
-        converterRegistry.registerAutoCompositeType(Address::class, "address")
-        converterRegistry.registerAutoCompositeType(Person::class, "person")
-        converterRegistry.registerAutoCompositeType(Company::class, "company")
+        )) }
+        update { it.withComposite(Address::class, QualifiedName("", "address")) }
+        update { it.withComposite(Person::class, QualifiedName("", "person")) }
+        update { it.withComposite(Company::class, QualifiedName("", "company")) }
     }
 
     private fun createComposite(attributes: Map<String, Any?>): PgComposite {
@@ -53,10 +53,11 @@ class MappingExceptionTest {
 
     @Test
     fun `test nested composite mapping exception path for missing attribute`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        registry.addConverter(CollectionArrayConverter)
-        val deserializer = ResultMapper(registry, TypeManager(dummyRegistry))
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter, CollectionArrayConverter),
+            TypeManager(dummyRegistry).lookup
+        )
 
         // create valid person
         val p1 = createComposite(
@@ -93,10 +94,11 @@ class MappingExceptionTest {
 
     @Test
     fun `test nested composite mapping exception path for null in non-nullable property`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        registry.addConverter(CollectionArrayConverter)
-        val deserializer = ResultMapper(registry, TypeManager(dummyRegistry))
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter, CollectionArrayConverter),
+            TypeManager(dummyRegistry).lookup
+        )
 
         // create invalid person (name is null but expected String)
         val p1 = createComposite(
@@ -121,10 +123,11 @@ class MappingExceptionTest {
 
     @Test
     fun `test nested array mapping exception path for null in non-nullable array element`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        registry.addConverter(CollectionArrayConverter)
-        val deserializer = ResultMapper(registry, TypeManager(dummyRegistry))
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter, CollectionArrayConverter),
+            TypeManager(dummyRegistry).lookup
+        )
 
         // employees is List<Person> (non-nullable elements)
         // we put null as one of the elements

@@ -379,8 +379,8 @@ from here either way.
 
 ## Per-Query Converters
 
-The driver gives every query converter registries of its own, chained to the session's and thrown away with the
-query. `registerResultConverter` and `registerParameterConverter` are how a builder reaches them:
+The driver lets every query hold converters of its own, consulted ahead of the registered ones and thrown away
+with the query. `registerResultConverter` and `registerParameterConverter` are how a builder reaches them:
 
 ```kotlin
 val envelopes = db.select("payload").from("dispatches")

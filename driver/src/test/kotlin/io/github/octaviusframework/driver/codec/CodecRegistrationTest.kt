@@ -39,7 +39,7 @@ class CodecRegistrationTest {
         
         val oid = session.typeManager.resolveOid("circle")
         
-        val retrievedCodec = session.typeManager.codecDictionary.getCodecByOid<Circle>(oid)
+        val retrievedCodec = session.typeManager.codecs.getCodecByOid<Circle>(oid)
         
         assertNotNull(retrievedCodec, "Codec should be registered and retrievable by resolved OID")
         assertEquals(Circle::class, retrievedCodec?.kotlinClass)

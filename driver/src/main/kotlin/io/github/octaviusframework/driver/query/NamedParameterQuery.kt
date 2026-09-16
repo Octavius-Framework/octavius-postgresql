@@ -11,6 +11,7 @@ import io.github.octaviusframework.driver.parser.SqlParameterParser
 import io.github.octaviusframework.driver.row.Row
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.registry.TypeManager
+import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
 /**
@@ -35,7 +36,6 @@ class NamedParameterQuery internal constructor(
     typeManager: TypeManager
 ) : Query<NamedParameterQuery>(sql, queryExecutor, typeManager) {
 
-    @PublishedApi
     internal fun prepareNamedQuery(params: Map<String, Any?>): Pair<String, Array<out Any?>> {
         val parsed = SqlParameterParser.parse(sql)
         val paramNames = parsed.paramNames
@@ -49,7 +49,6 @@ class NamedParameterQuery internal constructor(
         return Pair(parsed.transformedSql, arrayParams)
     }
 
-    @PublishedApi
     internal inline fun <R> withPreparedQuery(
         params: Map<String, Any?>,
         block: (String, Array<out Any?>) -> R
@@ -74,8 +73,9 @@ class NamedParameterQuery internal constructor(
      * @throws InvalidOperationException `MISSING_NAMED_PARAMETER` if the statement names a parameter [params] omits.
      */
     fun fetchRows(params: Map<String, Any?>): List<Row> {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper)
+            queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper)
         }
     }
 
@@ -94,8 +94,9 @@ class NamedParameterQuery internal constructor(
      *   `MISSING_NAMED_PARAMETER` if the statement names a parameter [params] omits.
      */
     fun fetchRow(params: Map<String, Any?>): Row? {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            val rows = queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper, maxRows = 2)
+            val rows = queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, maxRows = 2)
             if (rows.size > 1) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
                 details = "Expected 0 or 1, got at least 2 rows."
@@ -116,8 +117,9 @@ class NamedParameterQuery internal constructor(
      *   `MISSING_NAMED_PARAMETER` if the statement names a parameter [params] omits.
      */
     fun fetchRowStrict(params: Map<String, Any?>): Row {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            val rows = queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper, maxRows = 2)
+            val rows = queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, maxRows = 2)
             if (rows.isEmpty()) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
                 details = "Expected 1, got 0 rows."
@@ -149,8 +151,9 @@ class NamedParameterQuery internal constructor(
      *   [OctaviusException], since the result has to be drained before it can be rethrown.
      */
     fun forEachRow(params: Map<String, Any?>, fetchSize: Int, block: (Row) -> Unit) {
+        val execution = beginExecution()
         withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.queryForEach(transformedSql, listParams, parameterSerializer, resultMapper, fetchSize, { it }, block)
+            queryExecutor.queryForEach(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, fetchSize, { it }, block)
         }
     }
 
@@ -170,12 +173,15 @@ class NamedParameterQuery internal constructor(
      * @return All matching rows, mapped; empty when nothing matched.
      * @throws MappingException if a row cannot be mapped onto [T].
      */
-    inline fun <reified T : Any> fetchObjects(params: Map<String, Any?>): List<T> {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T : Any> fetchObjects(params: Map<String, Any?>): List<T> =
+        fetchObjectsOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T : Any> fetchObjectsOf(params: Map<String, Any?>, targetType: KType): List<T> {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper) {
-                resultMapper.deserialize(it, targetType, recordType)
+            queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper) {
+                execution.resultMapper.deserialize(it, targetType, PgType.Record)
             }
         }
     }
@@ -192,12 +198,15 @@ class NamedParameterQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if more than one row matched.
      * @throws MappingException if the row cannot be mapped onto [T].
      */
-    inline fun <reified T: Any> fetchObject(params: Map<String, Any?>): T? {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T: Any> fetchObject(params: Map<String, Any?>): T? =
+        fetchObjectOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T : Any> fetchObjectOf(params: Map<String, Any?>, targetType: KType): T? {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            val rows = queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper, maxRows = 2) {
-                resultMapper.deserialize<T>(it, targetType, recordType)
+            val rows = queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
+                execution.resultMapper.deserialize<T>(it, targetType, PgType.Record)
             }
             if (rows.size > 1) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
@@ -219,12 +228,15 @@ class NamedParameterQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if no row or more than one row matched.
      * @throws MappingException if the row cannot be mapped onto [T].
      */
-    inline fun <reified T : Any> fetchObjectStrict(params: Map<String, Any?>): T {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T : Any> fetchObjectStrict(params: Map<String, Any?>): T =
+        fetchObjectStrictOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T : Any> fetchObjectStrictOf(params: Map<String, Any?>, targetType: KType): T {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            val rows = queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper, maxRows = 2) {
-                resultMapper.deserialize<T>(it, targetType, recordType)
+            val rows = queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
+                execution.resultMapper.deserialize<T>(it, targetType, PgType.Record)
             }
             if (rows.size > 1) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
@@ -254,18 +266,21 @@ class NamedParameterQuery internal constructor(
      * @throws MappingException if a row cannot be mapped onto [T], or wrapping anything [block] throws
      *   that is not an [OctaviusException].
      */
-    inline fun <reified T : Any> forEachObject(params: Map<String, Any?>, fetchSize: Int, crossinline block: (T) -> Unit) {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T : Any> forEachObject(params: Map<String, Any?>, fetchSize: Int, noinline block: (T) -> Unit) =
+        forEachObjectOf(params, fetchSize, typeOf<T>(), block)
+
+    @PublishedApi
+    internal fun <T : Any> forEachObjectOf(params: Map<String, Any?>, fetchSize: Int, targetType: KType, block: (T) -> Unit) {
+        val execution = beginExecution()
         withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.queryForEach(transformedSql, listParams, parameterSerializer, resultMapper, fetchSize, {
-                resultMapper.deserialize<T>(it, targetType, recordType)
-            }, { block(it) })
+            queryExecutor.queryForEach(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, fetchSize, {
+                execution.resultMapper.deserialize<T>(it, targetType, PgType.Record)
+            }, block)
         }
     }
 
     /** Same as [forEachObject], with the values given as `Pair`s. */
-    inline fun <reified T : Any> forEachObject(vararg params: Pair<String, Any?>, fetchSize: Int, crossinline block: (T) -> Unit) = forEachObject(params.toMap(), fetchSize, block)
+    inline fun <reified T : Any> forEachObject(vararg params: Pair<String, Any?>, fetchSize: Int, noinline block: (T) -> Unit) = forEachObject(params.toMap(), fetchSize, block)
 
     //-----------------------------------------Single Column Methods----------------------------------------------------
 
@@ -279,10 +294,14 @@ class NamedParameterQuery internal constructor(
      * @return The first column of all matching rows; empty when nothing matched.
      * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if a value is `NULL` and [T] is not nullable.
      */
-    inline fun <reified T> fetchFields(params: Map<String, Any?>): List<T> {
-        val targetType = typeOf<T>()
+    inline fun <reified T> fetchFields(params: Map<String, Any?>): List<T> =
+        fetchFieldsOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T> fetchFieldsOf(params: Map<String, Any?>, targetType: KType): List<T> {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper) { it.get(0, targetType) }
+            queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper) { it.get(0, targetType) }
         }
     }
 
@@ -308,10 +327,14 @@ class NamedParameterQuery internal constructor(
      * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if [T] is not nullable and no row matched, or
      *   the value was `NULL`.
      */
-    inline fun <reified T> fetchField(params: Map<String, Any?>): T {
-        val targetType = typeOf<T>()
+    inline fun <reified T> fetchField(params: Map<String, Any?>): T =
+        fetchFieldOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T> fetchFieldOf(params: Map<String, Any?>, targetType: KType): T {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            val rows = queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper, maxRows = 2) {
+            val rows = queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
                 it.get<T>(
                     0,
                     targetType
@@ -349,10 +372,14 @@ class NamedParameterQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if no row or more than one row matched.
      * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if the value is `NULL` and [T] is not nullable.
      */
-    inline fun <reified T> fetchFieldStrict(params: Map<String, Any?>): T {
-        val targetType = typeOf<T>()
+    inline fun <reified T> fetchFieldStrict(params: Map<String, Any?>): T =
+        fetchFieldStrictOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T> fetchFieldStrictOf(params: Map<String, Any?>, targetType: KType): T {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            val rows = queryExecutor.query(transformedSql, listParams, parameterSerializer, resultMapper, maxRows = 2) {
+            val rows = queryExecutor.query(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
                 it.get<T>(
                     0,
                     targetType
@@ -385,17 +412,21 @@ class NamedParameterQuery internal constructor(
      * @throws MappingException if a value cannot be mapped to [T], or wrapping anything [block] throws
      *   that is not an [OctaviusException].
      */
-    inline fun <reified T> forEachField(params: Map<String, Any?>, fetchSize: Int, crossinline block: (T) -> Unit) {
-        val targetType = typeOf<T>()
+    inline fun <reified T> forEachField(params: Map<String, Any?>, fetchSize: Int, noinline block: (T) -> Unit) =
+        forEachFieldOf(params, fetchSize, typeOf<T>(), block)
+
+    @PublishedApi
+    internal fun <T> forEachFieldOf(params: Map<String, Any?>, fetchSize: Int, targetType: KType, block: (T) -> Unit) {
+        val execution = beginExecution()
         withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.queryForEach(transformedSql, listParams, parameterSerializer, resultMapper, fetchSize, {
+            queryExecutor.queryForEach(transformedSql, listParams, execution.parameterSerializer, execution.resultMapper, fetchSize, {
                 it.get<T>(0, targetType)
-            }, { block(it) })
+            }, block)
         }
     }
 
     /** Same as [forEachField], with the values given as `Pair`s. */
-    inline fun <reified T> forEachField(vararg params: Pair<String, Any?>, fetchSize: Int, crossinline block: (T) -> Unit) = forEachField(params.toMap(), fetchSize, block)
+    inline fun <reified T> forEachField(vararg params: Pair<String, Any?>, fetchSize: Int, noinline block: (T) -> Unit) = forEachField(params.toMap(), fetchSize, block)
 
     //------------------------------------------Modification methods----------------------------------------------------
 
@@ -409,8 +440,9 @@ class NamedParameterQuery internal constructor(
      * @throws InvalidOperationException `UNEXPECTED_RESULT` if the statement returned rows.
      */
     fun update(params: Map<String, Any?>): Long {
+        val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.update(transformedSql, listParams, parameterSerializer)
+            queryExecutor.update(transformedSql, listParams, execution.parameterSerializer)
         }
     }
 

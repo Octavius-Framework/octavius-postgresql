@@ -1,7 +1,7 @@
 package io.github.octaviusframework.driver.query
 
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterMapper
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.registry.TypeManager
 import org.junit.jupiter.api.Test
@@ -33,10 +33,10 @@ class ParameterSerializerTest {
 
     @Test
     fun testBasicRoundTrip() {
-        val registry = TypeRegistry()
+        val registry = CatalogHolder()
         val typeManager = TypeManager(registry)
-        val parameterMapper = ParameterMapper(registry.converterRegistry.parameterConverterRegistry, typeManager)
-        val serializer = ParameterSerializer(typeManager, parameterMapper)
+        val parameterMapper = ParameterMapper(registry.catalog, null, typeManager.lookup)
+        val serializer = ParameterSerializer(typeManager.lookup, parameterMapper)
 
         // Test for Null
         val nullBytes = serializeValueForTest(serializer, null)
@@ -46,7 +46,7 @@ class ParameterSerializerTest {
         val intVal = 12345
         val intBytes = serializeValueForTest(serializer, intVal)
         assertNotNull(intBytes)
-        val intHandler = registry.codecs.getCodecByClass(Int::class)!!
+        val intHandler = registry.catalog.codecs.getCodecByClass(Int::class)!!
         val parsedInt = intHandler.fromBinary(intBytes, 0, intBytes.size)
         assertEquals(intVal, parsedInt, "Integer roundtrip should match original value")
 
@@ -54,7 +54,7 @@ class ParameterSerializerTest {
         val stringVal = "test_string_123"
         val stringBytes = serializeValueForTest(serializer, stringVal)
         assertNotNull(stringBytes)
-        val stringHandler = registry.codecs.getCodecByClass(String::class)!!
+        val stringHandler = registry.catalog.codecs.getCodecByClass(String::class)!!
         val parsedString = stringHandler.fromBinary(stringBytes, 0, stringBytes.size)
         assertEquals(stringVal, parsedString, "String roundtrip should match original value")
 
@@ -62,7 +62,7 @@ class ParameterSerializerTest {
         val boolVal = true
         val boolBytes = serializeValueForTest(serializer, boolVal)
         assertNotNull(boolBytes)
-        val boolHandler = registry.codecs.getCodecByClass(Boolean::class)!!
+        val boolHandler = registry.catalog.codecs.getCodecByClass(Boolean::class)!!
         val parsedBool = boolHandler.fromBinary(boolBytes, 0, boolBytes.size)
         assertEquals(boolVal, parsedBool, "Boolean roundtrip should match original value")
 
@@ -70,22 +70,22 @@ class ParameterSerializerTest {
         val doubleVal = 3.14159
         val doubleBytes = serializeValueForTest(serializer, doubleVal)
         assertNotNull(doubleBytes)
-        val doubleHandler = registry.codecs.getCodecByClass(Double::class)!!
+        val doubleHandler = registry.catalog.codecs.getCodecByClass(Double::class)!!
         val parsedDouble = doubleHandler.fromBinary(doubleBytes, 0, doubleBytes.size)
         assertEquals(doubleVal, parsedDouble, "Double roundtrip should match original value")
     }
 
     @Test
     fun testByteArrayRoundTrip() {
-        val registry = TypeRegistry()
+        val registry = CatalogHolder()
         val typeManager = TypeManager(registry)
-        val parameterMapper = ParameterMapper(registry.converterRegistry.parameterConverterRegistry, typeManager)
-        val serializer = ParameterSerializer(typeManager, parameterMapper)
+        val parameterMapper = ParameterMapper(registry.catalog, null, typeManager.lookup)
+        val serializer = ParameterSerializer(typeManager.lookup, parameterMapper)
 
         val byteArrayVal = byteArrayOf(0x01, 0x02, 0x03, 0xFF.toByte())
         val bytes = serializeValueForTest(serializer, byteArrayVal)
         assertNotNull(bytes)
-        val handler = registry.codecs.getCodecByClass(ByteArray::class)!!
+        val handler = registry.catalog.codecs.getCodecByClass(ByteArray::class)!!
         val parsedByteArray = handler.fromBinary(bytes, 0, bytes.size)
         
         assertEquals(byteArrayVal.toList(), parsedByteArray.toList(), "ByteArray roundtrip should match original value")
@@ -93,10 +93,10 @@ class ParameterSerializerTest {
 
     @Test
     fun testSerializeAllMultipleParameters() {
-        val registry = TypeRegistry()
+        val registry = CatalogHolder()
         val typeManager = TypeManager(registry)
-        val parameterMapper = ParameterMapper(registry.converterRegistry.parameterConverterRegistry, typeManager)
-        val serializer = ParameterSerializer(typeManager, parameterMapper)
+        val parameterMapper = ParameterMapper(registry.catalog, null, typeManager.lookup)
+        val serializer = ParameterSerializer(typeManager.lookup, parameterMapper)
 
         val parameters = arrayOf<Any?>(123, "test", null, true)
         val writer = PgByteWriter()
@@ -115,12 +115,12 @@ class ParameterSerializerTest {
 
     @Test
     fun testPgTypedSerialization() {
-        val registry = TypeRegistry()
-        registry.updateTypes(mapOf(PgStandardType.INT8.oid to PgType.Base(PgStandardType.INT8.oid, PgStandardType.INT8.typeName, "pg_catalog")))
+        val registry = CatalogHolder()
+        registry.update { it.withTypes(mapOf(PgStandardType.INT8.oid to PgType.Base(PgStandardType.INT8.oid, PgStandardType.INT8.typeName, "pg_catalog"))) }
         
         val typeManager = TypeManager(registry)
-        val parameterMapper = ParameterMapper(registry.converterRegistry.parameterConverterRegistry, typeManager)
-        val serializer = ParameterSerializer(typeManager, parameterMapper)
+        val parameterMapper = ParameterMapper(registry.catalog, null, typeManager.lookup)
+        val serializer = ParameterSerializer(typeManager.lookup, parameterMapper)
 
         // Int value explicitly typed as INT8
         val typedValue = 123L.withPgType(PgStandardType.INT8)
@@ -133,10 +133,10 @@ class ParameterSerializerTest {
 
     @Test
     fun testUnsupportedTypeThrowsException() {
-        val registry = TypeRegistry()
+        val registry = CatalogHolder()
         val typeManager = TypeManager(registry)
-        val parameterMapper = ParameterMapper(registry.converterRegistry.parameterConverterRegistry, typeManager)
-        val serializer = ParameterSerializer(typeManager, parameterMapper)
+        val parameterMapper = ParameterMapper(registry.catalog, null, typeManager.lookup)
+        val serializer = ParameterSerializer(typeManager.lookup, parameterMapper)
 
         class CustomUnsupportedClass(val data: String)
         val unsupported = CustomUnsupportedClass("test")

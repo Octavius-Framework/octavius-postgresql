@@ -4,11 +4,10 @@ import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterCo
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.converter.parameter.range.MultiRangeParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.range.RangeParameterConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.converter.result.range.MultiRangeResultConverter
 import io.github.octaviusframework.driver.converter.result.range.RangeResultConverter
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.registry.TypeManager
 import io.github.octaviusframework.driver.type.range.MultiRange
@@ -28,25 +27,21 @@ class RangeConverterTest {
     private val rangeOid = 3904 // int4range
     private val multiRangeOid = 4451 // int4multirange
 
-    private val dummyRegistry = TypeRegistry().apply {
-        updateTypes(mapOf(
+    private val dummyRegistry = CatalogHolder().apply {
+        update { it.withTypes(mapOf(
             baseOid to PgType.Base(baseOid, "int4", "pg_catalog"),
             rangeOid to PgType.Range(rangeOid, "int4range", "pg_catalog", baseOid),
             multiRangeOid to PgType.Multirange(multiRangeOid, "int4multirange", "pg_catalog", rangeOid)
-        ))
+        )) }
     }
 
     private val typeManager = TypeManager(dummyRegistry)
-    private val pgRangeType = dummyRegistry.dictionary.getPgType(rangeOid) as PgType.Range
-    private val pgMultiRangeType = dummyRegistry.dictionary.getPgType(multiRangeOid) as PgType.Multirange
+    private val pgRangeType = dummyRegistry.catalog.dictionary.getPgType(rangeOid) as PgType.Range
+    private val pgMultiRangeType = dummyRegistry.catalog.dictionary.getPgType(multiRangeOid) as PgType.Multirange
 
     @Test
     fun `test RangeResultConverter deserialization`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(RangeResultConverter)
-        val deserializer = ResultMapper(registry,
-            typeManager
-        )
+        val deserializer = ResultMapper(dummyRegistry.catalog, listOf(RangeResultConverter), typeManager.lookup)
 
         val pgRange = PgRange.create(
             rangeOid = rangeOid,
@@ -73,11 +68,10 @@ class RangeConverterTest {
 
     @Test
     fun `test MultiRangeResultConverter deserialization`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(RangeResultConverter)
-        registry.addConverter(MultiRangeResultConverter)
-        val deserializer = ResultMapper(registry,
-            typeManager
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(RangeResultConverter, MultiRangeResultConverter),
+            typeManager.lookup
         )
 
         val pgRange1 = PgRange.create(
@@ -119,7 +113,7 @@ class RangeConverterTest {
         val converter = RangeParameterConverter
         
         val context = object : SerializationContext {
-            override val typeManager = this@RangeConverterTest.typeManager
+            override val types = this@RangeConverterTest.typeManager.lookup
             override fun convert(source: Any, expectedOid: Int, pathSegment: String?): Any = source
             override fun findConverter(source: Any, expectedOid: Int): ParameterConverter<Any>? = null
             override fun findConverterByClass(
@@ -152,7 +146,7 @@ class RangeConverterTest {
         val converter = MultiRangeParameterConverter
 
         val context = object : SerializationContext {
-            override val typeManager = this@RangeConverterTest.typeManager
+            override val types = this@RangeConverterTest.typeManager.lookup
             override fun convert(source: Any, expectedOid: Int, pathSegment: String?): Any = source
             override fun findConverter(source: Any, expectedOid: Int): ParameterConverter<Any>? = null
             override fun findConverterByClass(

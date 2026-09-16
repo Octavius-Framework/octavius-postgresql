@@ -46,9 +46,9 @@ class ManualCompositeIntegrationTest {
         override fun convert(source: PaymentInfo, expectedOid: Int, context: SerializationContext): Any {
             // Building the composite is much cleaner through the TypeManager
             val composite = if (expectedOid.isKnownOid) {
-                context.typeManager.containers.createComposite(expectedOid)
+                context.types.containers.createComposite(expectedOid)
             } else {
-                context.typeManager.containers.createComposite("payment_info")
+                context.types.containers.createComposite("payment_info")
             }
             
             // Attributes are addressed by name

@@ -105,65 +105,66 @@ class CodecDictionary private constructor(
      * @param codec the new codec to register.
      * @param dictionary the [TypeDictionary] used to resolve the type OID if not explicitly provided by the codec.
      * @return a new instance of [CodecDictionary] containing the newly registered codec.
+     * @throws io.github.octaviusframework.driver.exception.TypeException `TYPE_NOT_FOUND` where [codec] names a
+     *   schema-qualified type the catalog does not describe.
      */
     internal fun withRegisteredCodec(codec: TypeCodec<*>, dictionary: TypeDictionary): CodecDictionary {
-        val newOidMap = IntObjectMap(this.codecsByOid)
-        val newClassMap = this.codecsByClass.toMutableMap()
-        val newCodecToOid = this.codecToOid.toMutableMap()
-        val newRegisteredCodecs = this.registeredCodecs + codec
+        val result = build(this.registeredCodecs + codec, dictionary)
 
-        if (codec.isDefaultForKotlinType) {
-            newClassMap[codec.kotlinClass] = codec
-            if (codec.kotlinClass.isSealed) {
-                codec.kotlinClass.sealedSubclasses.forEach { subclass ->
-                    newClassMap[subclass] = codec
-                }
-            }
+        // A schema-qualified type the catalog does not describe is a mistake in the registration, and this is the
+        // one moment the caller is still on the stack to hear about it - a reload finding the same thing later is
+        // the database having changed, and only warns. resolveOid is what raises it, naming the type and schema.
+        if (codec.oid == null && codec.pgSchema.isNotBlank() && result.getOidForCodec(codec) == null) {
+            dictionary.resolveOid(codec.pgTypeName, codec.pgSchema, searchPath = emptyList())
         }
 
-        if (codec.oid != null) {
-            newOidMap[codec.oid!!] = codec
-            newCodecToOid[codec] = codec.oid!!
-        } else if (codec.pgSchema.isNotBlank()) {
-            val resolvedOid = dictionary.resolveOid(codec.pgTypeName, codec.pgSchema, searchPath = emptyList())
-            newOidMap[resolvedOid] = codec
-            newCodecToOid[codec] = resolvedOid
-        } else {
-            dictionary.forEachType { oid, type ->
-                if (type.name == codec.pgTypeName && (codec.pgSchema.isEmpty() || codec.pgSchema == type.schema)) {
-                    newOidMap[oid] = codec
-                }
-            }
-        }
-
-        return CodecDictionary(newOidMap, newClassMap, newCodecToOid, newRegisteredCodecs)
+        return result
     }
 
     /**
-     * Rebuilds the dictionary with new dynamically resolved types from the database.
+     * Rebuilds the dictionary against a catalog's types, keeping the codecs registered by hand and creating one
+     * for every type they leave uncovered.
      *
-     * @param newTypes a map of newly discovered PostgreSQL types by OID.
-     * @param registry the [TypeRegistry] used for creating dynamic container codecs.
+     * @param dictionary the types this dictionary is to describe.
      * @return a new updated instance of [CodecDictionary].
      */
-    internal fun buildUpdated(newTypes: Map<Int, PgType>, registry: TypeRegistry): CodecDictionary {
+    internal fun buildUpdated(dictionary: TypeDictionary): CodecDictionary = build(this.registeredCodecs, dictionary)
+
+    /**
+     * The one way a dictionary with dynamic codecs in it comes to exist.
+     *
+     * Every codec it creates is bound to a [CodecScope] carrying [dictionary] and the dictionary being built, so
+     * a codec never reads a catalog other than the one it belongs to. That is also why both callers come through
+     * here rather than editing a copy of an existing dictionary: a dynamic codec kept from a previous one would
+     * still be resolving nested values through the previous one's pair.
+     */
+    private fun build(registered: List<TypeCodec<*>>, dictionary: TypeDictionary): CodecDictionary {
         val newOidMap = IntObjectMap<TypeCodec<*>>()
+        val newClassMap = mutableMapOf<KClass<*>, TypeCodec<*>>()
         val newCodecToOid = mutableMapOf<TypeCodec<*>, Int>()
 
-        for (codec in this.registeredCodecs) {
-            if (codec.oid != null) {
-                newOidMap[codec.oid!!] = codec
-                newCodecToOid[codec] = codec.oid!!
-            } else if (codec.pgSchema.isNotBlank()) {
-                for ((oid, type) in newTypes) {
-                    if (type.name == codec.pgTypeName && type.schema == codec.pgSchema) {
-                        newOidMap[oid] = codec
-                        newCodecToOid[codec] = oid
-                        break
+        for (codec in registered) {
+            if (codec.isDefaultForKotlinType) {
+                newClassMap[codec.kotlinClass] = codec
+                if (codec.kotlinClass.isSealed) {
+                    codec.kotlinClass.sealedSubclasses.forEach { subclass ->
+                        newClassMap[subclass] = codec
                     }
                 }
+            }
+
+            val declaredOid = codec.oid
+            if (declaredOid != null) {
+                newOidMap[declaredOid] = codec
+                newCodecToOid[codec] = declaredOid
+            } else if (codec.pgSchema.isNotBlank()) {
+                val namedOid = dictionary.findOid(codec.pgTypeName, codec.pgSchema)
+                if (namedOid != null) {
+                    newOidMap[namedOid] = codec
+                    newCodecToOid[codec] = namedOid
+                }
             } else {
-                for ((oid, type) in newTypes) {
+                dictionary.forEachType { oid, type ->
                     if (type.name == codec.pgTypeName) {
                         newOidMap[oid] = codec
                     }
@@ -171,20 +172,21 @@ class CodecDictionary private constructor(
             }
         }
 
-        for ((oid, type) in newTypes) {
+        val scope = CodecScope(dictionary)
+        dictionary.forEachType { oid, type ->
             if (!newOidMap.containsKey(oid)) {
                 val codec = when (type) {
                     is PgType.Enum -> DynamicEnumCodec(oid, type.name, type.schema)
-                    is PgType.Domain -> DynamicDomainCodec(oid, type.name, type.schema, type.baseTypeOid, registry)
-                    is PgType.Array -> DynamicContainerCodec(oid, type.name, type.schema, PgArray::class, registry)
+                    is PgType.Domain -> DynamicDomainCodec(oid, type.name, type.schema, type.baseTypeOid, scope)
+                    is PgType.Array -> DynamicContainerCodec(oid, type.name, type.schema, PgArray::class, scope)
                     is PgType.Composite -> DynamicContainerCodec(
-                        oid, type.name, type.schema, PgComposite::class, registry
+                        oid, type.name, type.schema, PgComposite::class, scope
                     )
 
-                    is PgType.Record -> DynamicContainerCodec(oid, type.name, type.schema, PgRecord::class, registry)
-                    is PgType.Range -> DynamicContainerCodec(oid, type.name, type.schema, PgRange::class, registry)
+                    is PgType.Record -> DynamicContainerCodec(oid, type.name, type.schema, PgRecord::class, scope)
+                    is PgType.Range -> DynamicContainerCodec(oid, type.name, type.schema, PgRange::class, scope)
                     is PgType.Multirange -> DynamicContainerCodec(
-                        oid, type.name, type.schema, PgMultirange::class, registry
+                        oid, type.name, type.schema, PgMultirange::class, scope
                     )
 
                     else -> null
@@ -196,7 +198,7 @@ class CodecDictionary private constructor(
             }
         }
 
-        return CodecDictionary(newOidMap, this.codecsByClass, newCodecToOid, this.registeredCodecs)
+        return CodecDictionary(newOidMap, newClassMap, newCodecToOid, registered).also { scope.bind(it) }
     }
 
     //----------------------------------------------API-----------------------------------------------------------------

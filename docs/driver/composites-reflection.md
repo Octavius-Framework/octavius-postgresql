@@ -397,9 +397,9 @@ class TributeParameterConverter : ParameterConverter<Tribute> {
     override fun convert(source: Tribute, expectedOid: Int, context: SerializationContext): Any {
         // Known when the value is nested in a composite or array, or was wrapped in PgTyped
         val composite = if (expectedOid.isKnownOid) {
-            context.typeManager.containers.createComposite(expectedOid)
+            context.types.containers.createComposite(expectedOid)
         } else {
-            context.typeManager.containers.createComposite("tribute")
+            context.types.containers.createComposite("tribute")
         }
         composite["amount"] = source.amount
         composite["currency"] = source.currency
@@ -415,7 +415,7 @@ session.typeManager.registerResultConverter(TributeResultConverter())
 session.typeManager.registerParameterConverter(TributeParameterConverter())
 ```
 
-`ContainerFactory` (`typeManager.containers`) is the clean way to build one: `createComposite` by name or by OID.
+`ContainerFactory` (`types.containers` in a converter, `typeManager.containers` on a session) is the clean way to build one: `createComposite` by name or by OID.
 
 That pair replaces `registerAutoComposite` — the class needs no registration and nothing else changes at the call site.
 A `List<Tribute>` becomes a `tribute[]`, a `Tribute` nested inside another composite is converted through the same chain

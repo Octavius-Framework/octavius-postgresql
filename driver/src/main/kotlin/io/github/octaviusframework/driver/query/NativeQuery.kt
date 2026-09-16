@@ -10,6 +10,7 @@ import io.github.octaviusframework.driver.execution.QueryExecutor
 import io.github.octaviusframework.driver.row.Row
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.registry.TypeManager
+import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
 /**
@@ -35,7 +36,6 @@ class NativeQuery internal constructor(
      * [NamedParameterQuery][io.github.octaviusframework.driver.query.NamedParameterQuery], where
      * they do and the context carries both.
      */
-    @PublishedApi
     internal inline fun <R> withPositionalContext(params: Array<out Any?>, block: () -> R): R =
         withQueryContext(
             sql,
@@ -54,8 +54,9 @@ class NativeQuery internal constructor(
      * @return All matching rows; empty when nothing matched.
      */
     fun fetchRows(vararg params: Any?): List<Row> {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            queryExecutor.query(sql, params, parameterSerializer, resultMapper)
+            queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper)
         }
     }
 
@@ -70,8 +71,9 @@ class NativeQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if more than one row matched.
      */
     fun fetchRow(vararg params: Any?): Row? {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            val rows = queryExecutor.query(sql, params, parameterSerializer, resultMapper, maxRows = 2)
+            val rows = queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper, maxRows = 2)
             if (rows.size > 1) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
                 details = "Expected 0 or 1, got at least 2 rows."
@@ -88,8 +90,9 @@ class NativeQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if no row or more than one row matched.
      */
     fun fetchRowStrict(vararg params: Any?): Row {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            val rows = queryExecutor.query(sql, params, parameterSerializer, resultMapper, maxRows = 2)
+            val rows = queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper, maxRows = 2)
             if (rows.isEmpty()) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
                 details = "Expected 1, got 0 rows."
@@ -118,8 +121,9 @@ class NativeQuery internal constructor(
      *   [OctaviusException], since the result has to be drained before it can be rethrown.
      */
     fun forEachRow(vararg params: Any?, fetchSize: Int, block: (Row) -> Unit) {
+        val execution = beginExecution()
         withPositionalContext(params) {
-            queryExecutor.queryForEach(sql, params, parameterSerializer, resultMapper, fetchSize, { it }, block)
+            queryExecutor.queryForEach(sql, params, execution.parameterSerializer, execution.resultMapper, fetchSize, { it }, block)
         }
     }
 
@@ -136,12 +140,15 @@ class NativeQuery internal constructor(
      * @return All matching rows, mapped; empty when nothing matched.
      * @throws MappingException if a row cannot be mapped onto [T].
      */
-    inline fun <reified T : Any> fetchObjects(vararg params: Any?): List<T> {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T : Any> fetchObjects(vararg params: Any?): List<T> =
+        fetchObjectsOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T : Any> fetchObjectsOf(params: Array<out Any?>, targetType: KType): List<T> {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            queryExecutor.query(sql, params, parameterSerializer, resultMapper) {
-                resultMapper.deserialize(it, targetType, recordType)
+            queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper) {
+                execution.resultMapper.deserialize(it, targetType, PgType.Record)
             }
         }
     }
@@ -155,12 +162,15 @@ class NativeQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if more than one row matched.
      * @throws MappingException if the row cannot be mapped onto [T].
      */
-    inline fun <reified T : Any> fetchObject(vararg params: Any?): T? {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T : Any> fetchObject(vararg params: Any?): T? =
+        fetchObjectOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T : Any> fetchObjectOf(params: Array<out Any?>, targetType: KType): T? {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            val rows = queryExecutor.query(sql, params, parameterSerializer, resultMapper, maxRows = 2) {
-                resultMapper.deserialize<T>(it, targetType, recordType)
+            val rows = queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
+                execution.resultMapper.deserialize<T>(it, targetType, PgType.Record)
             }
             if (rows.size > 1) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
@@ -179,12 +189,15 @@ class NativeQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if no row or more than one row matched.
      * @throws MappingException if the row cannot be mapped onto [T].
      */
-    inline fun <reified T : Any> fetchObjectStrict(vararg params: Any?): T {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T : Any> fetchObjectStrict(vararg params: Any?): T =
+        fetchObjectStrictOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T : Any> fetchObjectStrictOf(params: Array<out Any?>, targetType: KType): T {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            val rows = queryExecutor.query(sql, params, parameterSerializer, resultMapper, maxRows = 2) {
-                resultMapper.deserialize<T>(it, targetType, recordType)
+            val rows = queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
+                execution.resultMapper.deserialize<T>(it, targetType, PgType.Record)
             }
             if (rows.size > 1) throw InvalidOperationException(
                 InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE,
@@ -211,13 +224,16 @@ class NativeQuery internal constructor(
      * @throws MappingException if a row cannot be mapped onto [T], or wrapping anything [block] throws
      *   that is not an [OctaviusException].
      */
-    inline fun <reified T : Any> forEachObject(vararg params: Any?, fetchSize: Int, crossinline block: (T) -> Unit) {
-        val targetType = typeOf<T>()
-        val recordType = PgType.Record
+    inline fun <reified T : Any> forEachObject(vararg params: Any?, fetchSize: Int, noinline block: (T) -> Unit) =
+        forEachObjectOf(params, fetchSize, typeOf<T>(), block)
+
+    @PublishedApi
+    internal fun <T : Any> forEachObjectOf(params: Array<out Any?>, fetchSize: Int, targetType: KType, block: (T) -> Unit) {
+        val execution = beginExecution()
         withPositionalContext(params) {
-            queryExecutor.queryForEach(sql, params, parameterSerializer, resultMapper, fetchSize, {
-                resultMapper.deserialize<T>(it, targetType, recordType)
-            }, { block(it) })
+            queryExecutor.queryForEach(sql, params, execution.parameterSerializer, execution.resultMapper, fetchSize, {
+                execution.resultMapper.deserialize<T>(it, targetType, PgType.Record)
+            }, block)
         }
     }
 
@@ -233,10 +249,14 @@ class NativeQuery internal constructor(
      * @return The first column of all matching rows; empty when nothing matched.
      * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if a value is `NULL` and [T] is not nullable.
      */
-    inline fun <reified T> fetchFields(vararg params: Any?): List<T> {
-        val targetType = typeOf<T>()
+    inline fun <reified T> fetchFields(vararg params: Any?): List<T> =
+        fetchFieldsOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T> fetchFieldsOf(params: Array<out Any?>, targetType: KType): List<T> {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            queryExecutor.query(sql, params, parameterSerializer, resultMapper) { it.get(0, targetType) }
+            queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper) { it.get(0, targetType) }
         }
     }
 
@@ -259,10 +279,14 @@ class NativeQuery internal constructor(
      * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if [T] is not nullable and no row matched, or
      *   the value was `NULL`.
      */
-    inline fun <reified T> fetchField(vararg params: Any?): T {
-        val targetType = typeOf<T>()
+    inline fun <reified T> fetchField(vararg params: Any?): T =
+        fetchFieldOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T> fetchFieldOf(params: Array<out Any?>, targetType: KType): T {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            val rows = queryExecutor.query(sql, params, parameterSerializer, resultMapper, maxRows = 2) {
+            val rows = queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
                 it.get<T>(
                     0,
                     targetType
@@ -297,10 +321,14 @@ class NativeQuery internal constructor(
      * @throws InvalidOperationException `INCORRECT_RESULT_SIZE` if no row or more than one row matched.
      * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if the value is `NULL` and [T] is not nullable.
      */
-    inline fun <reified T> fetchFieldStrict(vararg params: Any?): T {
-        val targetType = typeOf<T>()
+    inline fun <reified T> fetchFieldStrict(vararg params: Any?): T =
+        fetchFieldStrictOf(params, typeOf<T>())
+
+    @PublishedApi
+    internal fun <T> fetchFieldStrictOf(params: Array<out Any?>, targetType: KType): T {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            val rows = queryExecutor.query(sql, params, parameterSerializer, resultMapper, maxRows = 2) {
+            val rows = queryExecutor.query(sql, params, execution.parameterSerializer, execution.resultMapper, maxRows = 2) {
                 it.get<T>(
                     0,
                     targetType
@@ -330,12 +358,16 @@ class NativeQuery internal constructor(
      * @throws MappingException if a value cannot be mapped to [T], or wrapping anything [block] throws
      *   that is not an [OctaviusException].
      */
-    inline fun <reified T> forEachField(vararg params: Any?, fetchSize: Int, crossinline block: (T) -> Unit) {
-        val targetType = typeOf<T>()
+    inline fun <reified T> forEachField(vararg params: Any?, fetchSize: Int, noinline block: (T) -> Unit) =
+        forEachFieldOf(params, fetchSize, typeOf<T>(), block)
+
+    @PublishedApi
+    internal fun <T> forEachFieldOf(params: Array<out Any?>, fetchSize: Int, targetType: KType, block: (T) -> Unit) {
+        val execution = beginExecution()
         withPositionalContext(params) {
-            queryExecutor.queryForEach(sql, params, parameterSerializer, resultMapper, fetchSize, {
+            queryExecutor.queryForEach(sql, params, execution.parameterSerializer, execution.resultMapper, fetchSize, {
                 it.get<T>(0, targetType)
-            }, { block(it) })
+            }, block)
         }
     }
 
@@ -351,8 +383,9 @@ class NativeQuery internal constructor(
      * @throws InvalidOperationException `UNEXPECTED_RESULT` if the statement returned rows.
      */
     fun update(vararg params: Any?): Long {
+        val execution = beginExecution()
         return withPositionalContext(params) {
-            queryExecutor.update(sql, params, parameterSerializer)
+            queryExecutor.update(sql, params, execution.parameterSerializer)
         }
     }
 }

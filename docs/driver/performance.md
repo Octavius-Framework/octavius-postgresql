@@ -148,7 +148,7 @@ from it.
 
 Where the time goes is visible in JMH's `stack` profiler, and it explains why the timings are the softer measurement
 here. On the composite insert, ~40% of RUNNABLE samples sit in `sun.nio.ch.Net.poll` — waiting for the server — while
-the reflective path adds ~3% in `ParameterConverterRegistry.convert` and ~0.7% in `invokeExact`. The work reflection
+the reflective path adds ~3% in `DefaultSerializationContext.convert` and ~0.7% in `invokeExact`. The work reflection
 adds is real, but it is competing with a socket, which is what buries it in the noise on a local connection and would
 bury it further on a real network.
 

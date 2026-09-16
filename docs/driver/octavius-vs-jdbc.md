@@ -54,7 +54,7 @@ The accessories go with the cursor: `setMaxRows()`, `setFetchSize()`, `setQueryT
 `addBatch()` / `executeBatch()` aren't implemented in their standard JDBC shape — both throw. Octavius favors PostgreSQL-native bulk techniques instead: [`UNNEST`-based inserts](bulk-writes.md), which [outperform classic batching by roughly 3× in the benchmarks](performance.md), and the [`COPY` protocol](copy.md) for genuinely large loads. The array form is the broader of the two — it covers `UPDATE` and `DELETE`, takes `RETURNING` and `ON CONFLICT`, and needs no change to the shape of your data.
 
 ### 4. Legacy LOBs (BLOB, CLOB)
-`createBlob()` / `createClob()` don't exist here. Binary and text data map directly to plain Kotlin `ByteArray` and `String`, backed by PostgreSQL's `bytea` and `text` through the `GlobalTypeRegistry`. For payloads past what a single `bytea` should carry, PostgreSQL's own large objects are exposed as [a first-class API](large-objects.md) on the session — no unwrapping to a vendor interface.
+`createBlob()` / `createClob()` don't exist here. Binary and text data map directly to plain Kotlin `ByteArray` and `String`, backed by PostgreSQL's `bytea` and `text` through the type catalog. For payloads past what a single `bytea` should carry, PostgreSQL's own large objects are exposed as [a first-class API](large-objects.md) on the session — no unwrapping to a vendor interface.
 
 ### 5. DatabaseMetaData
 The heavyweight JDBC metadata API is skipped entirely. If you need metadata, query `pg_catalog` directly through `OctaviusSession`.

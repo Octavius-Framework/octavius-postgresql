@@ -9,7 +9,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.io.getIntBE
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CodecScope
 import io.github.octaviusframework.driver.type.PgType
 
 
@@ -24,8 +24,8 @@ internal object ContainerCodec {
     /**
      * Parses a generic field, which can be either a container or a primitive type.
      */
-    private fun parseField(data: ByteArray, offset: Int, length: Int, oid: Int, typeRegistry: TypeRegistry): Any {
-        val codec = typeRegistry.codecs.getCodecByOid<Any>(oid)
+    private fun parseField(data: ByteArray, offset: Int, length: Int, oid: Int, scope: CodecScope): Any {
+        val codec = scope.codecs.getCodecByOid<Any>(oid)
             ?: throw TypeException(
                 TypeExceptionReason.MISSING_CODEC,
                 oid = oid,
@@ -37,13 +37,13 @@ internal object ContainerCodec {
     /**
      * Parses a byte array into a [PgContainer] based on the OID.
      */
-    fun parseContainer(data: ByteArray, offset: Int, oid: Int, typeRegistry: TypeRegistry): PgContainer {
-        return when (val pgType = typeRegistry.dictionary.getPgType(oid)) {
-            is PgType.Array -> parsePgArray(data, offset, pgType.oid, typeRegistry)
-            is PgType.Composite -> parsePgComposite(data, offset, pgType.oid, typeRegistry)
-            is PgType.Range -> parsePgRange(data, offset, pgType.oid, typeRegistry)
-            is PgType.Multirange -> parsePgMultirange(data, offset, pgType.oid, typeRegistry)
-            is PgType.Record -> parsePgRecord(data, offset, pgType.oid, typeRegistry)
+    fun parseContainer(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgContainer {
+        return when (val pgType = scope.types.getPgType(oid)) {
+            is PgType.Array -> parsePgArray(data, offset, pgType.oid, scope)
+            is PgType.Composite -> parsePgComposite(data, offset, pgType.oid, scope)
+            is PgType.Range -> parsePgRange(data, offset, pgType.oid, scope)
+            is PgType.Multirange -> parsePgMultirange(data, offset, pgType.oid, scope)
+            is PgType.Record -> parsePgRecord(data, offset, pgType.oid, scope)
             else -> error("Unknown pg type in container parsing")
         }
     }
@@ -54,10 +54,10 @@ internal object ContainerCodec {
      * @param data The byte array containing the payload.
      * @param offset The starting position in the byte array.
      * @param oid The OID of the array type.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      * @return The parsed [PgArray].
      */
-    fun parsePgArray(data: ByteArray, offset: Int, oid: Int, typeRegistry: TypeRegistry): PgArray {
+    fun parsePgArray(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgArray {
         var localOffset = offset
 
         val ndims = data.getIntBE(localOffset); localOffset += 4
@@ -81,7 +81,7 @@ internal object ContainerCodec {
             if (len == -1) {
                 elements.add(null)
             } else {
-                elements.add(parseField(data, localOffset, len, elementOid, typeRegistry))
+                elements.add(parseField(data, localOffset, len, elementOid, scope))
                 localOffset += len
             }
         }
@@ -95,11 +95,11 @@ internal object ContainerCodec {
      * @param data The byte array containing the payload.
      * @param offset The starting position in the byte array.
      * @param oid The OID of the composite type.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      * @return The parsed [PgComposite].
      */
-    fun parsePgComposite(data: ByteArray, offset: Int, oid: Int, typeRegistry: TypeRegistry): PgComposite {
-        val pgType = typeRegistry.dictionary.getPgType(oid) as? PgType.Composite
+    fun parsePgComposite(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgComposite {
+        val pgType = scope.types.getPgType(oid) as? PgType.Composite
             ?: throw TypeException(
                 TypeExceptionReason.NOT_A_CONTAINER,
                 oid = oid,
@@ -114,7 +114,7 @@ internal object ContainerCodec {
             val fieldOid = data.getIntBE(localOffset); localOffset += 4
             val len = data.getIntBE(localOffset); localOffset += 4
             if (len != -1) {
-                fields[i] = parseField(data, localOffset, len, fieldOid, typeRegistry)
+                fields[i] = parseField(data, localOffset, len, fieldOid, scope)
                 localOffset += len
             }
         }
@@ -128,11 +128,11 @@ internal object ContainerCodec {
      * @param data The byte array containing the payload.
      * @param offset The starting position in the byte array.
      * @param oid The OID of the record type.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      * @return The parsed [PgRecord].
      */
-    fun parsePgRecord(data: ByteArray, offset: Int, oid: Int, typeRegistry: TypeRegistry): PgRecord {
-        val pgType = typeRegistry.dictionary.getPgType(oid) as? PgType.Record
+    fun parsePgRecord(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgRecord {
+        val pgType = scope.types.getPgType(oid) as? PgType.Record
             ?: throw TypeException(
                 TypeExceptionReason.NOT_A_CONTAINER,
                 oid = oid,
@@ -152,7 +152,7 @@ internal object ContainerCodec {
             if (len == -1) {
                 fields[i] = null
             } else {
-                fields[i] = parseField(data, localOffset, len, fieldOid, typeRegistry)
+                fields[i] = parseField(data, localOffset, len, fieldOid, scope)
                 localOffset += len
             }
         }
@@ -166,11 +166,11 @@ internal object ContainerCodec {
      * @param data The byte array containing the payload.
      * @param offset The starting position in the byte array.
      * @param oid The OID of the range type.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      * @return The parsed [PgRange].
      */
-    fun parsePgRange(data: ByteArray, offset: Int, oid: Int, typeRegistry: TypeRegistry): PgRange {
-        val pgType = typeRegistry.dictionary.getPgType(oid) as? PgType.Range
+    fun parsePgRange(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgRange {
+        val pgType = scope.types.getPgType(oid) as? PgType.Range
             ?: throw TypeException(
                 TypeExceptionReason.NOT_A_CONTAINER,
                 oid = oid,
@@ -189,14 +189,14 @@ internal object ContainerCodec {
         var lowerBound: Any? = null
         if (!isEmpty && !isLowerInfinite && !isLowerNull) {
             val len = data.getIntBE(localOffset); localOffset += 4
-            lowerBound = parseField(data, localOffset, len, pgType.subtypeOid, typeRegistry)
+            lowerBound = parseField(data, localOffset, len, pgType.subtypeOid, scope)
             localOffset += len
         }
 
         var upperBound: Any? = null
         if (!isEmpty && !isUpperInfinite && !isUpperNull) {
             val len = data.getIntBE(localOffset); localOffset += 4
-            upperBound = parseField(data, localOffset, len, pgType.subtypeOid, typeRegistry)
+            upperBound = parseField(data, localOffset, len, pgType.subtypeOid, scope)
             localOffset += len
         }
 
@@ -209,11 +209,11 @@ internal object ContainerCodec {
      * @param data The byte array containing the payload.
      * @param offset The starting position in the byte array.
      * @param oid The OID of the multirange type.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      * @return The parsed [PgMultirange].
      */
-    fun parsePgMultirange(data: ByteArray, offset: Int, oid: Int, typeRegistry: TypeRegistry): PgMultirange {
-        val pgType = typeRegistry.dictionary.getPgType(oid) as? PgType.Multirange
+    fun parsePgMultirange(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgMultirange {
+        val pgType = scope.types.getPgType(oid) as? PgType.Multirange
             ?: throw TypeException(
                 TypeExceptionReason.NOT_A_CONTAINER,
                 oid = oid,
@@ -226,7 +226,7 @@ internal object ContainerCodec {
         val ranges = mutableListOf<PgRange>()
         for (i in 0 until numRanges) {
             val len = data.getIntBE(localOffset); localOffset += 4
-            ranges.add(parsePgRange(data, localOffset, pgType.rangeOid, typeRegistry))
+            ranges.add(parsePgRange(data, localOffset, pgType.rangeOid, scope))
             localOffset += len
         }
 
@@ -238,12 +238,12 @@ internal object ContainerCodec {
     /**
      * Serializes a [PgContainer] into the provided [PgByteWriter].
      */
-    fun serializeContainer(container: PgContainer, writer: PgByteWriter, typeRegistry: TypeRegistry) {
+    fun serializeContainer(container: PgContainer, writer: PgByteWriter, scope: CodecScope) {
         when (container) {
-            is PgArray -> serializePgArray(container, writer, typeRegistry)
-            is PgComposite -> serializePgComposite(container, writer, typeRegistry)
-            is PgRange -> serializePgRange(container, writer, typeRegistry)
-            is PgMultirange -> serializePgMultirange(container, writer, typeRegistry)
+            is PgArray -> serializePgArray(container, writer, scope)
+            is PgComposite -> serializePgComposite(container, writer, scope)
+            is PgRange -> serializePgRange(container, writer, scope)
+            is PgMultirange -> serializePgMultirange(container, writer, scope)
             is PgRecord -> serializePgRecord()
             else -> throw TypeException(
                 TypeExceptionReason.NOT_A_CONTAINER,
@@ -261,14 +261,14 @@ internal object ContainerCodec {
         value: Any?,
         expectedOid: Int,
         writer: PgByteWriter,
-        typeRegistry: TypeRegistry
+        scope: CodecScope
     ) {
         if (value == null) {
             writer.writeInt(-1)
             return
         }
 
-        val codec = typeRegistry.codecs.getCodecByOid<Any>(expectedOid)
+        val codec = scope.codecs.getCodecByOid<Any>(expectedOid)
             ?: throw TypeException(
                 TypeExceptionReason.MISSING_CODEC,
                 oid = expectedOid,
@@ -284,9 +284,9 @@ internal object ContainerCodec {
      *
      * @param array The array container to serialize.
      * @param writer The binary packet writer.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      */
-    fun serializePgArray(array: PgArray, writer: PgByteWriter, typeRegistry: TypeRegistry) {
+    fun serializePgArray(array: PgArray, writer: PgByteWriter, scope: CodecScope) {
         val count = array.totalElements
         val hasNulls = array.elements.any { it == null }
 
@@ -300,7 +300,7 @@ internal object ContainerCodec {
         }
 
         for (i in 0 until count) {
-            writeField(array.elements[i], array.elementOid, writer, typeRegistry)
+            writeField(array.elements[i], array.elementOid, writer, scope)
         }
     }
 
@@ -309,14 +309,14 @@ internal object ContainerCodec {
      *
      * @param composite The composite container to serialize.
      * @param writer The binary packet writer.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      */
-    fun serializePgComposite(composite: PgComposite, writer: PgByteWriter, typeRegistry: TypeRegistry) {
+    fun serializePgComposite(composite: PgComposite, writer: PgByteWriter, scope: CodecScope) {
         writer.writeInt(composite.fields.size)
         val attributeOids = composite.type.attributeOids
         for (i in composite.fields.indices) {
             writer.writeInt(attributeOids[i])
-            writeField(composite.fields[i], attributeOids[i], writer, typeRegistry)
+            writeField(composite.fields[i], attributeOids[i], writer, scope)
         }
     }
 
@@ -337,17 +337,17 @@ internal object ContainerCodec {
      *
      * @param range The range container to serialize.
      * @param writer The binary packet writer.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      */
-    fun serializePgRange(range: PgRange, writer: PgByteWriter, typeRegistry: TypeRegistry) {
+    fun serializePgRange(range: PgRange, writer: PgByteWriter, scope: CodecScope) {
         writer.writeByte(range.flags)
 
         if (!range.isEmpty) {
             if (!range.isLowerInfinite && !range.isLowerNull) {
-                writeField(range.lowerBound, range.elementOid, writer, typeRegistry)
+                writeField(range.lowerBound, range.elementOid, writer, scope)
             }
             if (!range.isUpperInfinite && !range.isUpperNull) {
-                writeField(range.upperBound, range.elementOid, writer, typeRegistry)
+                writeField(range.upperBound, range.elementOid, writer, scope)
             }
         }
     }
@@ -357,13 +357,13 @@ internal object ContainerCodec {
      *
      * @param multirange The multirange container to serialize.
      * @param writer The binary packet writer.
-     * @param typeRegistry Registry to look up types and codecs.
+     * @param scope The dictionaries this codec resolves nested values through.
      */
-    fun serializePgMultirange(multirange: PgMultirange, writer: PgByteWriter, typeRegistry: TypeRegistry) {
+    fun serializePgMultirange(multirange: PgMultirange, writer: PgByteWriter, scope: CodecScope) {
         writer.writeInt(multirange.ranges.size)
         for (range in multirange.ranges) {
             val marker = writer.reserveLengthInt()
-            serializePgRange(range, writer, typeRegistry)
+            serializePgRange(range, writer, scope)
             writer.fillLengthInt(marker)
         }
     }

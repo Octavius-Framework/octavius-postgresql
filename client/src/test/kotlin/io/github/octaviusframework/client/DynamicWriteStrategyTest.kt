@@ -6,7 +6,7 @@ import io.github.octaviusframework.client.dynamic.DynamicWriteStrategy
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.OctaviusException
-import io.github.octaviusframework.driver.registry.GlobalTypeRegistry
+import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.type.withPgType
 import kotlinx.serialization.Serializable
 import org.junit.jupiter.api.AfterAll
@@ -57,7 +57,7 @@ class DynamicWriteStrategyTest {
         @BeforeAll
         @JvmStatic
         fun createSchema() {
-            GlobalTypeRegistry.removeRegistry(URL)
+            GlobalCatalogStore.removeCatalog(URL)
             dataSource().use { ds ->
                 OctaviusClient.fromDataSource(ds).use { db ->
                     db.dynamicTypes.install()
@@ -94,13 +94,13 @@ class DynamicWriteStrategyTest {
                     ).execute()
                 }
             }
-            GlobalTypeRegistry.removeRegistry(URL)
+            GlobalCatalogStore.removeCatalog(URL)
         }
 
         @AfterAll
         @JvmStatic
         fun dropSchema() {
-            GlobalTypeRegistry.removeRegistry(URL)
+            GlobalCatalogStore.removeCatalog(URL)
             dataSource().use { ds ->
                 OctaviusClient.fromDataSource(ds).use { db ->
                     db.rawQuery("DROP TABLE IF EXISTS dyn_strategy").execute()
@@ -108,19 +108,19 @@ class DynamicWriteStrategyTest {
                     db.rawQuery("DROP TYPE IF EXISTS public.honour").execute()
                 }
             }
-            GlobalTypeRegistry.removeRegistry(URL)
+            GlobalCatalogStore.removeCatalog(URL)
         }
     }
 
     @BeforeEach
     fun clearTable() {
-        GlobalTypeRegistry.removeRegistry(URL)
+        GlobalCatalogStore.removeCatalog(URL)
         dataSource().use { ds ->
             OctaviusClient.fromDataSource(ds).use { db ->
                 db.rawQuery("TRUNCATE dyn_strategy RESTART IDENTITY").execute()
             }
         }
-        GlobalTypeRegistry.removeRegistry(URL)
+        GlobalCatalogStore.removeCatalog(URL)
     }
 
     /**
@@ -128,7 +128,7 @@ class DynamicWriteStrategyTest {
      * either side so no converter outlives the test that installed it.
      */
     private fun withStrategy(strategy: DynamicWriteStrategy, block: (OctaviusClient) -> Unit) {
-        GlobalTypeRegistry.removeRegistry(URL)
+        GlobalCatalogStore.removeCatalog(URL)
         try {
             dataSource().use { ds ->
                 OctaviusClient.fromDataSource(ds, dynamicWriteStrategy = strategy).use { db ->
@@ -142,7 +142,7 @@ class DynamicWriteStrategyTest {
                 }
             }
         } finally {
-            GlobalTypeRegistry.removeRegistry(URL)
+            GlobalCatalogStore.removeCatalog(URL)
         }
     }
 

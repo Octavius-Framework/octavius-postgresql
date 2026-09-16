@@ -8,11 +8,10 @@ import io.github.octaviusframework.driver.converter.result.composite.MapComposit
 import io.github.octaviusframework.driver.converter.result.composite.ReflectionCompositeConverter
 import io.github.octaviusframework.driver.converter.result.composite.compositesAsMaps
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.registry.TypeManager
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import kotlin.reflect.typeOf
 import kotlin.test.Test
@@ -43,13 +42,13 @@ class CompositesAsMapsTest {
 
     private val tributeArray = PgType.Array(7, "_tribute", "public", 3)
 
-    private val typeRegistry = TypeRegistry().apply {
-        updateTypes(
+    private val typeRegistry = CatalogHolder().apply {
+        update { it.withTypes(
             mapOf(
                 1 to text, 2 to int4, 3 to tribute, 4 to assessment,
                 5 to leaf, 6 to parcel, 7 to tributeArray
             )
-        )
+        ) }
     }
 
     private val typeManager = TypeManager(typeRegistry).apply {
@@ -58,20 +57,11 @@ class CompositesAsMapsTest {
     }
 
     /** What a session holds: a composite becomes its registered class, or a map where one is asked for. */
-    private val sessionConverters = ResultConverterRegistry().apply {
-        addConverter(MapCompositeConverter)
-        addConverter(ReflectionCompositeConverter)
-        addConverter(CollectionArrayConverter)
-    }
+    private val sessionMapper = ResultMapper(typeRegistry.catalog, null, typeManager.lookup)
 
-    private val sessionMapper = ResultMapper(sessionConverters, typeManager)
-
-    /** A query's own registry, chained to the session's exactly as the driver chains it. */
-    private fun queryMapper(vararg converters: ResultConverter<*, *>): ResultMapper {
-        val queryConverters = ResultConverterRegistry(sessionConverters)
-        converters.forEach { queryConverters.addConverter(it) }
-        return ResultMapper(queryConverters, typeManager)
-    }
+    /** A query's own converters, ahead of the session's exactly as an execution puts them. */
+    private fun queryMapper(vararg converters: ResultConverter<*, *>): ResultMapper =
+        ResultMapper(typeRegistry.catalog, converters.toList(), typeManager.lookup)
 
     private fun composite(type: PgType.Composite, vararg values: Any?) = PgComposite(type, arrayOf(*values))
 
