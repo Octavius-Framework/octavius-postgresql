@@ -26,9 +26,9 @@ class SenatorExplicitParameterConverter : ParameterConverter<SenatorExplicit> {
 
     override fun convert(source: SenatorExplicit, expectedOid: Int, context: SerializationContext): Any {
         val composite = if (expectedOid.isKnownOid) {
-            context.typeManager.containers.createComposite(expectedOid)
+            context.types.containers.createComposite(expectedOid)
         } else {
-            context.typeManager.containers.createComposite("bench_senator")
+            context.types.containers.createComposite("bench_senator")
         }
         composite["id"] = source.id
         composite["cognomen"] = source.cognomen
@@ -76,13 +76,13 @@ open class CompositeInsertBenchmark {
         octaviusSession.typeManager.registerAutoComposite<SenatorReflect>("bench_senator")
 
         scalarQuery = octaviusSession.createNativeQuery(
-            "INSERT INTO bench_composite_insert (id, cognomen) SELECT * FROM UNNEST($1::int[], $2::text[])"
+            "INSERT INTO bench_composite_insert (id, cognomen) SELECT * FROM UNNEST($1, $2)"
         )
         reflectionQuery = octaviusSession.createNativeQuery(
-            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1::bench_senator[]) AS s"
+            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1) AS s"
         )
         explicitQuery = octaviusSession.createNativeQuery(
-            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1::bench_senator[]) AS s"
+            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1) AS s"
         ).registerParameterConverter(SenatorExplicitParameterConverter())
 
         ids = (1..insertCount).toList()

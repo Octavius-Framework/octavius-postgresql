@@ -3,13 +3,12 @@ package io.github.octaviusframework.driver.converter
 import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.container.PgRecord
 import io.github.octaviusframework.driver.converter.result.composite.ReflectionCompositeConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.converter.result.record.MapRecordConverter
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.registry.TypeManager
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import kotlin.reflect.typeOf
 import kotlin.test.Test
@@ -33,8 +32,8 @@ class MapRecordConverterTest {
     private val int4 = PgType.Base(2, "int4", "public")
     private val tribute = PgType.Composite(3, "tribute", "public", linkedMapOf("amount" to 2, "currency" to 1))
 
-    private val typeRegistry = TypeRegistry().apply {
-        updateTypes(mapOf(1 to text, 2 to int4, 3 to tribute, 2249 to PgType.Record))
+    private val typeRegistry = CatalogHolder().apply {
+        update { it.withTypes(mapOf(1 to text, 2 to int4, 3 to tribute, 2249 to PgType.Record)) }
     }
 
     private val typeManager = TypeManager(typeRegistry).apply {
@@ -42,11 +41,9 @@ class MapRecordConverterTest {
     }
 
     private val mapper = ResultMapper(
-        ResultConverterRegistry().apply {
-            addConverter(MapRecordConverter)
-            addConverter(ReflectionCompositeConverter)
-        },
-        typeManager
+        typeRegistry.catalog,
+        listOf(MapRecordConverter, ReflectionCompositeConverter),
+        typeManager.lookup
     )
 
     /** `ROW(...)` as the codec hands it over: the field OIDs alongside the decoded values. */

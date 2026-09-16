@@ -163,15 +163,15 @@ internal class CharacterManualParameterConverter : ParameterConverter<CharacterM
     override val supportedClass = CharacterManual::class
 
     override fun convert(source: CharacterManual, expectedOid: Int, context: SerializationContext): Any {
-        val stats = context.typeManager.containers.createComposite(NESTED_STATS_TYPE)
+        val stats = context.types.containers.createComposite(NESTED_STATS_TYPE)
         stats["strength"] = source.stats.strength
         stats["agility"] = source.stats.agility
         stats["intelligence"] = source.stats.intelligence
 
         val character = if (expectedOid.isKnownOid) {
-            context.typeManager.containers.createComposite(expectedOid)
+            context.types.containers.createComposite(expectedOid)
         } else {
-            context.typeManager.containers.createComposite(NESTED_CHARACTER_TYPE)
+            context.types.containers.createComposite(NESTED_CHARACTER_TYPE)
         }
         character["id"] = source.id
         character["name"] = source.name
@@ -188,9 +188,9 @@ internal class FlatManualParameterConverter : ParameterConverter<FlatManual> {
 
     override fun convert(source: FlatManual, expectedOid: Int, context: SerializationContext): Any {
         val flat = if (expectedOid.isKnownOid) {
-            context.typeManager.containers.createComposite(expectedOid)
+            context.types.containers.createComposite(expectedOid)
         } else {
-            context.typeManager.containers.createComposite(FLAT_TYPE)
+            context.types.containers.createComposite(FLAT_TYPE)
         }
         flat["id"] = source.id
         flat["name"] = source.name

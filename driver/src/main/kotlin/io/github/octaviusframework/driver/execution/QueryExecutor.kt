@@ -6,7 +6,6 @@ import io.github.octaviusframework.driver.io.PgStream
 import io.github.octaviusframework.driver.message.translator.ExceptionTranslator
 import io.github.octaviusframework.driver.message.backend.*
 import io.github.octaviusframework.driver.message.frontend.*
-import io.github.octaviusframework.driver.registry.TypeRegistry
 import io.github.octaviusframework.driver.row.Row
 import io.github.octaviusframework.driver.row.RowMetadata
 import io.github.octaviusframework.driver.io.PgByteWriter
@@ -25,9 +24,8 @@ private val logger = KotlinLogging.logger {}
  * It is responsible for parsing responses, managing the transaction state flag, and mapping
  * results back into usable domain objects.
  */
-class QueryExecutor internal constructor(
+internal class QueryExecutor(
     private val stream: PgStream,
-    private val typeRegistry: TypeRegistry,
     maxParameterWriterCapacity: Int?,
     initialParameterWriterCapacity: Int?,
     private val logParameterValues: Boolean
@@ -329,7 +327,7 @@ class QueryExecutor internal constructor(
                 is ParseCompleteMessage, is BindCompleteMessage, is PortalSuspendedMessage -> { /* Expected */ }
                 is RowDescriptionMessage -> {
                     try {
-                        rowMetadata = RowMetadata(msg.fields, typeRegistry.dictionary)
+                        rowMetadata = RowMetadata(msg.fields, mapper.catalog.dictionary)
                     } catch (e: OctaviusException) {
                         if (executionError == null) executionError = e
                     }
@@ -351,7 +349,7 @@ class QueryExecutor internal constructor(
                                     msg.columnOffsets,
                                     msg.columnLengths,
                                     rowMetadata,
-                                    typeRegistry,
+                                    mapper.catalog,
                                     mapper
                                 )
                             ))
@@ -432,7 +430,7 @@ class QueryExecutor internal constructor(
                         is ParseCompleteMessage, is BindCompleteMessage -> { /* Expected */ }
                         is RowDescriptionMessage -> {
                             try {
-                                rowMetadata = RowMetadata(msg.fields, typeRegistry.dictionary)
+                                rowMetadata = RowMetadata(msg.fields, mapper.catalog.dictionary)
                             } catch (e: OctaviusException) {
                                 executionError = e
                                 break@fetchLoop
@@ -447,7 +445,7 @@ class QueryExecutor internal constructor(
                                 break@fetchLoop
                             } else {
                                 try {
-                                    block(transform(Row(msg.rawData, msg.columnOffsets, msg.columnLengths, rowMetadata, typeRegistry, mapper)))
+                                    block(transform(Row(msg.rawData, msg.columnOffsets, msg.columnLengths, rowMetadata, mapper.catalog, mapper)))
                                     rowCount++
                                 } catch (e: OctaviusException) {
                                     executionError = e

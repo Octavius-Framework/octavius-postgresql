@@ -98,14 +98,14 @@ class ResultQuery @PublishedApi internal constructor(
     inline fun <reified T : Any> forEachObject(
         params: Map<String, Any?> = emptyMap(),
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ): DataResult<Unit> = dbResult { query.forEachObject<T>(params, fetchSize, block) }
 
     /** As [RunnableQuery.forEachObject]. */
     inline fun <reified T : Any> forEachObject(
         vararg params: Pair<String, Any?>,
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ): DataResult<Unit> = forEachObject<T>(params.toMap(), fetchSize, block)
 
     // --- Fields -----------------------------------------------------------------------------------
@@ -138,14 +138,14 @@ class ResultQuery @PublishedApi internal constructor(
     inline fun <reified T> forEachField(
         params: Map<String, Any?> = emptyMap(),
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ): DataResult<Unit> = dbResult { query.forEachField<T>(params, fetchSize, block) }
 
     /** As [RunnableQuery.forEachField]. */
     inline fun <reified T> forEachField(
         vararg params: Pair<String, Any?>,
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ): DataResult<Unit> = forEachField<T>(params.toMap(), fetchSize, block)
 
     // --- Modification -----------------------------------------------------------------------------

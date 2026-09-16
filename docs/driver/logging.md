@@ -47,7 +47,8 @@ they can be turned up or down without touching anything else.
 | `io.github.octaviusframework.driver.session.OctaviusSessionImpl`           | Session close and abort, and a close that evicted its connection instead of returning it              |
 | `io.github.octaviusframework.driver.transaction.TransactionManager`        | Auto-commit left unrestored after a transaction scope committed                                       |
 | `io.github.octaviusframework.driver.execution.QueryExecutor`               | Every statement and its duration                                                                      |
-| `io.github.octaviusframework.driver.registry.GlobalTypeRegistry`           | The type catalog load, and every explicit reload of it                                                |
+| `io.github.octaviusframework.driver.registry.GlobalCatalogStore`           | The type catalog load, and every explicit reload of it                                                |
+| `io.github.octaviusframework.driver.registry.CodecDictionary`              | A registered codec the catalog it was built against leaves bound to nothing                           |
 | `io.github.octaviusframework.driver.copy.CopyManager`                      | COPY transfers, with row and byte counts                                                              |
 | `io.github.octaviusframework.driver.notification.NotificationManager`      | `LISTEN` / `UNLISTEN` and the listener loops                                                          |
 | `io.github.octaviusframework.driver.ssl.SslNegotiator`                     | Whether the connection ended up encrypted, and under which cipher                                     |
@@ -72,7 +73,7 @@ itself.
 | Level   | Frequency                                      | What you get                                                               |
 |:--------|:-----------------------------------------------|:---------------------------------------------------------------------------|
 | `error` | Practically never                              | Only a `NoticeHandler` of yours that threw                                 |
-| `warn`  | Practically never                              | A connection on its way out, with the reason recorded only here            |
+| `warn`  | Practically never                              | A connection on its way out, or a registered codec bound to nothing        |
 | `info`  | Once per database, plus every `reloadTypes()`  | The type catalog load, with its type count and duration                    |
 | `debug` | Once per connection, per transaction, per COPY | Lifecycle: connections, transactions, savepoints, `LISTEN`, TLS, transfers |
 | `trace` | Twice per statement                            | Every statement, its duration, and session parameters that move            |
@@ -89,7 +90,7 @@ The only thing the driver considers worth an unprompted line is
 [the catalog load](initialization.md#the-first-connection-pays-for-the-type-catalog):
 
 ```
-Loaded 421 types for RegistryKey(host=localhost, port=5432, database=curia) in 38ms
+ROME (Relational-Object Mapping Engine) open for DatabaseKey(host=localhost, port=5432, database=curia) - 421 types read in 38ms
 ```
 
 It happens once per database for the lifetime of the JVM, and it is the reason a pool's first connection is measurably

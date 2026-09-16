@@ -36,7 +36,9 @@ open class SimpleTypeBenchmark {
         props["password"] = "1234"
 
         pgConnection = DriverManager.getConnection("jdbc:postgresql://localhost:5432/octavius_test", props)
-        val query = "SELECT i::int4, 'hello world ' || i::text, (i % 2 = 0)::boolean, (i * 3.14)::float8 FROM generate_series(1, 10000) AS i"
+        // 3.14 is a numeric literal, so (i * 3.14) is numeric on its own; the cast is what keeps that
+        // column float8, and is the only one here doing any work.
+        val query = "SELECT i, 'hello world ' || i, (i % 2 = 0), (i * 3.14)::float8 FROM generate_series(1, 10000) AS i"
         pgStatement = pgConnection.prepareStatement(query)
 
         octaviusSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")

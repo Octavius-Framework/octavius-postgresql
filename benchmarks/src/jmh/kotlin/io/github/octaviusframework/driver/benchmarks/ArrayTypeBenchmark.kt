@@ -36,7 +36,9 @@ open class ArrayTypeBenchmark {
         props["password"] = "1234"
 
         pgConnection = DriverManager.getConnection("jdbc:postgresql://localhost:5432/octavius_test", props)
-        val query = "SELECT ARRAY[1, 2, 3, 4, 5, i, 7, 8, 9, 10]::int4[], ARRAY['a', 'b', 'c', 'd', i::text]::text[] FROM generate_series(1, 10000) AS i"
+        // The one surviving cast is load-bearing: without it the ARRAY constructor resolves the unknown
+        // literals against i, settles on int4, and rejects 'a'.
+        val query = "SELECT ARRAY[1, 2, 3, 4, 5, i, 7, 8, 9, 10], ARRAY['a', 'b', 'c', 'd', i::text] FROM generate_series(1, 10000) AS i"
         pgStatement = pgConnection.prepareStatement(query)
 
         octaviusSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")

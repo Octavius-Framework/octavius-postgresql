@@ -1,7 +1,7 @@
 package io.github.octaviusframework.driver.converter.result.mapper
 
 import io.github.octaviusframework.driver.type.PgType
-import io.github.octaviusframework.driver.registry.TypeManager
+import io.github.octaviusframework.driver.registry.TypeLookup
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
@@ -13,8 +13,13 @@ import kotlin.reflect.KType
  * so an error deep in a composite arrives naming the attribute it happened in.
  */
 interface DeserializationContext {
-    /** The session's type manager, for resolving OIDs and looking up type definitions. */
-    val typeManager: TypeManager
+    /**
+     * The type system as this execution pinned it: dictionaries, containers and OID resolution.
+     *
+     * Reading only - a conversion cannot register a type, a codec or a converter, and would have nothing to
+     * gain by it, since the catalog it is running against was fixed before the statement went out.
+     */
+    val types: TypeLookup
 
     /**
      * Converts a raw value to the expected type using registered converters.
@@ -52,6 +57,6 @@ interface DeserializationContext {
      * @throws io.github.octaviusframework.driver.exception.TypeException if [sourceOid] names no known type.
      */
     fun <T> convert(source: Any?, expectedType: KType, sourceOid: Int, pathSegment: String? = null): T {
-        return convert(source, expectedType, typeManager.typeDictionary.getPgType(sourceOid), pathSegment)
+        return convert(source, expectedType, types.dictionary.getPgType(sourceOid), pathSegment)
     }
 }

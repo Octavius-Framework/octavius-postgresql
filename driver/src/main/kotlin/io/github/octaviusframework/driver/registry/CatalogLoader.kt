@@ -6,19 +6,19 @@ import io.github.octaviusframework.driver.type.PgType
 
 /**
  * Utility object responsible for loading PostgreSQL type definitions from the database 
- * and populating a [TypeRegistry].
+ * and populating a [CatalogHolder].
  */
-internal object TypeRegistryLoader {
+internal object CatalogLoader {
 
     /**
      * Executes a query against the `pg_catalog` to fetch all relevant type information
      * (base types, arrays, composites, enums, domains, ranges, etc.) and updates
-     * the given [TypeRegistry] with the constructed [PgType] instances.
+     * the given [CatalogHolder]'s catalog with the constructed [PgType] instances.
      *
-     * @param typeRegistry The registry to populate with loaded types.
+     * @param holder The cell whose catalog the loaded types replace.
      * @param queryExecutor The executor used to run the type extraction query.
      */
-    fun load(typeRegistry: TypeRegistry, queryExecutor: QueryExecutor) {
+    fun load(holder: CatalogHolder, queryExecutor: QueryExecutor) {
         // typtype is b for a base type, c for a composite type (e.g., a table's row type), d for a domain, e for an enum type, p for a pseudo-type, r for a range type, or m for a multirange type.
         val typesSql = """
             SELECT 
@@ -38,8 +38,8 @@ internal object TypeRegistryLoader {
             ORDER BY t.oid, e.enumsortorder, a.attnum
         """.trimIndent()
 
-        val typeManager = TypeManager(typeRegistry) // Use only codecs for internal postgres types
-        val resultMapper = ResultMapper(typeManager.converterRegistry.resultConverterRegistry, typeManager)
+        val typeManager = TypeManager(holder) // Use only codecs for internal postgres types
+        val resultMapper = ResultMapper(typeManager.catalog, null, typeManager.lookup)
         val result = queryExecutor.query(typesSql, mapper = resultMapper)
 
         val enumMap = mutableMapOf<Int, MutableList<String>>()
@@ -152,7 +152,7 @@ internal object TypeRegistryLoader {
             newTypes[oid] = pgType
         }
 
-        typeRegistry.updateTypes(newTypes)
+        holder.update { it.withTypes(newTypes) }
     }
 }
 

@@ -10,13 +10,13 @@ import io.github.octaviusframework.driver.exception.TypeExceptionReason
 /**
  * A factory for creating PostgreSQL container types such as composites, ranges, and multiranges.
  *
- * It utilizes the underlying [TypeManager] to resolve types by name or OID and instantiates
+ * It utilizes the underlying [TypeLookup] to resolve types by name or OID and instantiates
  * the appropriate container representations.
  *
- * @property typeManager the manager used for resolving types and obtaining the registry.
+ * @property types the lookup used for resolving types and reading the catalog.
  */
 class ContainerFactory internal constructor(
-    private val typeManager: TypeManager
+    private val types: TypeLookup
 ) {
 
     /**
@@ -27,7 +27,7 @@ class ContainerFactory internal constructor(
      * @return A new [io.github.octaviusframework.driver.container.PgComposite] instance with empty fields.
      */
     fun createComposite(typeName: String, schema: String = ""): PgComposite {
-        val resolvedOid = typeManager.resolveOid(typeName, schema)
+        val resolvedOid = types.resolveOid(typeName, schema)
         return createComposite(resolvedOid)
     }
 
@@ -38,7 +38,7 @@ class ContainerFactory internal constructor(
      * @return A new [PgComposite] instance with empty fields.
      */
     fun createComposite(oid: Int): PgComposite {
-        val pgType = typeManager.typeDictionary.getPgType(oid) as? PgType.Composite
+        val pgType = types.dictionary.getPgType(oid) as? PgType.Composite
             ?: throw TypeException(TypeExceptionReason.NOT_A_CONTAINER, oid = oid, details = "Type is not a composite")
         val fields = Array<Any?>(pgType.attributes.size) { null }
         return PgComposite(pgType, fields)
@@ -72,7 +72,7 @@ class ContainerFactory internal constructor(
         isLowerNull: Boolean = false,
         isUpperNull: Boolean = false
     ): PgRange {
-        val resolvedOid = typeManager.resolveOid(typeName, schema)
+        val resolvedOid = types.resolveOid(typeName, schema)
         return createRange(
             oid = resolvedOid,
             lower = lower,
@@ -112,7 +112,7 @@ class ContainerFactory internal constructor(
         isLowerNull: Boolean = false,
         isUpperNull: Boolean = false
     ): PgRange {
-        val rangeType = typeManager.typeDictionary.getPgType(oid) as? PgType.Range
+        val rangeType = types.dictionary.getPgType(oid) as? PgType.Range
             ?: throw TypeException(TypeExceptionReason.NOT_A_CONTAINER, oid = oid, details = "Type is not a range")
             
         return PgRange.create(
@@ -138,7 +138,7 @@ class ContainerFactory internal constructor(
      * @throws TypeException if the type cannot be found.
      */
     fun createEmptyRange(typeName: String, schema: String = ""): PgRange {
-        val resolvedOid = typeManager.resolveOid(typeName, schema)
+        val resolvedOid = types.resolveOid(typeName, schema)
         return createEmptyRange(resolvedOid)
     }
 
@@ -150,7 +150,7 @@ class ContainerFactory internal constructor(
      * @throws TypeException if the type is not found or is not a range.
      */
     fun createEmptyRange(oid: Int): PgRange {
-        val rangeType = typeManager.typeDictionary.getPgType(oid) as? PgType.Range
+        val rangeType = types.dictionary.getPgType(oid) as? PgType.Range
             ?: throw TypeException(TypeExceptionReason.NOT_A_CONTAINER, oid = oid, details = "Type is not a range")
         return PgRange.empty(rangeType.oid, rangeType.subtypeOid)
     }
@@ -164,7 +164,7 @@ class ContainerFactory internal constructor(
      * @return A new [io.github.octaviusframework.driver.container.PgMultirange] instance.
      */
     fun createMultirange(typeName: String, schema: String = "", vararg ranges: PgRange): PgMultirange {
-        val resolvedOid = typeManager.resolveOid(typeName, schema)
+        val resolvedOid = types.resolveOid(typeName, schema)
         return createMultirange(resolvedOid, *ranges)
     }
 
@@ -176,7 +176,7 @@ class ContainerFactory internal constructor(
      * @return A new [PgMultirange] instance.
      */
     fun createMultirange(oid: Int, vararg ranges: PgRange): PgMultirange {
-        val multirangeType = typeManager.typeDictionary.getPgType(oid) as? PgType.Multirange
+        val multirangeType = types.dictionary.getPgType(oid) as? PgType.Multirange
             ?: throw TypeException(TypeExceptionReason.NOT_A_CONTAINER, oid = oid, details = "Type is not a multirange")
         return PgMultirange(multirangeType.oid, multirangeType.rangeOid, ranges.toList())
     }

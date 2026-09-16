@@ -3,24 +3,30 @@ package io.github.octaviusframework.driver.converter.result.mapper
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.type.PgType
-import io.github.octaviusframework.driver.registry.TypeManager
+import io.github.octaviusframework.driver.registry.TypeCatalog
+import io.github.octaviusframework.driver.registry.TypeLookup
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
 /**
  * Entry point of the read conversion chain: hands a decoded value to the converters and checks the result.
  *
- * One of these belongs to each query, over that query's own [ResultConverterRegistry]. It is what
- * [Row.get][io.github.octaviusframework.driver.row.Row.get] and the `fetchObject*` family call.
+ * One of these belongs to each execution, over the [TypeCatalog] that execution pinned and whatever converters
+ * the query registered for itself. It is what [Row.get][io.github.octaviusframework.driver.row.Row.get] and the
+ * `fetchObject*` family call, and a `Row` holds on to the one its execution ran under - so a row read long after
+ * the query finished still resolves against the catalog the query ran against.
  *
- * @param registry The converters to consult, chained to the session's.
- * @param typeManager The session's type manager.
+ * @param catalog The pinned catalog to resolve converters, dictionaries and registrations against.
+ * @param localConverters Converters registered on the query itself, in registration order, or `null` where it
+ *   registered none. Consulted ahead of the catalog's.
+ * @param types The lookup handed to converters, reading the same pinned catalog.
  */
-class ResultMapper(
-    registry: ResultConverterRegistry,
-    typeManager: TypeManager
+internal class ResultMapper(
+    internal val catalog: TypeCatalog,
+    localConverters: List<ResultConverter<*, *>>?,
+    types: TypeLookup
 ) {
-    internal val context = DefaultDeserializationContext(registry, typeManager)
+    internal val context = DefaultDeserializationContext(catalog, localConverters, types)
 
     /**
      * Converts a decoded database value to [expectedType].
@@ -47,8 +53,9 @@ class ResultMapper(
 }
 
 internal class DefaultDeserializationContext(
-    private val registry: ResultConverterRegistry,
-    override val typeManager: TypeManager
+    private val catalog: TypeCatalog,
+    private val localConverters: List<ResultConverter<*, *>>?,
+    override val types: TypeLookup
 ) : DeserializationContext {
     override fun <T> convert(source: Any?, expectedType: KType, sourceType: PgType, pathSegment: String?): T {
         try {
@@ -62,7 +69,7 @@ internal class DefaultDeserializationContext(
 
         val kClass = expectedType.classifier as? KClass<*>
 
-        val converter = registry.findConverter(source::class, expectedType, sourceType, this)
+        val converter = findConverter(source::class, expectedType, sourceType)
         if (converter != null) {
             val converted = converter.convert(source, expectedType, sourceType, this)
 
@@ -97,7 +104,7 @@ internal class DefaultDeserializationContext(
         } catch (e: Exception) {
             val ex = MappingException(
                 MappingExceptionReason.CONVERSION_ERROR,
-                details = "Error during result deserialization: ${e.message}", 
+                details = "Error during result deserialization: ${e.message}",
                 cause = e
             )
             if (pathSegment != null) ex.path.add(pathSegment)
@@ -105,7 +112,28 @@ internal class DefaultDeserializationContext(
         }
     }
 
+    /**
+     * The query's own converters first, then the catalog's, and within each the class the codec produced
+     * before `Any::class` - so a converter registered on the query displaces one the session registered for
+     * the same class, and a catch-all registered on the query displaces both.
+     */
+    @Suppress("UNCHECKED_CAST")
     override fun findConverter(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType): ResultConverter<Any, *>? {
-        return registry.findConverter(sourceClass, expectedType, sourceType, this)
+        val local = localConverters
+        if (local != null) {
+            val anyClass: KClass<*> = Any::class
+            val lastIndex = local.size - 1
+            for (pass in 0..1) {
+                val wanted = if (pass == 0) sourceClass else anyClass
+                // Registration order, so the most recent is asked first.
+                for (i in lastIndex downTo 0) {
+                    val converter = local[i]
+                    if (converter.supportedSourceClass != wanted) continue
+                    converter as ResultConverter<Any, *>
+                    if (converter.canConvert(sourceClass, expectedType, sourceType, this)) return converter
+                }
+            }
+        }
+        return catalog.findResultConverter(sourceClass, expectedType, sourceType, this)
     }
 }

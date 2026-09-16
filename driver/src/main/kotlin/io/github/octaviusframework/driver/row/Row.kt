@@ -7,7 +7,7 @@ import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.TypeCatalog
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -23,7 +23,7 @@ class Row internal constructor(
     columnOffsets: IntArray,
     columnLengths: IntArray,
     val metadata: RowMetadata,
-    private val typeRegistry: TypeRegistry,
+    private val catalog: TypeCatalog,
     private val resultMapper: ResultMapper
 ) {
 
@@ -33,7 +33,7 @@ class Row internal constructor(
         else {
             val offset = columnOffsets[index]
             val oid = metadata.columns[index].oid
-            val codec = typeRegistry.codecs.getCodecByOid<Any>(oid)
+            val codec = catalog.codecs.getCodecByOid<Any>(oid)
                 ?: throw TypeException(TypeExceptionReason.MISSING_CODEC, oid = oid, details = "Row")
             codec.decodeSafely(rawData, offset, colLength)
         }

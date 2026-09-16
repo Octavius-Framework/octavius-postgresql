@@ -62,8 +62,8 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     /**
      * Registers a [ResultConverter] for this query and nothing else.
      *
-     * The driver gives every query converter registries of its own, chained to the session's and thrown away
-     * with the query; this is how a builder reaches them. A one-off mapping - a column read as something other
+     * The driver lets every query hold converters of its own, consulted ahead of the registered ones and thrown
+     * away with the query; this is how a builder reaches them. A one-off mapping - a column read as something other
      * than what the registry says, a shape that exists in one report and nowhere else - therefore costs nothing
      * outside the query it was written for, where registering on the type manager would reach every session
      * pointing at the same database.
@@ -230,7 +230,7 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     inline fun <reified T : Any> forEachObject(
         params: Map<String, Any?> = emptyMap(),
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ) {
         queryProvider.execute { preparedQuery().forEachObject<T>(params, fetchSize, block) }
     }
@@ -239,7 +239,7 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     inline fun <reified T : Any> forEachObject(
         vararg params: Pair<String, Any?>,
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ) = forEachObject<T>(params.toMap(), fetchSize, block)
 
     // --- Fields -----------------------------------------------------------------------------------
@@ -281,7 +281,7 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     inline fun <reified T> forEachField(
         params: Map<String, Any?> = emptyMap(),
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ) = queryProvider.execute { preparedQuery().forEachField<T>(params, fetchSize, block) }
 
 
@@ -289,7 +289,7 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     inline fun <reified T> forEachField(
         vararg params: Pair<String, Any?>,
         fetchSize: Int,
-        crossinline block: (T) -> Unit
+        noinline block: (T) -> Unit
     ) = forEachField<T>(params.toMap(), fetchSize, block)
 
     // --- Modification -----------------------------------------------------------------------------

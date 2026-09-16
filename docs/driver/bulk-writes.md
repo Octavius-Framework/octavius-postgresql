@@ -52,7 +52,7 @@ val ids = senators.map { it.id }
 val cognomina = senators.map { it.cognomen }
 
 val inserted: Long = session.createNativeQuery(
-    "INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1::int[], $2::text[])"
+    "INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1, $2)"
 ).update(ids, cognomina)
 ```
 
@@ -62,17 +62,35 @@ A Kotlin `List` becomes a PostgreSQL array with no ceremony: the parameter conve
 
 ```kotlin
 session.createNamedQuery(
-    "INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST(@ids::int[], @cognomina::text[])"
+    "INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST(@ids, @cognomina)"
 ).update("ids" to ids, "cognomina" to cognomina)
 ```
 
-### The casts, and when they matter
+### When a cast earns its place
 
-The `::int[]` casts above are belt and braces. The driver declares an OID for every array it sends, so the statement works without them — and it also works when the column is wider than what you sent, since `INSERT` is an assignment context and PostgreSQL widens `int4[]` into a `bigint[]` column by itself.
+The statements above carry none and need none: the driver declares an OID for every array it sends, so `UNNEST($1)` is
+planned knowing it was handed an `int4[]`. Wherever the array is taken apart before anything is compared — unnested into
+rows, or matched element-wise by `= ANY($1)` — only the element types have to meet, and PostgreSQL brings those together
+itself: an `int4[]` fills a `bigint[]` column, its unnested rows join a `bigint` key, and a `List<String>` matches a
+`varchar` one.
 
-Where a cast earns its place is the context that is *not* an assignment. `UNNEST($1)` is one: what comes out of it is whatever went in, so if the surrounding query joins that against a `bigint` column or feeds it to a function expecting `int8`, say so in the SQL — `UNNEST($1::int8[])` — and let the server convert. Keeping the casts on a bulk statement is cheap insurance for exactly that reason.
+**An array compared whole is the exception.** The `anyarray` operators resolve both sides to one type and coerce
+neither, so an element type that merely converts is not close enough: `varchar[] = text[]` stops at *"operator does not
+exist: character varying[] = text[]"* (`42883`, arriving as `StatementException(UNDEFINED_OBJECT)`), and `@>`, `&&` and
+`<@` stop the same way. Nor is it a `varchar` quirk — `bigint[] @> int4[]` fails identically. A `List<String>` goes out
+as `text[]` and a `List<Int>` as `int4[]`, so a `varchar[]` or `bigint[]` column has to be told:
+`WHERE tags @> $1::varchar[]`.
 
-What will *not* work is naming the wider type on the Kotlin side. `withPgType` declares what you are sending, and the OID it names picks the codec that encodes your values, so `ids.withPgType(PgStandardType.INT8_ARRAY)` on a `List<Int>` asks the `int8` codec to encode `Int`s and fails with `CodecException(ENCODING)` before anything is sent. Build a `List<Long>` if you want `int8` on the wire; cast in SQL if you want the server to widen it. See [Arrays](arrays-ranges-json.md#writing) for the two layers side by side.
+The other case is the conversion PostgreSQL will not make unasked, and `text` to `jsonb` is the one to watch:
+`INSERT INTO dossiers (data) SELECT * FROM UNNEST($1)` stops at *"column `data` is of type jsonb but expression is of
+type text"* (`42804`, arriving as `StatementException(DATA_TYPE_ERROR)`). Either say it in the SQL —
+`UNNEST($1::jsonb[])` — or say it on the Kotlin side with [`withPgType`](type-system.md#pgtyped).
+
+What `withPgType` will *not* do is widen. It declares what you are sending, and the OID it names picks the codec that
+encodes your values, so `ids.withPgType(PgStandardType.INT8_ARRAY)` on a `List<Int>` asks the `int8` codec for an `Int`
+and fails with `MappingException(NO_CONVERTER_FOUND)` — `path` naming the element — before anything is sent. Build a
+`List<Long>` if you want `int8` on the wire; cast in SQL if you want the server to convert.
+See [Arrays](arrays-ranges-json.md#writing) for the two layers side by side.
 
 ### Empty batches need a type
 
@@ -101,7 +119,7 @@ session.createNativeQuery("""
     UPDATE senators AS s
     SET rank = u.rank,
         province_id = u.province
-    FROM UNNEST($1::int[], $2::text[], $3::int[]) AS u(id, rank, province)
+    FROM UNNEST($1, $2, $3) AS u(id, rank, province)
     WHERE s.id = u.id
 """).update(ids, ranks, provinces)
 ```
@@ -113,14 +131,14 @@ The `AS u(id, rank, province)` alias is what makes the unnested columns addressa
 A delete needs no zipping, only membership, so `= ANY` takes the array directly:
 
 ```kotlin
-session.createNativeQuery("DELETE FROM senators WHERE id = ANY($1::int[])")
+session.createNativeQuery("DELETE FROM senators WHERE id = ANY($1)")
     .update(ids)
 ```
 
 The same construction answers a question that has nothing to do with bulk writing: **how to pass a list to an `IN` clause.** In JDBC that means generating `?, ?, ?` to match the size of the list and binding each element — a different statement string for every distinct list length, and a new plan for each. Here the list is one parameter and the statement is a constant:
 
 ```kotlin
-val senators = session.createNativeQuery("SELECT * FROM senators WHERE province_id = ANY($1::int[])")
+val senators = session.createNativeQuery("SELECT * FROM senators WHERE province_id = ANY($1)")
     .fetchObjects<Senator>(provinceIds)
 ```
 
@@ -133,7 +151,7 @@ val senators = session.createNativeQuery("SELECT * FROM senators WHERE province_
 ```kotlin
 session.createNativeQuery("""
     INSERT INTO senators (id, cognomen)
-    SELECT * FROM UNNEST($1::int[], $2::text[])
+    SELECT * FROM UNNEST($1, $2)
     ON CONFLICT (id) DO UPDATE SET cognomen = EXCLUDED.cognomen
 """).update(ids, cognomina)
 ```
@@ -146,7 +164,7 @@ One caveat is PostgreSQL's, not the driver's: a single statement cannot update t
 
 ```kotlin
 val newIds: List<Long> = session.createNativeQuery("""
-    INSERT INTO senators (cognomen) SELECT * FROM UNNEST($1::text[])
+    INSERT INTO senators (cognomen) SELECT * FROM UNNEST($1)
     RETURNING id
 """).fetchFields(cognomina)
 ```
@@ -161,7 +179,7 @@ val newIds: List<Long> = session.createNativeQuery("""
 >
 > val assigned: List<Assigned> = session.createNativeQuery("""
 >     INSERT INTO senators (cognomen, batch_position)
->     SELECT c.cognomen, c.ordinality FROM UNNEST($1::text[]) WITH ORDINALITY AS c(cognomen, ordinality)
+>     SELECT c.cognomen, c.ordinality FROM UNNEST($1) WITH ORDINALITY AS c(cognomen, ordinality)
 >     RETURNING batch_position AS ordinality, id
 > """).fetchObjects(cognomina)
 > ```
@@ -177,7 +195,7 @@ session.typeManager.registerAutoComposite<Senator>()   // once, at startup
 
 session.createNativeQuery("""
     INSERT INTO senators (id, cognomen)
-    SELECT s.id, s.cognomen FROM UNNEST($1::senator[]) AS s
+    SELECT s.id, s.cognomen FROM UNNEST($1) AS s
 """).update(senators)
 ```
 
@@ -214,7 +232,7 @@ In practice the gain is nearly all captured well before any of that. **Chunk at 
 ```kotlin
 session.transaction.required {
     senators.chunked(10_000).forEach { chunk ->
-        createNativeQuery("INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1::int[], $2::text[])")
+        createNativeQuery("INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1, $2)")
             .update(chunk.map { it.id }, chunk.map { it.cognomen })
     }
 }

@@ -1,14 +1,13 @@
 package io.github.octaviusframework.driver.query
 
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
-import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverterRegistry
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterMapper
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.execution.QueryExecutor
 import io.github.octaviusframework.driver.execution.ParameterSerializer
+import io.github.octaviusframework.driver.registry.TypeCatalog
 import io.github.octaviusframework.driver.registry.TypeManager
 
 /**
@@ -17,42 +16,36 @@ import io.github.octaviusframework.driver.registry.TypeManager
  * This class provides the foundational state and utilities needed for managing
  * type conversion registries and mappings localized to a single query instance.
  *
- * Each query gets converter registries of its own, chained to the session's. A converter registered
- * here is consulted before the session's and is discarded with the query, which is what makes a
- * one-off mapping possible without disturbing anything else on the connection.
+ * A converter registered here is consulted before the session's and is discarded with the query, which is
+ * what makes a one-off mapping possible without disturbing anything else on the connection.
  *
  * @param T The concrete type of the query (used for fluent API return types).
- * @property typeManager The session's type manager, resolving OIDs and holding the parent registries.
+ * @property typeManager The session's type manager, resolving OIDs and publishing the catalog an execution pins.
  */
 @Suppress("UNCHECKED_CAST")
 abstract class Query<T : Query<T>> internal constructor(
-    @PublishedApi internal val sql: String,
-    @PublishedApi internal val queryExecutor: QueryExecutor,
+    internal val sql: String,
+    internal val queryExecutor: QueryExecutor,
     internal val typeManager: TypeManager
 ) {
-    /**
-     * Result converters local to this query, chained to the session's. Converters here are tried first.
-     */
-    val resultConverterRegistry = ResultConverterRegistry(parent = typeManager.converterRegistry.resultConverterRegistry)
-
-    /**
-     * Parameter converters local to this query, chained to the session's. Converters here are tried first.
-     */
-    val parameterConverterRegistry = ParameterConverterRegistry(parent = typeManager.converterRegistry.parameterConverterRegistry)
-    @PublishedApi internal val resultMapper = ResultMapper(resultConverterRegistry, typeManager)
-    internal val parameterMapper = ParameterMapper(parameterConverterRegistry, typeManager)
-    @PublishedApi internal val parameterSerializer = ParameterSerializer(typeManager, parameterMapper)
+    // Null until something is registered: a query is a thing an application builds per request, and an empty
+    // list apiece would be two allocations on every one of them for a feature most never use.
+    private var localResultConverters: MutableList<ResultConverter<*, *>>? = null
+    private var localParameterConverters: MutableList<ParameterConverter<*>>? = null
 
     /**
      * Registers a [ResultConverter] for this query only, ahead of any the session already holds.
      *
-     * Later registrations take priority over earlier ones.
+     * Later registrations take priority over earlier ones. A converter registered after a terminal has run
+     * applies to the next one, not to rows already returned - those were mapped against the catalog their
+     * execution pinned.
      *
      * @param converter The converter to register.
      * @return This query, for chaining.
      */
     fun registerResultConverter(converter: ResultConverter<*, *>): T {
-        resultConverterRegistry.addConverter(converter)
+        (localResultConverters ?: mutableListOf<ResultConverter<*, *>>().also { localResultConverters = it })
+            .add(converter)
         return this as T
     }
 
@@ -65,11 +58,35 @@ abstract class Query<T : Query<T>> internal constructor(
      * @return This query, for chaining.
      */
     fun registerParameterConverter(converter: ParameterConverter<*>): T {
-        parameterConverterRegistry.addConverter(converter)
+        (localParameterConverters ?: mutableListOf<ParameterConverter<*>>().also { localParameterConverters = it })
+            .add(converter)
         return this as T
     }
 
-    @PublishedApi
+    /**
+     * Pins the catalog this execution will read, and builds the mappers over it.
+     *
+     * Taken here rather than when the query was constructed, because [registerResultConverter] and its write-side
+     * twin run in between; and per execution rather than once, because a query object can be run again after a
+     * registration or a `reloadTypes()`, and the second run should see them.
+     *
+     * Everything downstream - the parameter serializer, the result mapper, the `Row`s it produces, the type
+     * lookup converters are handed - reads this one catalog, so a registration on another thread cannot land in
+     * the middle of a result and leave it mapped against two of them.
+     */
+    internal fun beginExecution(): Execution {
+        val catalog = typeManager.catalog
+        val pinned = typeManager.pinnedTo(catalog)
+        return Execution(
+            catalog = catalog,
+            resultMapper = ResultMapper(catalog, localResultConverters, pinned),
+            parameterSerializer = ParameterSerializer(
+                pinned,
+                ParameterMapper(catalog, localParameterConverters, pinned)
+            )
+        )
+    }
+
     internal inline fun <R> withQueryContext(
         sql: String,
         crossinline paramsProvider: () -> Map<String, Any?>,
@@ -109,3 +126,18 @@ abstract class Query<T : Query<T>> internal constructor(
     }
 }
 
+/**
+ * One run of a query, and the catalog it reads.
+ *
+ * Built by [Query.beginExecution] at the start of every terminal and handed down through it, so that a result
+ * is mapped, and its parameters encoded, against a catalog that does not move underneath them.
+ *
+ * @property catalog The catalog pinned for this run.
+ * @property resultMapper Maps rows and columns against [catalog]; the `Row`s produced hold on to it.
+ * @property parameterSerializer Encodes the bound values against [catalog].
+ */
+internal class Execution(
+    val catalog: TypeCatalog,
+    val resultMapper: ResultMapper,
+    val parameterSerializer: ParameterSerializer
+)

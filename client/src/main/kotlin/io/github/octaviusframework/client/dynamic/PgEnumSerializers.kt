@@ -1,7 +1,7 @@
 package io.github.octaviusframework.client.dynamic
 
 import io.github.octaviusframework.driver.identifier.QualifiedName
-import io.github.octaviusframework.driver.registry.ConverterRegistry
+import io.github.octaviusframework.driver.registry.TypeCatalog
 import io.github.octaviusframework.driver.registry.PgEnumRegistration
 import io.github.octaviusframework.identifier.CaseConverter
 import kotlinx.serialization.KSerializer
@@ -77,7 +77,8 @@ internal class PgEnumSerializer(
  * They cannot be composed once and kept: a client is built before anything is registered on it, and the enums
  * arrive afterwards - named one by one, or all at once by a classpath scan. So the base is kept as it was
  * given and the derived pair is resolved per conversion. That costs a volatile read and a reference
- * comparison, because the driver replaces [ConverterRegistry.registeredEnums] wholesale on each registration:
+ * comparison, because the driver replaces the catalog holding [TypeCatalog.registeredEnums] wholesale on each
+ * registration:
  * the map's identity *is* the version, and a reader that sees the map it saw last time gets back what it
  * built last time.
  *
@@ -92,14 +93,14 @@ internal class EnumAwareJson(private val base: Json) {
     private var cached: Triple<Map<KClass<*>, PgEnumRegistration>, SerializersModule, Json>? = null
 
     /** The module on its own, for a [Json] the caller is building rather than one being converted with. */
-    fun module(registry: ConverterRegistry): SerializersModule = derive(registry).second
+    fun module(catalog: TypeCatalog): SerializersModule = derive(catalog).second
 
     /** [base] with the module folded in, or [base] itself where there is nothing to fold. */
-    fun resolve(registry: ConverterRegistry): Json =
-        if (registry.registeredEnums.isEmpty()) base else derive(registry).third
+    fun resolve(catalog: TypeCatalog): Json =
+        if (catalog.registeredEnums.isEmpty()) base else derive(catalog).third
 
-    private fun derive(registry: ConverterRegistry): Triple<Map<KClass<*>, PgEnumRegistration>, SerializersModule, Json> {
-        val source = registry.registeredEnums
+    private fun derive(catalog: TypeCatalog): Triple<Map<KClass<*>, PgEnumRegistration>, SerializersModule, Json> {
+        val source = catalog.registeredEnums
         cached?.let { if (it.first === source) return it }
 
         @Suppress("UNCHECKED_CAST")

@@ -2,14 +2,13 @@ package io.github.octaviusframework.driver.converter
 
 import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.converter.result.composite.ReflectionCompositeConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.registry.TypeManager
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.util.reflection.toDataObject
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -51,14 +50,14 @@ class ReflectionMissingValueTest {
         LinkedHashMap(mapOf("cognomen" to textOid))
     )
 
-    private val registry = TypeRegistry().apply {
-        updateTypes(
+    private val registry = CatalogHolder().apply {
+        update { it.withTypes(
             mapOf(
                 textOid to PgType.Base(textOid, "text", "public"),
                 10 to withProvince,
                 11 to withoutProvince
             )
-        )
+        ) }
     }
 
     private val typeManager = TypeManager(registry).apply {
@@ -68,10 +67,7 @@ class ReflectionMissingValueTest {
         registerAutoComposite<NullableDefaulted>("nullable_defaulted_t", "public")
     }
 
-    private val mapper = ResultMapper(
-        ResultConverterRegistry().apply { addConverter(ReflectionCompositeConverter) },
-        typeManager
-    )
+    private val mapper = ResultMapper(registry.catalog, listOf(ReflectionCompositeConverter), typeManager.lookup)
 
     private fun composite(type: PgType.Composite, values: Map<String, Any?>) =
         PgComposite(type, type.attributes.map { (name, _) -> values[name] }.toTypedArray())
@@ -176,13 +172,13 @@ class ReflectionMissingValueTest {
 
     @Test
     fun `a rejected registration leaves the registry untouched`() {
-        val before = typeManager.converterRegistry.registeredComposites.size
-        val namesBefore = typeManager.converterRegistry.compositeClassByName.size
+        val before = typeManager.catalog.registeredComposites.size
+        val namesBefore = typeManager.catalog.compositeClassByName.size
         assertThrows<InvalidOperationException> {
             typeManager.registerAutoComposite<NotAData>("not_a_data_t", "public")
         }
-        assertEquals(before, typeManager.converterRegistry.registeredComposites.size)
-        assertEquals(namesBefore, typeManager.converterRegistry.compositeClassByName.size)
+        assertEquals(before, typeManager.catalog.registeredComposites.size)
+        assertEquals(namesBefore, typeManager.catalog.compositeClassByName.size)
     }
 
     @Test

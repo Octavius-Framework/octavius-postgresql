@@ -20,11 +20,11 @@ internal object ReflectionCompositeConverter : ResultConverter<PgComposite, Any>
     override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
         val kClass = expectedType.classifier as? KClass<*> ?: return false
         if (kClass == Any::class) {
-            return context.typeManager.converterRegistry.compositeClassByName.containsKey(QualifiedName(sourceType.schema, sourceType.name)) ||
-                    context.typeManager.converterRegistry.compositeClassByName.containsKey(QualifiedName("", sourceType.name))
+            return context.types.catalog.compositeClassByName.containsKey(QualifiedName(sourceType.schema, sourceType.name)) ||
+                    context.types.catalog.compositeClassByName.containsKey(QualifiedName("", sourceType.name))
         }
         if (!kClass.isData) return false
-        return context.typeManager.converterRegistry.registeredComposites.containsKey(kClass)
+        return context.types.catalog.registeredComposites.containsKey(kClass)
     }
 
     override fun convert(source: PgComposite, expectedType: KType, sourceType: PgType, context: DeserializationContext): Any {
@@ -32,8 +32,8 @@ internal object ReflectionCompositeConverter : ResultConverter<PgComposite, Any>
         
         @Suppress("UNCHECKED_CAST")
         val kClass = if (expectedClass == Any::class) {
-            context.typeManager.converterRegistry.compositeClassByName[QualifiedName(sourceType.schema, sourceType.name)]
-                ?: context.typeManager.converterRegistry.compositeClassByName[QualifiedName("", sourceType.name)]
+            context.types.catalog.compositeClassByName[QualifiedName(sourceType.schema, sourceType.name)]
+                ?: context.types.catalog.compositeClassByName[QualifiedName("", sourceType.name)]
                 ?: error("Missing composite registration for type")
         } else {
             expectedClass

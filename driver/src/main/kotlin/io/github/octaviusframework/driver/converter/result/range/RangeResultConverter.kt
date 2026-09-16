@@ -24,7 +24,7 @@ internal object RangeResultConverter : ResultConverter<PgRange, Range<*>> {
         @Suppress("UNCHECKED_CAST")
         val elementClass = (ktElementType.classifier as? KClass<Any>) ?: Any::class
         
-        val pgElementType = context.typeManager.typeDictionary.getPgType(source.elementOid)
+        val pgElementType = context.types.dictionary.getPgType(source.elementOid)
 
         val lower = source.lowerBound?.let { context.convert<Any>(it, ktElementType, pgElementType) }
         val upper = source.upperBound?.let { context.convert<Any>(it, ktElementType, pgElementType) }

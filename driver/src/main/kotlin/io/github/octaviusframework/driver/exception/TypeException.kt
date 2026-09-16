@@ -4,7 +4,7 @@ package io.github.octaviusframework.driver.exception
  * Represents the reason for a type resolution or validation failure.
  */
 enum class TypeExceptionReason {
-    /** The specified type was not found in the TypeRegistry. */
+    /** The specified type was not found in the type catalog. */
     TYPE_NOT_FOUND,
     /** The type with the specified OID is not a valid container type (Composite, Array, Enum, etc.). */
     NOT_A_CONTAINER,
@@ -39,7 +39,7 @@ class TypeException(
 
 private fun generateDeveloperMessage(reason: TypeExceptionReason): String =
     when (reason) {
-        TypeExceptionReason.TYPE_NOT_FOUND -> "The specified type was not found in the TypeRegistry."
+        TypeExceptionReason.TYPE_NOT_FOUND -> "The specified type was not found in the type catalog."
         TypeExceptionReason.NOT_A_CONTAINER -> "The type with the specified OID is not a valid container type (Composite, Array, etc.)."
         TypeExceptionReason.MISSING_CODEC -> "Missing codec for the specific OID when parsing or serializing."
     }

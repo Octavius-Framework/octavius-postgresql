@@ -30,7 +30,7 @@ internal object MultiRangeResultConverter : ResultConverter<PgMultirange, MultiR
         }
 
         val elementOid = source.ranges.first().elementOid
-        val pgElementType = context.typeManager.typeDictionary.getPgType(elementOid)
+        val pgElementType = context.types.dictionary.getPgType(elementOid)
 
         val convertedRanges = source.ranges.map { pgRange ->
             val lower = pgRange.lowerBound?.let { context.convert<Any>(it, ktElementType, pgElementType) }

@@ -34,7 +34,7 @@ Contents:
 Ask for the collection you want and the array arrives as one:
 
 ```kotlin
-val row = session.createNativeQuery("SELECT ARRAY[1, 2, 3]::int[] AS legions").fetchRowStrict()
+val row = session.createNativeQuery("SELECT ARRAY[1, 2, 3] AS legions").fetchRowStrict()
 
 val legions: List<Int> = row.get("legions")   // [1, 2, 3]
 ```
@@ -53,7 +53,7 @@ PostgreSQL arrays may contain `NULL`, and Kotlin's type system is what decides w
 the element type:
 
 ```kotlin
-val row = session.createNativeQuery("SELECT ARRAY[1, NULL, 3]::int[] AS spotty").fetchRowStrict()
+val row = session.createNativeQuery("SELECT ARRAY[1, NULL, 3] AS spotty").fetchRowStrict()
 
 val ok: List<Int?> = row.get("spotty")    // [1, null, 3]
 val bad: List<Int> = row.get("spotty")    // MappingException(REQUIRED_ATTRIBUTE_MISSING)
@@ -68,11 +68,11 @@ PostgreSQL arrays can have more than one dimension, and nested Kotlin collection
 
 ```kotlin
 val grid: List<List<Int>> = session
-    .createNativeQuery("SELECT ARRAY[[1,2,3],[4,5,6]]::int[]")
+    .createNativeQuery("SELECT ARRAY[[1,2,3],[4,5,6]]")
     .fetchRowStrict().get(0)                     // [[1, 2, 3], [4, 5, 6]]
 
 val back: List<List<Int>> = session
-    .createNativeQuery("SELECT $1::int[]")
+    .createNativeQuery("SELECT $1")
     .fetchRowStrict(listOf(listOf(1, 2), listOf(3, 4))).get(0)
 ```
 
@@ -112,7 +112,10 @@ session.createNativeQuery("SELECT $1::int8[]").fetchRowStrict(listOf(1, 2, 3))
 
 So reach for `withPgType` when the driver cannot infer a type at all — an empty collection — or infers one the server
 will not take, such as a `String` bound for a `jsonb` column. Reach for a SQL cast when what you sent has to become
-something else and no assignment cast applies: a function argument, an `UNNEST`, an overload to disambiguate.
+something else on the server: an array compared whole, since `anyarray` takes both sides as one type and coerces
+neither (`varchar[] = text[]` has no operator at all); a conversion PostgreSQL makes only when asked, such as `text`
+to `jsonb`; an overload to disambiguate. [When a cast earns its
+place](bulk-writes.md#when-a-cast-earns-its-place) draws the whole boundary.
 
 ### Empty collections need their type stated
 
@@ -274,7 +277,7 @@ val campaigns = multiRangeOf(
     rangeOf(lowerBound = 10)
 )
 
-val back: MultiRange<Int> = session.createNativeQuery("SELECT $1::int4multirange")
+val back: MultiRange<Int> = session.createNativeQuery("SELECT $1")
     .fetchRowStrict(campaigns).get(0)
 
 back.ranges       // List<Range<Int>>, normalized and ordered by the server

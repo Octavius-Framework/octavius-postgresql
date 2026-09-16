@@ -6,9 +6,8 @@ import io.github.octaviusframework.driver.converter.parameter.composite.Reflecti
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.converter.result.composite.ReflectionCompositeConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.registry.TypeManager
 import org.junit.jupiter.api.Assertions.*
@@ -34,12 +33,12 @@ class ReflectionCompositeMappingTest {
         )
     )
 
-    private val dummyRegistry = TypeRegistry().apply {
-        updateTypes(mapOf(
+    private val dummyRegistry = CatalogHolder().apply {
+        update { it.withTypes(mapOf(
             1 to PgType.Base(1, "text", "public"),
             2 to PgType.Base(2, "int4", "public"),
             3 to type
-        ))
+        )) }
     }
     
     private val dummyTypeManager = TypeManager(dummyRegistry)
@@ -61,10 +60,10 @@ class ReflectionCompositeMappingTest {
     fun `test deserialization with PgName`() {
         val type = registerPersonComposite()
 
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        val deserializer = ResultMapper(registry,
-            dummyTypeManager
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter),
+            dummyTypeManager.lookup
         )
 
         val composite = createComposite(type, mapOf(
@@ -86,7 +85,7 @@ class ReflectionCompositeMappingTest {
         val converter = ReflectionCompositeParameterConverter
         val dummyTypeManager = TypeManager(dummyRegistry)
         val context = object : SerializationContext {
-            override val typeManager = dummyTypeManager
+            override val types = dummyTypeManager.lookup
             override fun convert(source: Any, expectedOid: Int, pathSegment: String?): Any? = source
             override fun findConverter(source: Any, expectedOid: Int): ParameterConverter<Any>? = null
             override fun findConverterByClass(

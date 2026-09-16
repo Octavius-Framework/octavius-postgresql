@@ -40,7 +40,7 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
         context: DeserializationContext
     ): Any {
 
-        val pgElementType = context.typeManager.typeDictionary.getPgType(source.elementOid)
+        val pgElementType = context.types.dictionary.getPgType(source.elementOid)
         val elements = source.elements
         val size = elements.size
 

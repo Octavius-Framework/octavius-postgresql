@@ -20,7 +20,7 @@ internal object CollectionArrayConverter : ResultConverter<PgArray, Collection<*
     }
 
     override fun convert(source: PgArray, expectedType: KType, sourceType: PgType, context: DeserializationContext): Collection<*> {
-        val pgElementType = context.typeManager.typeDictionary.getPgType(source.elementOid)
+        val pgElementType = context.types.dictionary.getPgType(source.elementOid)
 
         return buildMultiDimensionalCollection(source, context, expectedType, 0, 0, pgElementType)
     }

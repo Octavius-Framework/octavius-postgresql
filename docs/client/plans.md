@@ -58,7 +58,7 @@ fun planEdict(draft: EdictDraft): Pair<TransactionPlan, StepHandle<Int>> {
                 """
                 INSERT INTO edict_items (edict_id, province, amount)
                 SELECT @edict_id, u.province, u.amount
-                FROM UNNEST(@provinces::text[], @amounts::int[]) AS u(province, amount)
+                FROM UNNEST(@provinces, @amounts) AS u(province, amount)
                 """
             ).asStep().update(
                 "edict_id" to edictId.value(),
