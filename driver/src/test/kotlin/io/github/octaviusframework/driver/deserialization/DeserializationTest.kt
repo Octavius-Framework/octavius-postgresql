@@ -8,11 +8,11 @@ import io.github.octaviusframework.driver.converter.result.composite.MapComposit
 import io.github.octaviusframework.driver.converter.result.composite.ReflectionCompositeConverter
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.converter.result.mapper.ResultConverterRegistry
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.registry.TypeManager
-import io.github.octaviusframework.driver.registry.TypeRegistry
+import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -22,15 +22,15 @@ import kotlin.reflect.typeOf
 
 class DeserializationTest {
 
-    private val dummyRegistry = TypeRegistry().apply {
-        updateTypes(mapOf(
+    private val dummyRegistry = CatalogHolder().apply {
+        update { it.withTypes(mapOf(
             1 to PgType.Base(1, "dummy", "public"),
             2 to PgType.Array(2, "dummy_array", "public", 1)
-        ))
-        converterRegistry.registerAutoCompositeType(Address::class, "address")
-        converterRegistry.registerAutoCompositeType(Person::class, "person")
-        converterRegistry.registerAutoCompositeType(Company::class, "company")
-        converterRegistry.registerAutoCompositeType(OptionalFields::class, "optional_fields")
+        )) }
+        update { it.withComposite(Address::class, QualifiedName("", "address")) }
+        update { it.withComposite(Person::class, QualifiedName("", "person")) }
+        update { it.withComposite(Company::class, QualifiedName("", "company")) }
+        update { it.withComposite(OptionalFields::class, QualifiedName("", "optional_fields")) }
     }
 
     private fun createComposite(attributes: Map<String, Any?>): PgComposite {
@@ -55,9 +55,11 @@ class DeserializationTest {
 
     @Test
     fun `test simple composite reflection mapping`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        val deserializer = ResultMapper(registry, TypeManager(dummyRegistry))
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter),
+            TypeManager(dummyRegistry).lookup
+        )
 
         val composite = createComposite(mapOf("street" to "Baker St", "city" to "London"))
 
@@ -69,10 +71,10 @@ class DeserializationTest {
 
     @Test
     fun `test nested composite reflection mapping`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        val deserializer = ResultMapper(registry,
-            TypeManager(dummyRegistry)
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter),
+            TypeManager(dummyRegistry).lookup
         )
 
         val addressComposite = createComposite(mapOf("street" to "Wall St", "city" to "NY"))
@@ -88,11 +90,10 @@ class DeserializationTest {
 
     @Test
     fun `test array to list mapping with nested composites`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        registry.addConverter(CollectionArrayConverter)
-        val deserializer = ResultMapper(registry,
-            TypeManager(dummyRegistry)
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter, CollectionArrayConverter),
+            TypeManager(dummyRegistry).lookup
         )
 
         val p1 = createComposite(
@@ -123,11 +124,10 @@ class DeserializationTest {
 
     @Test
     fun `test fallback to PgComposite for composite when Any is requested and explicit map conversion`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        registry.addConverter(MapCompositeConverter)
-        val deserializer = ResultMapper(registry,
-            TypeManager(dummyRegistry)
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter, MapCompositeConverter),
+            TypeManager(dummyRegistry).lookup
         )
 
         val composite = createComposite(mapOf("key1" to "value1", "key2" to 42))
@@ -143,10 +143,10 @@ class DeserializationTest {
 
     @Test
     fun `test missing non-nullable field throws exception`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        val deserializer = ResultMapper(registry,
-            TypeManager(dummyRegistry)
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter),
+            TypeManager(dummyRegistry).lookup
         )
 
         val composite = createComposite(mapOf("street" to "Baker St")) // Missing 'city'
@@ -159,10 +159,10 @@ class DeserializationTest {
 
     @Test
     fun `test optional parameters and nulls are handled correctly`() {
-        val registry = ResultConverterRegistry()
-        registry.addConverter(ReflectionCompositeConverter)
-        val deserializer = ResultMapper(registry,
-            TypeManager(dummyRegistry)
+        val deserializer = ResultMapper(
+            dummyRegistry.catalog,
+            listOf(ReflectionCompositeConverter),
+            TypeManager(dummyRegistry).lookup
         )
 
         val composite = createComposite(mapOf("id" to 10)) // missing name (has default), missing desc (nullable)
@@ -176,11 +176,7 @@ class DeserializationTest {
 
     @Test
     fun `test local registry overrides global registry`() {
-        val globalRegistry = ResultConverterRegistry()
-        globalRegistry.addConverter(ReflectionCompositeConverter)
-        val deserializer = ResultMapper(globalRegistry,
-            TypeManager(dummyRegistry)
-        )
+        val deserializer = ResultMapper(dummyRegistry.catalog, null, TypeManager(dummyRegistry).lookup)
 
         val composite = createComposite(mapOf("street" to "Global", "city" to "City"))
 
@@ -200,12 +196,7 @@ class DeserializationTest {
             }
         }
 
-        val localRegistry = ResultConverterRegistry(globalRegistry)
-        localRegistry.addConverter(localConverter)
-
-        val localDeserializer = ResultMapper(localRegistry,
-            TypeManager(dummyRegistry)
-        )
+        val localDeserializer = ResultMapper(dummyRegistry.catalog, listOf(localConverter), TypeManager(dummyRegistry).lookup)
 
         // Using local registry
         val address: Address? = localDeserializer.deserialize(composite, typeOf<Address>(), composite.type)

@@ -8,7 +8,7 @@ import io.github.octaviusframework.driver.io.PgStream
 import io.github.octaviusframework.driver.message.frontend.StartupMessage
 import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.properties.OctaviusProperties
-import io.github.octaviusframework.driver.registry.RegistryKey
+import io.github.octaviusframework.driver.registry.DatabaseKey
 import io.github.octaviusframework.driver.ssl.SslNegotiator
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.sql.Connection
@@ -138,7 +138,7 @@ internal object OctaviusConnectionFactory {
 
             return OctaviusConnection(
                 stream,
-                RegistryKey(serverName, portNumber, databaseName),
+                DatabaseKey(serverName, portNumber, databaseName),
                 properties.maxParameterWriterCapacity,
                 properties.initialParameterWriterCapacity,
                 properties.logParameterValues ?: false

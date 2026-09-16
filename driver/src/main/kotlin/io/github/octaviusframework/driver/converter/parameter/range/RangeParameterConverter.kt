@@ -15,18 +15,18 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
     override val supportedClass: KClass<Range<*>> = Range::class
 
     override fun convert(source: Range<*>, expectedOid: Int, context: SerializationContext): Any {
-        val typeManager = context.typeManager
+        val types = context.types
 
         val pgType = if (expectedOid.isKnownOid) {
-            context.typeManager.typeDictionary.getPgType(expectedOid) as? PgType.Range
+            context.types.dictionary.getPgType(expectedOid) as? PgType.Range
         } else {
             val elementOid = context.findConverterByClass(source.elementClass, UNRESOLVED_OID)?.getDefaultTypeName(source.elementClass, context)
-                ?.let { context.typeManager.resolveOid(it.name, it.schema, it.isArray) }
+                ?.let { context.types.resolveOid(it.name, it.schema, it.isArray) }
                 ?.takeIf { it.isKnownOid }
-                ?: typeManager.codecDictionary.getCodecByClass(source.elementClass)?.let { typeManager.codecDictionary.getOidForCodec(it) ?: typeManager.resolveOid(it.pgTypeName, it.pgSchema) }
+                ?: types.codecs.getCodecByClass(source.elementClass)?.let { types.codecs.getOidForCodec(it) ?: types.resolveOid(it.pgTypeName, it.pgSchema) }
 
             if (elementOid != null && elementOid.isKnownOid) {
-                context.typeManager.typeDictionary.getRangeType(elementOid)
+                context.types.dictionary.getRangeType(elementOid)
             } else null
         }
 
@@ -44,10 +44,10 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
         val convertedUpper = source.upperBound?.let { boundConverter?.convert(it, elementOid, context) ?: it }
 
         if (source.isEmpty) {
-            return context.typeManager.containers.createEmptyRange(pgType.oid)
+            return context.types.containers.createEmptyRange(pgType.oid)
         }
 
-        return context.typeManager.containers.createRange(
+        return context.types.containers.createRange(
             oid = pgType.oid,
             lower = convertedLower,
             upper = convertedUpper,

@@ -26,9 +26,9 @@ class SenatorExplicitParameterConverter : ParameterConverter<SenatorExplicit> {
 
     override fun convert(source: SenatorExplicit, expectedOid: Int, context: SerializationContext): Any {
         val composite = if (expectedOid.isKnownOid) {
-            context.typeManager.containers.createComposite(expectedOid)
+            context.types.containers.createComposite(expectedOid)
         } else {
-            context.typeManager.containers.createComposite("bench_senator")
+            context.types.containers.createComposite("bench_senator")
         }
         composite["id"] = source.id
         composite["cognomen"] = source.cognomen

@@ -60,7 +60,7 @@ internal object CollectionArrayParameterConverter : ParameterConverter<Any> {
         val expectedSize = dimensions.fold(1) { acc, dim -> acc * dim.size }
 
         val arrayType = if (expectedOid.isKnownOid) {
-            context.typeManager.typeDictionary.getPgType(expectedOid) as? PgType.Array
+            context.types.dictionary.getPgType(expectedOid) as? PgType.Array
         } else {
             // Try to infer from first non-null element
             val firstNonNull = findFirstNonNull(source)
@@ -68,7 +68,7 @@ internal object CollectionArrayParameterConverter : ParameterConverter<Any> {
                 val converted = context.convert(firstNonNull, UNRESOLVED_OID)
                 val elementOid = when {
                     converted is PgTyped -> {
-                        context.typeManager.resolveOid(
+                        context.types.resolveOid(
                             converted.pgType.name,
                             converted.pgType.schema,
                             converted.pgType.isArray
@@ -80,14 +80,14 @@ internal object CollectionArrayParameterConverter : ParameterConverter<Any> {
                     }
 
                     converted != null -> {
-                        context.typeManager.codecDictionary.getCodecByClass(converted::class)?.oid
+                        context.types.codecs.getCodecByClass(converted::class)?.oid
                     }
 
                     else -> null
                 }
 
                 if (elementOid != null) {
-                    context.typeManager.typeDictionary.getArrayType(elementOid)
+                    context.types.dictionary.getArrayType(elementOid)
                 } else null
             } else null
         }

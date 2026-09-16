@@ -284,9 +284,9 @@ Binding hashes the certificate; it does not judge it. That still belongs to [`ve
 
 ### The first connection pays for the type catalog
 
-Step 7 reads the server's type catalog into a `TypeRegistry` keyed by **host, port and database name** — deliberately not by the full URL, so credentials, SSL settings and timeouts do not fragment the cache. Every later connection to that same database, from any pool in the JVM, reuses the loaded registry and skips the work.
+Step 7 reads the server's type catalog into a `TypeCatalog`, held in `GlobalCatalogStore` per database and keyed by **host, port and database name** — deliberately not by the full URL, so credentials, SSL settings and timeouts do not fragment the cache. Every later connection to that same database, from any pool in the JVM, reuses the loaded catalog and skips the work.
 
-In practice: the first connection a pool opens is measurably slower than its siblings, and pre-warming one connection at startup moves that cost out of your first request. If your application connects to thousands of distinct databases over its lifetime, `GlobalTypeRegistry.removeRegistry(url)` releases a registry you are done with. The details of what gets loaded, and how to refresh it after a migration, are in [Type System](type-system.md#the-catalog-load).
+In practice: the first connection a pool opens is measurably slower than its siblings, and pre-warming one connection at startup moves that cost out of your first request. If your application connects to thousands of distinct databases over its lifetime, `GlobalCatalogStore.removeCatalog(url)` releases a catalog you are done with. The details of what gets loaded, and how to refresh it after a migration, are in [Type System](type-system.md#the-catalog-load).
 
 ## Startup parameters
 

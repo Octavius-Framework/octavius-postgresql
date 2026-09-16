@@ -11,7 +11,8 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
-import io.github.octaviusframework.driver.registry.ConverterRegistry
+import io.github.octaviusframework.driver.registry.TypeCatalog
+import io.github.octaviusframework.driver.registry.TypeLookup
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.type.isKnownOid
 import io.github.octaviusframework.serializer.octaviusJson
@@ -112,8 +113,8 @@ internal fun declaredTypeNameOf(kClass: KClass<*>): String =
  * val benefits: List<Benefit> = db.select("benefit").from("veterans").fetchFields()
  * ```
  *
- * Registration is global to the database the client is connected to, the driver's type registry being keyed
- * that way, so it belongs at startup and not per request.
+ * Registration is global to the database the client is connected to, the driver keeping one type catalog per
+ * database, so it belongs at startup and not per request.
  *
  * @property json How payloads are read and written. The default is
  * [octaviusJson][io.github.octaviusframework.serializer.octaviusJson], which is strict - a payload carrying a
@@ -145,24 +146,25 @@ class DynamicTypes internal constructor(
     private val enumAwareJson = EnumAwareJson(json)
 
     /**
-     * The driver's converter registry, remembered the first time anything here needs one.
+     * A read handle on the driver's type catalog, remembered the first time anything here needs one.
      *
-     * It is global to the database rather than to a session - the same object every session's `typeManager`
-     * hands out - so holding it past the session that produced it is holding the registry, not a connection.
+     * Detached on purpose: it follows the catalog, which is global to the database rather than to a session,
+     * and holds no connection - so keeping it past the session that produced it keeps nothing but that.
      * It is what [toDynamicDto] and [enumSerializers] read the registered enums from, neither having a query
      * context to read them from.
      */
     @Volatile
-    private var converterRegistry: ConverterRegistry? = null
+    private var typeLookupHandle: TypeLookup? = null
 
     /**
-     * The registry, opening a session to reach it the first time and not after.
+     * The current catalog, opening a session to reach a handle the first time and not after.
      *
-     * Racing threads may each open one and each store what they found; the registry is one object per
-     * database, so both stored the same thing.
+     * Both callers are public - [enumSerializers] and [toDynamicDto] - so two request threads can arrive here
+     * at once and each open one. Harmless: the handles are two objects reading one catalog holder, the driver
+     * keeping a single one per database, so whichever is stored second answers exactly as the first would.
      */
-    private fun converterRegistry(): ConverterRegistry =
-        converterRegistry ?: client.execute { typeManager.converterRegistry }.also { converterRegistry = it }
+    private fun catalog(): TypeCatalog =
+        (typeLookupHandle ?: client.execute { typeManager.detached() }.also { typeLookupHandle = it }).catalog
 
     /**
      * Creates the `dynamic_dto` type if the database does not have it.
@@ -290,9 +292,9 @@ class DynamicTypes internal constructor(
             details = "${value::class.simpleName} is not a registered dynamic type; call " +
                 "dynamicTypes.register<${value::class.simpleName}>(\"…\") at startup."
         )
-        val registry = converterRegistry()
+        val catalog = catalog()
         val effective =
-            if (json === this.json) enumAwareJson.resolve(registry) else EnumAwareJson(json).resolve(registry)
+            if (json === this.json) enumAwareJson.resolve(catalog) else EnumAwareJson(json).resolve(catalog)
         return DynamicDto(registration.name, registration.encode(value, effective))
     }
 
@@ -335,10 +337,11 @@ class DynamicTypes internal constructor(
      * under the Kotlin constant's own name.
      *
      * `registerEnum` teaches the driver that `Praetor` is `PRAETOR` in an enum **column**. A `jsonb` payload
-     * never reaches that, so the same value would read two ways depending on where it was stored. [json]
-     * already carries this, and so does any [Json] handed to [resultConverter], [parameterConverter] or
-     * [toDynamicDto] - nothing here needs it added. It is exposed for the [Json] built elsewhere: an HTTP
-     * layer, or a `jsonb` column written through the driver rather than through a `dynamic_dto`.
+     * never reaches that, so the same value would read two ways depending on where it was stored. Every
+     * conversion this class runs folds these in as it goes - over [json], and over any [Json] handed to
+     * [resultConverter], [parameterConverter] or [toDynamicDto] - so nothing there needs them added. This is
+     * exposed for the [Json] built elsewhere: an HTTP layer, or a `jsonb` column written through the driver
+     * rather than through a `dynamic_dto`.
      *
      * ```kotlin
      * val api = Json {
@@ -352,21 +355,22 @@ class DynamicTypes internal constructor(
      *
      * It answers for the enums registered at the moment it is read - registration being global to the
      * database and done at startup - so a `Json` built from it before startup has finished is a `Json` short
-     * of whatever registered after. That is the difference between it and [json], which resolves per
-     * conversion and so never goes stale.
+     * of whatever registered after. That is the difference between taking the module and letting this class
+     * convert: a conversion folds the module in as it runs and so never goes stale, a module you folded into
+     * a `Json` of your own is the set as it stood.
      *
-     * Reading it opens a session if this client has not reached the driver's registry yet, which is why it is
+     * Reading it opens a session if this client has not reached the driver's catalog yet, which is why it is
      * something to take once and keep rather than to reach for per request.
      */
     val enumSerializers: SerializersModule
-        get() = enumAwareJson.module(converterRegistry())
+        get() = enumAwareJson.module(catalog())
 
     /**
      * The [Json] a conversion should run on: the query's own where one was given, the client's otherwise, and
      * either way with the enums registered right now folded in.
      */
-    internal fun jsonFor(registry: ConverterRegistry, override: EnumAwareJson?): Json =
-        (override ?: enumAwareJson).resolve(registry)
+    internal fun jsonFor(catalog: TypeCatalog, override: EnumAwareJson?): Json =
+        (override ?: enumAwareJson).resolve(catalog)
 
     internal fun forName(name: String): Registration<*>? = byName[name]
 
@@ -393,7 +397,7 @@ class DynamicTypes internal constructor(
         if (!convertersInstalled.compareAndSet(false, true)) return
         client.execute {
             // Primed here because a session is open anyway, so nothing later has to open one for it.
-            this@DynamicTypes.converterRegistry = typeManager.converterRegistry
+            this@DynamicTypes.typeLookupHandle = typeManager.detached()
             typeManager.registerResultConverter(DynamicDtoResultConverter(this@DynamicTypes, null))
             typeManager.registerParameterConverter(DynamicDtoParameterConverter(this@DynamicTypes, null))
         }
@@ -442,7 +446,7 @@ private class DynamicDtoParameterConverter(
         // meant to be. Reading has nothing to decide because the column has already said it, and this is the
         // same rule applied wherever the writing side happens to know as much.
         if (expectedOid.isKnownOid) {
-            val target = context.typeManager.typeDictionary.getPgType(expectedOid)
+            val target = context.types.dictionary.getPgType(expectedOid)
             return target.name == DYNAMIC_DTO_NAME && target.schema == DYNAMIC_DTO_SCHEMA
         }
 
@@ -455,7 +459,7 @@ private class DynamicDtoParameterConverter(
         // a real destination for it. They part company only over a class that has no other destination, and
         // that is settled in convert - claiming it there is what turns "you forgot to wrap this" into a
         // message saying so, rather than the MISSING_CODEC that declining would end in.
-        return context.typeManager.converterRegistry.registeredComposites[sourceClass] == null
+        return context.types.catalog.registeredComposites[sourceClass] == null
     }
 
     override fun convert(source: Any, expectedOid: Int, context: SerializationContext): Any {
@@ -479,10 +483,10 @@ private class DynamicDtoParameterConverter(
                 )
             }
             typeName = registration.name
-            payload = registration.encode(source, types.jsonFor(context.typeManager.converterRegistry, enumAwareJson))
+            payload = registration.encode(source, types.jsonFor(context.types.catalog, enumAwareJson))
         }
 
-        val composite = context.typeManager.containers.createComposite(DYNAMIC_DTO_NAME, DYNAMIC_DTO_SCHEMA)
+        val composite = context.types.containers.createComposite(DYNAMIC_DTO_NAME, DYNAMIC_DTO_SCHEMA)
         composite[TYPE_NAME_ATTRIBUTE] = typeName
         composite[DATA_PAYLOAD_ATTRIBUTE] = payload
         return composite
@@ -550,7 +554,7 @@ private class DynamicDtoResultConverter(
         if (expectedClass == DynamicDto::class) return DynamicDto(typeName, payload)
 
         val decoded = try {
-            registration.decode(payload, types.jsonFor(context.typeManager.converterRegistry, enumAwareJson))
+            registration.decode(payload, types.jsonFor(context.types.catalog, enumAwareJson))
         } catch (e: Exception) {
             throw MappingException(
                 MappingExceptionReason.CONVERSION_ERROR,

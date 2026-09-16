@@ -112,44 +112,61 @@ Which is the intended arrangement rather than a problem — a database has a lim
 
 ## What is shared beyond the connection
 
-The type system is the one piece of global state, and it is deliberately global: registries are cached per **host + port + database** across the whole JVM, so every session on that database shares one catalog and one set of converters. That is why registration is a startup step.
+The type system is the one piece of global state, and it is deliberately global: registries are cached per **host +
+port + database** across the whole JVM, so every session on that database shares one catalog and one set of converters.
+That is why registration is a startup step.
 
-It is built for many readers and rare writers: dictionaries are immutable and republished through a `@Volatile` field under a lock, converter registries are copy-on-write with new entries inserted at the front. **Reads take no locks at all** — every query, every row, every conversion is lock-free on that path.
+It is built for many readers and rare writers: the dictionaries, the converters and the composite and enum registrations
+are one immutable `TypeCatalog`, republished whole through a single `@Volatile` field under a lock. A registration
+builds the next catalog from the current one and publishes it with one write, so no registration is ever observed
+half-applied, however many parts of the catalog it touches. **Reads take no locks at all** — every query, every row,
+every conversion is lock-free on that path.
 
-The practical rule that follows is not about safety but about cost: registering from many threads at runtime copies a collection each time and makes every later lookup slower. Register once, at startup, from one thread. See [Scope: a session handle over global state](type-system.md#scope-a-session-handle-over-global-state).
+The practical rule that follows is not about safety but about cost: registering from many threads at runtime copies a
+collection each time and makes every later lookup slower. Register once, at startup, from one thread.
+See [Scope: a session handle over global state](type-system.md#scope-a-session-handle-over-global-state).
 
 ### What a reload does *not* promise
 
-`reloadTypes()` is safe to call while other threads are querying — but "safe" here means no corruption, not isolation, and the difference is worth being precise about.
+`reloadTypes()` is safe to call while other threads are querying, and an execution already under way is not disturbed by
+it.
 
-Each dictionary is immutable and published whole, so **every individual lookup sees one coherent catalog**. What is not guaranteed is that a *query* sees only one:
+**Every terminal pins one catalog before it sends anything, and everything that run touches reads that one**: the
+parameters it encodes, the columns it describes, the codecs that decode them, the converters it resolves, the composite
+and enum registrations those converters consult, and the `Row`s it hands back. A reload landing halfway through cannot
+leave a result mapped against two catalogs, and the next terminal on the same query object picks the new one up.
 
-* **Reads take no locks and re-read the field each time.** Two columns of the same row, or two rows of the same result, can be resolved against different versions of the catalog if a reload lands between them.
-* **The type dictionary and the codec dictionary are published separately**, one assignment after the other. There is a window in which a reader sees the new types alongside the codecs from before the reload.
+That reaches into the values, not just the columns. A composite, array, range or domain is decoded by looking a further
+codec up per attribute, per element, per bound, and those lookups go through the dictionaries of the catalog the column
+was pinned to — so an attribute nested three deep is decoded against the same catalog as the row it arrived in.
 
-Neither is a data race — every read gets a complete, valid object — but a reload concurrent with traffic can produce a result mapped against two catalogs. A per-execution snapshot would close that, and is not something the driver takes today.
-
-None of it bites in the normal shape, because the normal shape is DDL followed by a reload at a point where the application is not querying — startup, a migration, a test fixture. Reload there and the question does not arise.
+The normal shape does not exercise any of this, because the normal shape is DDL followed by a reload at a point where
+the application is not querying — startup, a migration, a test fixture. Reload there and the question does not arise.
 
 ## What can cross a thread boundary
 
-| Object                                  | Safe to hand to another thread?                                                                 |
-|:----------------------------------------|:------------------------------------------------------------------------------------------------|
-| A value already pulled out with `get`   | **Yes, unreservedly.** An ordinary Kotlin object with nothing tying it back to the driver.      |
-| `List<Row>`                             | Yes — the connection is out of the picture. But the conversion is still ahead of it; see below. |
-| `OctaviusSession`                       | Yes, but serialized — see [above](#two-threads-on-one-session).                                 |
-| A query object (`createNativeQuery(…)`) | Yes, though it executes against its session and inherits that serialization.                    |
-| `CopyIn` / `CopyOut` handles            | Technically yes; pointless, since the transfer occupies the connection either way.              |
-| `LargeObject` descriptors               | **No** — valid only inside the transaction that opened them.                                    |
+| Object                                  | Safe to hand to another thread?                                                                   |
+|:----------------------------------------|:--------------------------------------------------------------------------------------------------|
+| A value already pulled out with `get`   | **Yes, unreservedly.** An ordinary Kotlin object with nothing tying it back to the driver.        |
+| `List<Row>`                             | Yes — the connection is out of the picture, and the catalog they map against is fixed; see below. |
+| `OctaviusSession`                       | Yes, but serialized — see [above](#two-threads-on-one-session).                                   |
+| A query object (`createNativeQuery(…)`) | Yes, though it executes against its session and inherits that serialization.                      |
+| `CopyIn` / `CopyOut` handles            | Technically yes; pointless, since the transfer occupies the connection either way.                |
+| `LargeObject` descriptors               | **No** — valid only inside the transaction that opened them.                                      |
 
-The first two rows differ in a way worth spelling out. A value you have already extracted is finished — a `String`, a `Senator`, a `List<Int>` — and owes the driver nothing. A `Row` sits one step further back: its columns are decoded, so nothing more is read off the connection, but the conversion inside `row.get<T>()` has not happened yet and runs against **live** registries. A `Row` holds a handle on its query's `ResultMapper` and on the type registry, not a frozen copy of either.
+The first two rows differ only in what is left to do. An extracted value is finished; a `Row` still has the conversion
+inside `row.get<T>()` ahead of it. That conversion resolves against the catalog its execution pinned, which the `Row`
+carries, so it answers the same whenever it is called and on whichever thread.
 
-Two consequences, both in odd corners rather than on any ordinary path:
+What follows, in odd corners rather than on any ordinary path:
 
-* **A converter registered on a query object after its rows came back applies to those rows.** `query.registerResultConverter(…)` mutates the very registry the already-fetched `Row`s point at, so any `get<T>()` made afterwards resolves through it. Rows and the query that produced them are one unit — keeping a query around and reconfiguring it later is what makes that visible.
-* **A concurrent `reloadTypes()` reaches them too**, for the reasons [above](#what-a-reload-does-not-promise).
+* **A converter registered on a query object after its rows came back does not apply to those rows.**
+  `query.registerResultConverter(…)` takes effect from the next terminal; rows already in hand were mapped against the
+  catalog their own run pinned. Keeping a query around and reconfiguring it later is what makes that visible.
+* **A concurrent `reloadTypes()` does not reach them either** — see [above](#what-a-reload-does-not-promise).
 
-Fetching on one thread and processing on a pool of others is entirely fine — that is the ordinary case and none of this interferes with it. What does not hold is the stronger reading: a `Row` is a decoded buffer with live handles, not a snapshot of the registries as they stood when it was built.
+Fetching on one thread and processing on a pool of others is entirely fine — that is the ordinary case and none of this
+interferes with it.
 
 ## Cancelling a query in flight
 
@@ -191,11 +208,22 @@ Two ways to stay clear of it:
 
 ## Practical rules and gotchas
 
-* **One session per unit of work.** Sharing a session across threads is safe and buys nothing; borrowing one per task is what makes the work concurrent.
-* **Give listeners and long `COPY` transfers their own session.** Both hold the connection lock for their entire duration, and everything else on that session waits behind them.
-* **Never query the session from inside a `forEach*` block or a converter.** That is reentrancy, and it is refused with `CONNECTION_BUSY` — use a second session.
-* **Pool size is your concurrency, not thread count.** Virtual threads remove the thread ceiling; the connection ceiling stays where you set it — and the server's own `max_connections`, 100 by default, caps every pool against it put together.
-* **`Virtual` for driver work, `IO` if you prefer, never `Default`.** Blocking the CPU dispatcher starves the whole process.
-* **Register types once, at startup, from one thread.** The registries are global, lock-free to read, and copy-on-write to update.
-* **Write to the registries when nothing is querying.** Registration and `reloadTypes()` are safe under load in the sense that nothing corrupts, but they are not isolated from statements already running — a result can end up mapped against two versions of the catalog.
-* **`cancelQuery()` needs another thread, and aims at a connection rather than a statement.** It can land on whatever that connection is running by the time the signal arrives. `statement_timeout` cannot miss like that, and is the better tool for a deadline.
+* **One session per unit of work.** Sharing a session across threads is safe and buys nothing; borrowing one per task is
+  what makes the work concurrent.
+* **Give listeners and long `COPY` transfers their own session.** Both hold the connection lock for their entire
+  duration, and everything else on that session waits behind them.
+* **Never query the session from inside a `forEach*` block or a converter.** That is reentrancy, and it is refused with
+  `CONNECTION_BUSY` — use a second session.
+* **Pool size is your concurrency, not thread count.** Virtual threads remove the thread ceiling; the connection ceiling
+  stays where you set it — and the server's own `max_connections`, 100 by default, caps every pool against it put
+  together.
+* **`Virtual` for driver work, `IO` if you prefer, never `Default`.** Blocking the CPU dispatcher starves the whole
+  process.
+* **Register types once, at startup, from one thread.** The registries are global, lock-free to read, and copy-on-write
+  to update.
+* **Write to the registries when nothing is querying.** Registration and `reloadTypes()` are safe under load and are not
+  observed half-applied, but a statement already running keeps the catalog it pinned: what you registered reaches the
+  terminals that start after it, not the one in flight.
+* **`cancelQuery()` needs another thread, and aims at a connection rather than a statement.** It can land on whatever
+  that connection is running by the time the signal arrives. `statement_timeout` cannot miss like that, and is the
+  better tool for a deadline.

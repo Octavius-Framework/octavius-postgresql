@@ -149,6 +149,19 @@ class TypeDictionary private constructor(
         ?: throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, oid = oid, details = "Type with OID $oid not found")
 
     /**
+     * Whether this dictionary describes [oid] at all - the question [getPgType] answers by raising.
+     */
+    internal fun describes(oid: Int): Boolean = types[oid] != null
+
+    /**
+     * The OID of one named type in one named schema, or `null` where this dictionary has no such type.
+     *
+     * What [resolveOid] does without the search path, the ambiguity and the raising: a fully qualified name
+     * identifies at most one type, `pg_type` being unique on name and namespace.
+     */
+    internal fun findOid(typeName: String, schema: String): Int? = typesByName[typeName]?.get(schema)
+
+    /**
      * Retrieves an array type by the OID of its elements.
      *
      * @param elementOid the OID of the array's elements.

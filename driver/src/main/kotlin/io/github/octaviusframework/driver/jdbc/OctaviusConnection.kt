@@ -5,8 +5,8 @@ import io.github.octaviusframework.driver.execution.QueryExecutor
 import io.github.octaviusframework.driver.io.PgStream
 import io.github.octaviusframework.driver.message.frontend.CancelRequestMessage
 import io.github.octaviusframework.driver.parser.SqlParameterParser
-import io.github.octaviusframework.driver.registry.GlobalTypeRegistry
-import io.github.octaviusframework.driver.registry.RegistryKey
+import io.github.octaviusframework.driver.registry.GlobalCatalogStore
+import io.github.octaviusframework.driver.registry.DatabaseKey
 import io.github.octaviusframework.driver.session.TransactionState
 import io.github.octaviusframework.driver.ssl.SslNegotiator
 import io.github.octaviusframework.driver.transaction.OctaviusSavepointImpl
@@ -25,22 +25,21 @@ private val logger = KotlinLogging.logger {}
  */
 internal class OctaviusConnection(
     internal val stream: PgStream,
-    internal val registryKey: RegistryKey,
+    internal val databaseKey: DatabaseKey,
     maxParameterWriterCapacity: Int?,
     initialParameterWriterCapacity: Int?,
     logParameterValues: Boolean
 ) : Connection {
-    val typeRegistry = GlobalTypeRegistry.getRegistry(registryKey)
+    val catalogHolder = GlobalCatalogStore.holderFor(databaseKey)
 
     val queryExecutor = QueryExecutor(
         stream,
-        typeRegistry,
         maxParameterWriterCapacity,
         initialParameterWriterCapacity,
         logParameterValues
     )
     init {
-        GlobalTypeRegistry.ensureLoaded(registryKey, queryExecutor)
+        GlobalCatalogStore.ensureLoaded(databaseKey, queryExecutor)
     }
 
     @Volatile
@@ -530,7 +529,7 @@ internal class OctaviusConnection(
     override fun setHoldability(holdability: Int) = unsupported()
     override fun getHoldability(): Int = unsupported()
 
-    // Based on TypeRegistry
+    // Based on the type catalog
     override fun getTypeMap(): MutableMap<String, Class<*>> = unsupported()
     override fun setTypeMap(map: MutableMap<String, Class<*>>?) = unsupported()
 }

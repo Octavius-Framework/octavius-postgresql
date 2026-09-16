@@ -28,7 +28,7 @@ Contents:
 
 PostgreSQL identifies every type by an **OID** (Object Identifier). Built-in OIDs are stable (`int4` is always `23`), but the OIDs of anything *you* create — `CREATE TYPE legio_status AS ENUM (...)`, a composite, a domain, even the implicit row type of a table — are assigned per database and per `CREATE`. They cannot be baked into a driver.
 
-So the driver asks. On the first physical connection to a given database within the JVM, `GlobalTypeRegistry.ensureLoaded` fires `TypeRegistryLoader`, which reads the whole catalog in a **single** query. One round trip, paid by whoever connects first; every later connection to the same database reuses the result.
+So the driver asks. On the first physical connection to a given database within the JVM, `GlobalCatalogStore.ensureLoaded` fires `CatalogLoader`, which reads the whole catalog in a **single** query. One round trip, paid by whoever connects first; every later connection to the same database reuses the result.
 
 The loader deliberately skips noise: composites belonging to `pg_catalog` and `information_schema`, and all pseudo-types except `void`, `record` and `_record`.
 
@@ -98,30 +98,30 @@ Worth knowing about a reload:
 
 ### One registry per database, not per URL
 
-Registries are cached in `GlobalTypeRegistry` under a `RegistryKey` of **host + port + database name** — deliberately *not* the whole connection URL:
+Catalogs are cached in `GlobalCatalogStore` under a `DatabaseKey` of **host + port + database name** — deliberately *not* the whole connection URL:
 
 ```kotlin
-internal data class RegistryKey(val host: String, val port: Int, val database: String)
+internal data class DatabaseKey(val host: String, val port: Int, val database: String)
 ```
 
 Credentials, SSL settings and timeouts have no effect on the type catalog. Keying on them would fragment the cache (and would keep a password alive as a map key for the lifetime of the JVM). Practical consequences:
 
 * Two HikariCP pools connecting as different users to the same database **share one registry** — and therefore one set of registered converters.
 * Registration performed through *any* pool's session is visible to the others.
-* If your application connects to thousands of *different* databases at runtime (a per-tenant-database setup, say), call `GlobalTypeRegistry.removeRegistry(url)` when you close a data source, so the registry can be collected. With a static set of URLs — the normal case — leave it alone.
+* If your application connects to thousands of *different* databases at runtime (a per-tenant-database setup, say), call `GlobalCatalogStore.removeCatalog(url)` when you close a data source, so the catalog can be collected. With a static set of URLs — the normal case — leave it alone.
 
 ## 2-Layer architecture
 
 1. **Codecs Layer (`TypeCodec<T>`)**
     * **Role:** the direct translation between basic Kotlin types and PostgreSQL's native binary format (`ByteArray` and `PgByteWriter`).
     * **Operation:** codecs work at a low level, serializing and deserializing with full awareness of PostgreSQL type OIDs. The interface is deliberately tiny — `pgTypeName`, `pgSchema`, `oid`, `kotlinClass`, `isDefaultForKotlinType`, plus the `fromBinary` / `toBinary` function pair.
-    * **Registration:** centrally managed by `TypeRegistry`, which associates codecs by Kotlin class or by the OID defined in the database.
+    * **Registration:** every codec lands in the `TypeCatalog`, associated by Kotlin class or by the OID defined in the database.
     * **Errors:** anything thrown inside `fromBinary` / `toBinary` is caught and re-thrown as a `CodecException` carrying the type name, schema, OID and a truncated copy of the offending bytes.
 
 2. **Converters Layer (`ResultConverter<S, T>` / `ParameterConverter<T>`)**
     * **Role:** a higher level of abstraction, mapping the intermediate structures codecs decode (`PgComposite`, `PgArray`, `PgRecord`, `Row`) onto whatever complex, user-defined structures you actually want.
     * **Operation:** handles reflective mapping onto classes (data classes), transformation into collections (`Collection<*>`), maps (`Map<String, Any?>`), and nested objects.
-    * **Context:** `SerializationContext` and `DeserializationContext` recursively resolve and convert nested types within complex structures, bridging the object layer and the binary layer smoothly in both directions. Both expose the `typeManager`, so a converter can resolve OIDs or build containers mid-conversion.
+    * **Context:** `SerializationContext` and `DeserializationContext` recursively resolve and convert nested types within complex structures, bridging the object layer and the binary layer smoothly in both directions. Both expose a `typeManager` — a `TypeLookup`, the reading half — so a converter can resolve OIDs or build containers mid-conversion, and cannot register anything.
     * **Errors:** failures surface as a `MappingException` whose `path` accumulates the segment names it passed through — so a bad field five levels down in a nested composite tells you *which* field.
 
 Thanks to this split, adding support for a specific custom PostgreSQL type is usually just writing a small, focused codec — the reflective work of wiring it into data classes and collections is handled automatically by the generic converter layer above it.
@@ -162,7 +162,7 @@ Values nested inside a composite or an array are a separate case: there the encl
 
 ## `TypeManager` — the entry point
 
-`TypeManager` is the public, high-level API over the internal `TypeRegistry`. You reach it from any session:
+`TypeManager` is the public, high-level API over the catalog the driver holds for a database. You reach it from any session:
 
 ```kotlin
 val session = dataSource.getOctaviusSession()
@@ -179,10 +179,17 @@ session.typeManager.registerEnum<LegioStatus>()
 | `registerParameterConverter(converter)` | Kotlin object → database parameter mapping.                                                    |
 | `registerEnum<T>(...)`                  | Registers both directions for a Kotlin enum in one call.                                       |
 | `registerAutoComposite<T>(...)`         | Maps a data class to a PostgreSQL composite type reflectively.                                 |
-| `typeDictionary`                        | The current catalog snapshot — `getPgType(oid)`, `getArrayType(...)`, `forEachType { }`.       |
-| `codecDictionary`                       | Codec lookups — `getCodecByOid(...)`, `getCodecByClass(...)`.                                  |
-| `converterRegistry`                     | The registered converters and composite registrations.                                         |
+| `dictionary`                            | The current catalog snapshot — `getPgType(oid)`, `getArrayType(...)`, `forEachType { }`.       |
+| `codecs`                                | Codec lookups — `getCodecByOid(...)`, `getCodecByClass(...)`.                                  |
+| `catalog`                               | The dictionaries, converters and composite and enum registrations, as one immutable value.     |
 | `containers`                            | `ContainerFactory` — builds `PgComposite`, `PgRange`, `PgMultirange` instances by name or OID. |
+| `detached()`                            | A `TypeLookup` with no session behind it, for something outliving the session it came from.    |
+
+Everything but the `register*` rows reads. They are separate types, not a convention: `TypeLookup` carries
+`catalog`, `dictionary`, `codecs`, `containers` and `resolveOid`, and **no `register*` at all**. A conversion
+reaches it as `context.types`, so registering a type, a codec or a converter from inside a converter is
+not something the API allows — it could not have affected the conversion it was made from, the catalog having
+been pinned before the statement went out, and would have reached every other session on the database instead.
 
 ### Scope: a session handle over global state
 
@@ -190,7 +197,7 @@ This is the part that surprises people, so it's worth stating bluntly:
 
 > **`typeManager` is created per session, but the registry it writes to is shared per database across the whole JVM.**
 
-`OctaviusSessionImpl` constructs a fresh `TypeManager` for each session, but hands it the `TypeRegistry` that `GlobalTypeRegistry` keeps for that database. Nothing is copied. So:
+`OctaviusSessionImpl` constructs a fresh `TypeManager` for each session, but hands it the `CatalogHolder` that `GlobalCatalogStore` keeps for that database. Nothing is copied. So:
 
 * Registering an enum, composite, converter or codec through **one** session affects **every** session on that database — those already open, those still to be opened, and those borrowed from a different connection pool.
 * Closing the session that performed the registration changes nothing; the registration outlives it.
@@ -241,7 +248,7 @@ So two sessions with different search paths can resolve the same type name to di
 
 ### Query-scoped overrides
 
-When a global registration is too big a hammer, converters can be scoped to a **single query**. Each query object creates child registries whose parent is the global one:
+When a global registration is too big a hammer, converters can be scoped to a **single query**. Each query object keeps a list of its own, consulted ahead of the registered ones:
 
 ```kotlin
 val senators = session.createNamedQuery("SELECT * FROM senators WHERE ordo = @ordo")
@@ -249,21 +256,22 @@ val senators = session.createNamedQuery("SELECT * FROM senators WHERE ordo = @or
     .fetchObjects<Senator>("ordo" to "patrician")
 ```
 
-The child registry is consulted first and falls back to the global one, so a query-scoped converter overrides a global converter for that query and disappears with the query object. Nothing global is mutated.
+A query's own converters are consulted first and the catalog's after them, so a query-scoped converter overrides a registered one for that query and disappears with the query object. Nothing global is mutated.
 
-The rows a query produced stay attached to that registry: a `Row` holds the query's `ResultMapper`, and `row.get<T>()` resolves through it whenever you call it. Registering a converter on a query object *after* its rows came back therefore changes how those rows convert. It takes a deliberately odd shape to notice — a query kept and reconfigured between fetches — but if you hold rows for a while, hold the query steady too.
+They take effect from the next terminal, which is where the catalog for a run is pinned. Rows already in hand were mapped against the catalog *their* terminal pinned, so registering a converter after a fetch does not reach them — run the query again to map them through it. It takes a deliberately odd shape to notice: a query kept and reconfigured between fetches.
 
 | Registered on              | Visible to                                          | Lifetime                                        |
 |:---------------------------|:----------------------------------------------------|:------------------------------------------------|
 | `query.register*Converter` | that one query instance                             | until the query is discarded                    |
-| `session.typeManager.*`    | every session on that host+port+database in the JVM | lifetime of the JVM (or until `removeRegistry`) |
+| `session.typeManager.*`    | every session on that host+port+database in the JVM | lifetime of the JVM (or until `removeCatalog`) |
 
 ### Thread safety and cost
 
 All registries are built for **many readers, rare writers**:
 
-* `TypeDictionary` and `CodecDictionary` are immutable; updates build a new instance and publish it through a `@Volatile` field under a `ReentrantLock`.
-* Converter registries hold `@Volatile` copy-on-write collections; new entries are inserted at the front, so **the most recently registered converter wins**.
+* `TypeDictionary` and `CodecDictionary` are immutable, and so is the `TypeCatalog` holding them alongside the converters and the registrations; every update builds a new catalog and publishes it through a single `@Volatile` field under a `ReentrantLock`.
+* Converters live in that catalog in copy-on-write collections; new entries are inserted at the front, so **the most recently registered converter wins**.
+* A terminal reads that field once and maps the whole execution against what it found.
 * Reads — every query, every row, every conversion — take no locks at all.
 
 The flip side is that each registration copies the collection it touches. Cheap a handful of times at startup, wasteful in a hot path.
@@ -493,9 +501,9 @@ These translate your Kotlin objects into a shape the codec layer can serialize.
 
 **Result converters** are indexed by `supportedSourceClass` — the runtime class of the *decoded* value, not the class you asked for. Lookup goes:
 
-1. Converters registered for that exact source class, **newest first**, taking the first whose `canConvert(sourceClass, expectedType, sourceType, context)` returns `true`.
-2. Then converters registered under `Any::class`, again newest first — a catch-all slot for converters that key off the PostgreSQL type rather than the decoded class.
-3. Then the parent registry (for query-scoped registries, the global one).
+1. The query's own converters, newest first: those registered for that exact source class, then those registered under `Any::class`.
+2. Then the catalog's, registered for that exact source class, **newest first**, taking the first whose `canConvert(sourceClass, expectedType, sourceType, context)` returns `true`.
+3. Then the catalog's `Any::class` converters, again newest first — a catch-all slot for converters that key off the PostgreSQL type rather than the decoded class.
 4. Then the identity fallback, then `MappingException(NO_CONVERTER_FOUND)`.
 
 **Parameter converters** live in one flat list, newest first, and the first whose `canConvert(sourceClass, expectedOid, context)` returns `true` wins. The default `canConvert` accepts exact class matches and subclasses, so a converter for a sealed base type covers its subclasses.
@@ -590,9 +598,9 @@ class TributeParameterConverter : ParameterConverter<Tribute> {
     override fun convert(source: Tribute, expectedOid: Int, context: SerializationContext): Any {
         // Known when the value is nested in a composite/array, or was wrapped in PgTyped
         val composite = if (expectedOid.isKnownOid) {
-            context.typeManager.containers.createComposite(expectedOid)
+            context.types.containers.createComposite(expectedOid)
         } else {
-            context.typeManager.containers.createComposite("tribute")
+            context.types.containers.createComposite("tribute")
         }
         composite["amount"] = source.amount
         composite["currency"] = source.currency
@@ -609,7 +617,7 @@ session.typeManager.registerResultConverter(TributeResultConverter())
 session.typeManager.registerParameterConverter(TributeParameterConverter())
 ```
 
-`ContainerFactory` (`typeManager.containers`) is the clean way to build containers by name or OID: `createComposite`, `createRange`, `createEmptyRange`, `createMultirange`.
+`ContainerFactory` (`types.containers` in a converter, `typeManager.containers` on a session) is the clean way to build containers by name or OID: `createComposite`, `createRange`, `createEmptyRange`, `createMultirange`.
 
 `getDefaultTypeName` is worth reading carefully, because the composite case is the exception rather than the rule: step 4 of [Writing](#writing-kotlin--database) skips it whenever the converter's output is a `PgContainer`, which a composite converter's always is. [Composites and Reflective Mapping](composites-reflection.md#getdefaulttypename-is-not-for-the-composite) has the one place it still matters.
 
@@ -658,6 +666,8 @@ A codec is bound to OIDs in one of three ways, depending on what it declares:
 | `oid` null, `pgSchema` set   | The OID is resolved from the catalog at registration time; an unknown name throws `TypeException`.                                                                               |
 | `oid` null, `pgSchema` empty | Bound to **every** OID in the catalog whose type name matches, across all schemas. The OID used for outbound parameters is resolved in-flight against the session's search path. |
 
+Naming a schema the catalog does not have is refused at the registration. A reload that later leaves a registered codec bound to nothing does not raise — the database changing is not the registration's fault — but it says so at `warn`, because otherwise the column simply comes back in a different shape. The `oid` row is the one that goes stale that way: a type dropped and recreated has a new OID, and a codec pinned to the old one is never reached again.
+
 Set `isDefaultForKotlinType = true` if the codec should also be chosen when the driver only knows the Kotlin class of a parameter and not its target OID. For a sealed class, that also registers all of its sealed subclasses.
 
 Registered codecs are remembered and re-bound on every catalog reload, so a codec registered before its type exists starts working after the next `reloadTypes()`.
@@ -673,12 +683,12 @@ Registration is last-wins in both layers, so overriding the defaults means regis
 
 * **Register once, at startup.** Registration is global and permanent for the JVM; doing it per request grows the registries and buys nothing.
 * **`reloadTypes()` after runtime DDL** — including `CREATE TABLE`, whose row type is a composite. Without it, new types resolve to nothing.
-* **Register before creating the query object.** A query snapshots the codec dictionary when it's constructed, so `createNativeQuery(...)` should come *after* `registerCodec(...)`. Converters are looked up per conversion and don't have this constraint.
+* **Register before running the query, not before building it.** A query pins the catalog when a terminal runs, so a `registerCodec(...)` or a converter registration between `createNativeQuery(...)` and the `fetch*` call is picked up. What it will not do is reach a terminal already in flight, or rows a previous terminal returned.
 * **Same database, different credentials, same registry.** The cache key is host + port + database only.
 * **Ambiguous type names need a schema.** If the same type name exists in several schemas and none is on the search path, resolution throws instead of guessing.
 * **Empty collections need `PgTyped`.** Erasure leaves nothing in an `emptyList()` for the driver to infer an element type from — the same goes for a list of nothing but nulls.
 * **Not every PostgreSQL type has a codec.** `money`, `timetz`, `tsvector`, `tsquery`, `jsonpath` and friends throw `TypeException(MISSING_CODEC)`. Cast them in SQL or write the codec.
 * **`MappingException.path` points at the failure.** For nested composites and arrays, read the path before reading the message.
-* **Thousands of dynamic database URLs?** Call `GlobalTypeRegistry.removeRegistry(url)` when tearing down a data source. Otherwise, ignore it.
+* **Thousands of dynamic database URLs?** Call `GlobalCatalogStore.removeCatalog(url)` when tearing down a data source. Otherwise, ignore it.
 
-Centralizing everything behind `TypeRegistry`, `ParameterConverterRegistry`, and `ResultConverterRegistry` makes the whole system easy to extend — plugging in PostGIS support or a custom JSON engine is a matter of registering a converter, not rewriting the pipeline.
+Centralizing everything in one `TypeCatalog` makes the whole system easy to extend — plugging in PostGIS support or a custom JSON engine is a matter of registering a converter, not rewriting the pipeline.
