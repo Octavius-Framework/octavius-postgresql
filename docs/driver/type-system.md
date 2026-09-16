@@ -666,6 +666,8 @@ A codec is bound to OIDs in one of three ways, depending on what it declares:
 | `oid` null, `pgSchema` set   | The OID is resolved from the catalog at registration time; an unknown name throws `TypeException`.                                                                               |
 | `oid` null, `pgSchema` empty | Bound to **every** OID in the catalog whose type name matches, across all schemas. The OID used for outbound parameters is resolved in-flight against the session's search path. |
 
+Naming a schema the catalog does not have is refused at the registration. A reload that later leaves a registered codec bound to nothing does not raise — the database changing is not the registration's fault — but it says so at `warn`, because otherwise the column simply comes back in a different shape. The `oid` row is the one that goes stale that way: a type dropped and recreated has a new OID, and a codec pinned to the old one is never reached again.
+
 Set `isDefaultForKotlinType = true` if the codec should also be chosen when the driver only knows the Kotlin class of a parameter and not its target OID. For a sealed class, that also registers all of its sealed subclasses.
 
 Registered codecs are remembered and re-bound on every catalog reload, so a codec registered before its type exists starts working after the next `reloadTypes()`.

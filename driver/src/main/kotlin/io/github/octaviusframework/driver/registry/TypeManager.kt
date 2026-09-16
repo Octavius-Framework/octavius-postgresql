@@ -114,7 +114,7 @@ class TypeManager internal constructor(
      *
      * A schema-qualified type this database does not have is refused here, where the call that named it is still
      * on the stack. A catalog reload that later leaves a registered codec bound to nothing does not raise -
-     * the database having changed is not the registration's fault.
+     * the database having changed is not the registration's fault - but it does say so at `warn`.
      *
      * @param codec The codec instance to register.
      * @throws io.github.octaviusframework.driver.exception.TypeException `TYPE_NOT_FOUND` where [codec] names a

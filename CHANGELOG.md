@@ -2,6 +2,15 @@
 
 ### Driver
 
+#### Added
+
+- **A registered codec that is bound to nothing says so, at `warn`.** A codec keyed on an OID stops being reached
+  the moment that type is dropped and recreated, and one keyed on a name the catalog no longer has never was -
+  in both cases the column comes back through the driver's own codec instead, in a different shape and without an
+  error. The catalog load and every `reloadTypes()` now names the codec that ended up unreachable. The
+  registration itself is unchanged: a schema-qualified type the catalog does not describe is still refused where
+  it is registered, which `registerCodec` now states rather than leaving to the two code paths it fell out of.
+
 #### Changed
 
 - **A query pins one catalog for the whole of an execution.** Everything a terminal touches - the parameters it
