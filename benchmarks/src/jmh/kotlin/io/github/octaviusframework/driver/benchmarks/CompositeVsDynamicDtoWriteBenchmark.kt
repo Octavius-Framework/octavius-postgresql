@@ -87,22 +87,21 @@ open class CompositeVsDynamicDtoWriteBenchmark {
         client.dynamicTypes.register<CharacterDynamic>("bench_cvd_character_dyn")
         client.dynamicTypes.register<FlatDynamic>("bench_cvd_flat_dyn")
 
-        val compositeType = if (nested) NESTED_CHARACTER_TYPE else FLAT_TYPE
         writeAuto = client.rawQuery(
-            "INSERT INTO bench_cvd_write (c) SELECT s FROM UNNEST(@v::$compositeType[]) AS s"
+            "INSERT INTO bench_cvd_write (c) SELECT s FROM UNNEST(@v) AS s"
         )
         writeManual = client.rawQuery(
-            "INSERT INTO bench_cvd_write (c) SELECT s FROM UNNEST(@v::$compositeType[]) AS s"
+            "INSERT INTO bench_cvd_write (c) SELECT s FROM UNNEST(@v) AS s"
         ).registerParameterConverter(
             if (nested) CharacterManualParameterConverter() else FlatManualParameterConverter()
         )
         writeJsonbQuery = client.rawQuery(
-            "INSERT INTO bench_cvd_write (j) SELECT s FROM UNNEST(@v::jsonb[]) AS s"
+            "INSERT INTO bench_cvd_write (j) SELECT s FROM UNNEST(@v) AS s"
         ).registerParameterConverter(
             if (nested) CharacterJsonParameterConverter() else FlatJsonParameterConverter()
         )
         writeDynamic = client.rawQuery(
-            "INSERT INTO bench_cvd_write (d) SELECT s FROM UNNEST(@v::public.dynamic_dto[]) AS s"
+            "INSERT INTO bench_cvd_write (d) SELECT s FROM UNNEST(@v) AS s"
         )
 
         buildRows()

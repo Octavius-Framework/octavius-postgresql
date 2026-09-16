@@ -545,7 +545,7 @@ composite, an enum, an array, or another `ROW(...)`:
 
 ```sql
 SELECT ROW(
-    'tags',    ARRAY['a','b']::text[],
+    'tags',    ARRAY['a','b'],
     'payload', ROW(10, 'denarii')::tribute,
     'inner',   ROW('depth', 2)
 ) AS r

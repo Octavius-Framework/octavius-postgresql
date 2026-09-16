@@ -143,7 +143,9 @@ open class StackComparisonBenchmark {
         lookupSqlColon = lookupBase + ":id"
 
         // The same row shape the suite's other read benchmarks use, so this one is not a shape of its own.
-        wideSql = "SELECT i::int4 AS i, ('hello world ' || i::text) AS s, (i % 2 = 0)::boolean AS b, " +
+        // The surviving cast is the only one doing work: 3.14 is a numeric literal, so (i * 3.14) would
+        // otherwise come back numeric rather than float8.
+        wideSql = "SELECT i AS i, ('hello world ' || i) AS s, (i % 2 = 0) AS b, " +
                 "(i * 3.14)::float8 AS d FROM generate_series(1, $rowCount) AS i"
 
         octaviusLookup = client.rawQuery(lookupSqlNamed)

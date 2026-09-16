@@ -76,13 +76,13 @@ open class CompositeInsertBenchmark {
         octaviusSession.typeManager.registerAutoComposite<SenatorReflect>("bench_senator")
 
         scalarQuery = octaviusSession.createNativeQuery(
-            "INSERT INTO bench_composite_insert (id, cognomen) SELECT * FROM UNNEST($1::int[], $2::text[])"
+            "INSERT INTO bench_composite_insert (id, cognomen) SELECT * FROM UNNEST($1, $2)"
         )
         reflectionQuery = octaviusSession.createNativeQuery(
-            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1::bench_senator[]) AS s"
+            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1) AS s"
         )
         explicitQuery = octaviusSession.createNativeQuery(
-            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1::bench_senator[]) AS s"
+            "INSERT INTO bench_composite_insert (id, cognomen) SELECT s.id, s.cognomen FROM UNNEST($1) AS s"
         ).registerParameterConverter(SenatorExplicitParameterConverter())
 
         ids = (1..insertCount).toList()

@@ -64,12 +64,12 @@ open class InsertBenchmark {
 
         pgInsertStatement = pgConnection.prepareStatement("INSERT INTO benchmark_insert (id, text_data) VALUES (?, ?)")
         pgInsertBatchStatement = pgConnection.prepareStatement("INSERT INTO benchmark_insert (id, text_data) VALUES (?, ?)")
-        pgUnnestStatement = pgConnection.prepareStatement("INSERT INTO benchmark_insert (id, text_data) SELECT * FROM UNNEST(?::int[], ?::text[])")
+        pgUnnestStatement = pgConnection.prepareStatement("INSERT INTO benchmark_insert (id, text_data) SELECT * FROM UNNEST(?, ?)")
         pgRewriteBatchStatement = pgRewriteConnection.prepareStatement("INSERT INTO benchmark_insert (id, text_data) VALUES (?, ?)")
 
         octaviusSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
         octaviusInsertQuery = octaviusSession.createNativeQuery("INSERT INTO benchmark_insert (id, text_data) VALUES ($1, $2)")
-        octaviusUnnestQuery = octaviusSession.createNativeQuery("INSERT INTO benchmark_insert (id, text_data) SELECT * FROM UNNEST($1::int[], $2::text[])")
+        octaviusUnnestQuery = octaviusSession.createNativeQuery("INSERT INTO benchmark_insert (id, text_data) SELECT * FROM UNNEST($1, $2)")
 
         ids = (1..insertCount).toList()
         texts = ids.map { "data-$it" }

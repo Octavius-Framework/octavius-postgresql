@@ -112,10 +112,12 @@ open class ClientOverheadBenchmark {
         client.select("id", "text_data").from("benchmark_client_overhead").where("id = @id")
 
     private fun buildWide(): SelectQuery =
+        // 3.14 is a numeric literal, so (i * 3.14) is numeric on its own; the cast is what keeps that
+        // column float8, and is the only one here doing any work.
         client.select(
-            "i::int4 AS i",
-            "('hello world ' || i::text) AS s",
-            "(i % 2 = 0)::boolean AS b",
+            "i AS i",
+            "('hello world ' || i) AS s",
+            "(i % 2 = 0) AS b",
             "(i * 3.14)::float8 AS d"
         ).from("generate_series(1, $rowCount) AS i")
 

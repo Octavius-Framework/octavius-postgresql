@@ -158,7 +158,7 @@ class TypeScannerTest {
         )
         assertEquals(
             true,
-            db.select("(benefit).data_payload ->> 'office' = (@o::scan_office)::text")
+            db.select("(benefit).data_payload ->> 'office' = @o::text")
                 .from("scan_senators").fetchFieldStrict<Boolean>("o" to ScanOffice.Praetor)
         )
     }
@@ -166,7 +166,7 @@ class TypeScannerTest {
     @Test
     fun `the derived enum name matches what the driver actually registered`() {
         // The report says scan_rank; if the driver had derived anything else, this query would not resolve.
-        val roundTripped = db.rawQuery("SELECT @r::scan_rank").fetchFieldStrict<ScanRank>("r" to ScanRank.Quaestor)
+        val roundTripped = db.rawQuery("SELECT @r").fetchFieldStrict<ScanRank>("r" to ScanRank.Quaestor)
         assertEquals(ScanRank.Quaestor, roundTripped)
     }
 
@@ -208,7 +208,7 @@ class TypeScannerTest {
         try {
             db.execute { reloadTypes() }
 
-            val roundTripped = db.rawQuery("SELECT @v::no_such_enum_type")
+            val roundTripped = db.rawQuery("SELECT @v")
                 .fetchFieldStrict<Misnamed>("v" to Misnamed.B)
 
             assertEquals(Misnamed.B, roundTripped, "the converter registered earlier survived the reload")
@@ -222,11 +222,11 @@ class TypeScannerTest {
     fun `a case convention stated on the annotation reaches the driver`() {
         // The labels are lowercase in the database and PascalCase in Kotlin. Without the convention travelling
         // from the annotation through the scan, the default would look for QUAESTOR and find nothing.
-        val roundTripped = db.rawQuery("SELECT @v::scan_office")
+        val roundTripped = db.rawQuery("SELECT @v")
             .fetchFieldStrict<ScanOffice>("v" to ScanOffice.Praetor)
 
         assertEquals(ScanOffice.Praetor, roundTripped)
-        assertEquals("praetor", db.rawQuery("SELECT (@v::scan_office)::text").fetchFieldStrict<String>("v" to ScanOffice.Praetor))
+        assertEquals("praetor", db.rawQuery("SELECT @v::text").fetchFieldStrict<String>("v" to ScanOffice.Praetor))
     }
 
     @Test

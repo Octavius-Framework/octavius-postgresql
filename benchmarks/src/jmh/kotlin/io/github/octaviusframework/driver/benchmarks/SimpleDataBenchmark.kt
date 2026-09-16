@@ -45,8 +45,10 @@ open class SimpleDataBenchmark {
         props["password"] = "1234"
 
         pgConnection = DriverManager.getConnection("jdbc:postgresql://localhost:5432/octavius_test", props)
+        // 3.14 is a numeric literal, so (i * 3.14) is numeric on its own; the cast is what keeps that
+        // column float8, and is the only one here doing any work.
         val query =
-            "SELECT i::int4, 'hello world ' || i::text, (i % 2 = 0)::boolean, (i * 3.14)::float8 FROM generate_series(1, 10000) AS i"
+            "SELECT i, 'hello world ' || i, (i % 2 = 0), (i * 3.14)::float8 FROM generate_series(1, 10000) AS i"
         pgStatement = pgConnection.prepareStatement(query)
 
         octaviusSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
@@ -73,7 +75,7 @@ open class SimpleDataBenchmark {
         // The same work with no converter registered, so mapping falls to ReflectionRowConverter.
         // It matches constructor parameters to columns by name, hence the aliases.
         octaviusReflectionQuery = octaviusSession.createNativeQuery(
-            "SELECT i::int4 AS i, ('hello world ' || i::text) AS s, (i % 2 = 0)::boolean AS b, (i * 3.14)::float8 AS d " +
+            "SELECT i AS i, ('hello world ' || i) AS s, (i % 2 = 0) AS b, (i * 3.14)::float8 AS d " +
                     "FROM generate_series(1, 10000) AS i"
         )
     }
