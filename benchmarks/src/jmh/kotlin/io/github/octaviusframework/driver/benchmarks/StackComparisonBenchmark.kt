@@ -162,8 +162,8 @@ open class StackComparisonBenchmark {
         val expected = StackSenator(7, "senator 7")
         val lookups = listOf(
             octaviusLookup.fetchObjectStrict<StackSenator>("id" to 7),
-            spring.queryForObject(lookupSqlColon, mapOf("id" to 7), senatorMapper)!!,
-            springNoPrepare.queryForObject(lookupSqlColon, mapOf("id" to 7), senatorMapper)!!,
+            spring.queryForObject(lookupSqlColon, mapOf("id" to 7), senatorMapper),
+            springNoPrepare.queryForObject(lookupSqlColon, mapOf("id" to 7), senatorMapper),
             jdbi.withHandle<StackSenator, RuntimeException> { handle ->
                 handle.createQuery(lookupSqlColon).bind("id", 7).mapTo<StackSenator>().one()
             }
