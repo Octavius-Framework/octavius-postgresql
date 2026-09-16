@@ -4,91 +4,59 @@
 
 #### Added
 
-- **A registered codec that is bound to nothing says so, at `warn`.** A codec keyed on an OID stops being reached
-  the moment that type is dropped and recreated, and one keyed on a name the catalog no longer has never was -
-  in both cases the column comes back through the driver's own codec instead, in a different shape and without an
-  error. The catalog load and every `reloadTypes()` now names the codec that ended up unreachable. The
-  registration itself is unchanged: a schema-qualified type the catalog does not describe is still refused where
-  it is registered, which `registerCodec` now states rather than leaving to the two code paths it fell out of.
+- **`TypeManager.detached()` returns a `TypeLookup` on the same database with no session behind it**, for
+  something that outlives the session it was reached through and only wants to read registrations. It has no
+  search path, so `resolveOid` on it resolves only fully qualified names.
+
+- **A registered codec that is bound to nothing says so, at `warn`.** A codec keyed on an OID stops being
+  reached the moment that type is dropped and recreated, and one keyed on a name the catalog no longer has
+  never was - in both cases the column comes back through the driver's own codec instead, in a different shape
+  and without an error. The catalog load and every `reloadTypes()` now name the codec that ended up
+  unreachable.
 
 #### Changed
 
-- **A query pins one catalog for the whole of an execution.** Everything a terminal touches - the parameters it
-  encodes, the columns it describes, the converters it resolves, the composite and enum registrations those
-  converters read, and the `Row`s it hands back - now comes from one immutable `TypeCatalog`, read once when the
-  terminal starts. A registration or a `reloadTypes()` landing mid-result can no longer leave it mapped against
-  two versions of the catalog. **Two behaviours change with it**: a converter registered on a query object
-  *after* a terminal returned no longer applies to the rows it returned (it applies from the next terminal),
-  and a `registerCodec(...)` between `createNativeQuery(...)` and the `fetch*` call is now picked up, where it
-  used to be missed. It reaches into the values too: a codec for a composite, array, range, multirange, record
-  or domain resolves its nested codecs through the dictionaries it was built for rather than through whatever
-  is published when the bytes arrive. See [Concurrency](docs/driver/concurrency.md#what-a-reload-does-not-promise).
-
-- **A codec dictionary builds its own dynamic codecs, and hands each one the pair it resolves through.** Those
-  codecs used to hold the registry, since a codec cannot hold the dictionary it lives in; they hold a
-  `CodecScope` now, tied once per dictionary before the catalog carrying it is published. `buildUpdated` and
-  `withRegisteredCodec` therefore come through one construction path - a codec kept from a previous dictionary
-  would have gone on resolving through the previous one's pair.
+- **A query pins one catalog for the whole of an execution.** Everything a terminal touches, comes from one
+  immutable `TypeCatalog`, read once when the terminal starts. **Two behaviours change with it**: a converter
+  registered on a query object *after* a terminal returned no longer applies to the rows it returned (it
+  applies from the next terminal), and a `registerCodec(...)` between `createNativeQuery(...)` and the
+  `fetch*` call is now picked up, where it used to be missed.
 
 - **`ConverterRegistry`, `ResultConverterRegistry` and `ParameterConverterRegistry` are gone, replaced by
-  `TypeCatalog`.** The dictionaries, the converters and the composite and enum registrations were five
-  independently published `@Volatile` fields; they are one value now, replaced whole under the lock the registry
-  already had. A registration touching more than one of them - `registerEnum` writes two converters and a
-  registration - is no longer observable half-applied. **`typeManager.converterRegistry` becomes
-  `typeManager.catalog`**, carrying `registeredComposites`, `compositeClassByName` and `registeredEnums`
-  unchanged, alongside `dictionary` and `codecs`. A converter reading registrations through the context reads
-  the pinned catalog: `context.typeManager.catalog.registeredComposites`.
+  `TypeCatalog`.** **`typeManager.converterRegistry` becomes `typeManager.catalog`**, carrying
+  `registeredComposites`, `compositeClassByName` and `registeredEnums` unchanged, alongside `dictionary` and
+  `codecs`. A converter reading registrations through the context reads the pinned catalog:
+  `context.types.catalog.registeredComposites`. The `TypeException` message that named the registry names the
+  catalog now.
 
 - **`Query.resultConverterRegistry` and `Query.parameterConverterRegistry` are gone.** A query keeps its own
   converters in a list of its own rather than a registry chained to the session's, and
   `registerResultConverter(…)` / `registerParameterConverter(…)` - the documented way to reach them - are
-  unchanged, precedence included. Two registry objects and two `ReentrantLock`s per query object go with them.
+  unchanged, precedence included.
 
-- **`TypeManager.detached()`** returns a manager on the same database with no session behind it, for something
-  that outlives the session it was reached through and only wants to read registrations. It has no search path,
-  so `resolveOid` on it resolves only fully qualified names.
+- **A converter is handed `TypeLookup`, not `TypeManager`.** `DeserializationContext` and
+  `SerializationContext` now carry the reading half of the type system - `catalog`, `dictionary`, `codecs`,
+  `containers`, `resolveOid` - and nothing that registers.
+
+- **A conversion context reads `context.types`, and the two dictionaries are `dictionary` and `codecs`.**
+  `TypeLookup.typeDictionary` and `codecDictionary` lose the stutter and take the names `TypeCatalog` already
+  uses for the same two things, and `TypeManager` follows.
+
+- **`GlobalTypeRegistry` is `GlobalCatalogStore`, and `removeRegistry(url)` is `removeCatalog(url)`.** It
+  holds one catalog per database, keyed by `DatabaseKey` - what `RegistryKey` was called. **The logger
+  category is `io.github.octaviusframework.driver.registry.GlobalCatalogStore` now** - a logback rule naming
+  the old one stops matching the catalog load.
 
 - **The `fetch*` and `forEach*` families are `inline` only for `typeOf<T>()` now.** Each one is a single call
   into the driver rather than a body inlined into the caller, so `sql`, `queryExecutor`, `resultMapper`,
   `parameterSerializer` and the context helpers are no longer `@PublishedApi` and the execution path is no
-  longer part of the binary interface. The `block` a `forEach*` takes is `noinline`, which changes nothing at a
-  call site - `crossinline` already refused a non-local return.
-
-- **`GlobalTypeRegistry` is `GlobalCatalogStore`, and `removeRegistry(url)` is `removeCatalog(url)`.** It holds
-  one `CatalogHolder` per database, keyed by `DatabaseKey` - what `RegistryKey` was called. **Two things outside
-  the code change with it**: that one public method, and the logger category, which is now
-  `io.github.octaviusframework.driver.registry.GlobalCatalogStore` - a logback rule naming the old one stops
-  matching the catalog load.
-
-- **`TypeRegistry` is gone; what is left of it is `CatalogHolder`.** Once every registration became one
-  `TypeCatalog` replacing another, the class had three jobs left: hold which catalog is current, carry the lock
-  `ensureLoaded` holds across the round trip that reads the catalog out of the database, and remember whether
-  that read has happened. It does exactly those now - one `update { }` taking a transform, in place of six
-  near-identical mutators that each knew what a converter or a codec was. What the driver ships with moved to
-  `builtinCatalog()`, deriving the catalog is `TypeCatalog.withTypes` and `withCodec`, and `TypeRegistryLoader`
-  is `CatalogLoader`. All internal; the `TypeException` message that named the registry now names the catalog.
-
-- **A converter is handed `TypeLookup`, not `TypeManager`.** `DeserializationContext.typeManager` and
-  `SerializationContext.typeManager` now carry the reading half of the type system - `catalog`,
-  `typeDictionary`, `codecDictionary`, `containers`, `resolveOid` - and nothing that registers. A conversion
-  runs inside an execution that pinned its catalog before the statement went out, so a `registerCodec` made
-  from a converter could not have affected the conversion it was made from, and would have reached every other
-  session on the database instead. `TypeManager` keeps both halves for the session that holds it and exposes
-  its reading half as `lookup`; `detached()` returns a `TypeLookup` now rather than a `TypeManager`. Converters
-  that only read are unchanged, since the names they read through are the same.
-
-- **A conversion context reads `context.types`, and the two dictionaries are `dictionary` and `codecs`.** The
-  property used to be `typeManager`, which named what it handed over accurately until that became a
-  `TypeLookup` that manages nothing - a converter reaching for `context.typeManager.registerCodec(...)` would
-  have read the refusal as a broken API rather than a boundary. `TypeLookup.typeDictionary` and
-  `codecDictionary` lose the stutter and take the names `TypeCatalog` already uses for the same two things,
-  and `TypeManager` follows, so one vocabulary covers both. A converter that only reads renames one identifier.
+  longer part of the binary interface. The `block` a `forEach*` takes is `noinline`, which changes nothing at
+  a call site - `crossinline` already refused a non-local return.
 
 - **`QueryExecutor`, `ResultMapper` and `ParameterSerializer` are `internal`.** They were public only because
-  the terminals were inlined through them; nothing outside the driver could construct one or had a reason to
-  name one. `Row`, `RowMetadata` and the converter SPI - `ResultConverter`, `ParameterConverter`,
-  `DeserializationContext`, `SerializationContext` - are unchanged and remain the way into the conversion
-  chain.
+  the terminals were inlined through them. `Row`, `RowMetadata` and the converter SPI - `ResultConverter`,
+  `ParameterConverter`, `DeserializationContext`, `SerializationContext` - are unchanged and remain the way
+  into the conversion chain.
 
 ## Version 1.1.0 (v1.1.0)
 

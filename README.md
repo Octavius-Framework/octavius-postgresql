@@ -56,11 +56,11 @@ Not published: `hikari-integration-tests` (integration tests against a real pool
 All six live under `io.github.octavius-framework` and are released together on the same version:
 
 ```kotlin
-implementation("io.github.octavius-framework:driver:1.1.0")
-implementation("io.github.octavius-framework:client:1.1.0")
-implementation("io.github.octavius-framework:client-scanner:1.1.0")
-implementation("io.github.octavius-framework:migrations:1.1.0")
-implementation("io.github.octavius-framework:driver-spring-integration:1.1.0")
+implementation("io.github.octavius-framework:driver:2.0.0")
+implementation("io.github.octavius-framework:client:2.0.0")
+implementation("io.github.octavius-framework:client-scanner:2.0.0")
+implementation("io.github.octavius-framework:migrations:2.0.0")
+implementation("io.github.octavius-framework:driver-spring-integration:2.0.0")
 ```
 
 Take the ones you want and no more — each brings what it sits on. `client` brings the driver,
@@ -102,9 +102,32 @@ Written by one person. Every push runs the suite against a real PostgreSQL 18, a
 certificates and exercises the TLS modes end to end, and a third that points the driver at PostgreSQL 17 to
 prove the handshake refuses it rather than half-working.
 
-1.0.0 says the shape is right — the pieces are the ones worth having and each sits where it should — and not
-that a signature will never move again. Every module carries the same version and is released together, so the
-number says when something shipped rather than how mature it is. None of it has seen long production use.
+The version is not a maturity claim. It says when something shipped and what it did to the API, and nothing
+about how long it has run anywhere. None of it has seen long production use.
+
+## Versioning
+
+All six artifacts carry one version and are released together, so a module can take a major release with none
+of its own work in it: 2.0.0 has a driver section in the changelog and no other, and `migrations` went to
+2.0.0 beside it untouched.
+
+**The number is the reach of a change.** A major runs through everything — something every query passes
+through, or the ground the library stands on: an artifact appearing or being renamed, the package root
+moving, the syntax a query is written in, the model a result is mapped by. 2.0.0 is one: every terminal,
+every converter and every codec reads one catalog pinned for the execution now, and much of the API they do
+it behind is unchanged. **An untouched signature does not make it a minor** — what counts is how much runs
+differently underneath. Every major carries a cognomen, and nothing else does.
+
+**A minor is one capability, arrived or gone**, however much code it took: a whole mechanism you can decline
+to use is a minor, and so is a function that disappears, because either reaches only whoever wanted that one
+thing. **A patch is a fix, or documentation.**
+
+None of the three is a compatibility promise. Where a release changes what existing code already does, the
+changelog entry says so in bold — 1.1.0 was a minor and added a constant to a public enum, which is enough to
+stop an exhaustive `when` from compiling. Those sentences are the ones to read before upgrading.
+
+Nothing is deprecated first. A name that goes is gone in the release that takes it, named in the changelog
+beside whatever replaced it.
 
 Every change is recorded in the [CHANGELOG](CHANGELOG.md), grouped by module under each version — one file,
 because one version covers all of them and a release where only half the repository moved reads oddly split
