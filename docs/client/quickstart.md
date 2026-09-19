@@ -12,7 +12,7 @@ much of it he had to have on him.*
 
 ```kotlin
 dependencies {
-    implementation("io.github.octavius-framework:client:2.1.0")
+    implementation("io.github.octavius-framework:client:2.1.1")
 
     // Used by the example below, and by most applications
     implementation("com.zaxxer:HikariCP:7.1.0")
