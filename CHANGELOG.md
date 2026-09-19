@@ -1,3 +1,14 @@
+## Version 2.1.0 (v2.1.0)
+
+### Driver
+
+#### Changed
+
+- **A `RESTRICT` foreign key refusing a delete or a key change reports `RESTRICT_VIOLATION` rather than
+  `UNKNOWN`.** PostgreSQL 18 raises `23001` there. A `NO ACTION` key still raises `23503`, which stays
+  `FOREIGN_KEY_VIOLATION`. **This adds a constant to a public enum: an exhaustive `when` over
+  `ConstraintViolationExceptionReason` with no `else` needs a branch for it.**
+
 ## Version 2.0.0 (v2.0.0) - Tabularium
 
 ### Driver

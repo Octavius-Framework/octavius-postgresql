@@ -280,14 +280,15 @@ The statement survives, which is usually what makes the entry worth keeping; onl
 
 Which of those the database actually fills in varies by violation: a unique violation names the `constraint`, `table` and `schema` and puts the offending key in `details`; a not-null violation names the `column`. Read them as nullable and prefer `constraint` over parsing `dbMessage`.
 
-| Reason (`ConstraintViolationExceptionReason`) | SQLSTATE                  | Description                                                                                                                            |
-|:----------------------------------------------|:--------------------------|:---------------------------------------------------------------------------------------------------------------------------------------|
-| `UNIQUE_CONSTRAINT_VIOLATION`                 | `23505`                   | Duplicate value provided for a unique column or index.                                                                                 |
-| `FOREIGN_KEY_VIOLATION`                       | `23503`                   | Value does not exist in the referenced table.                                                                                          |
-| `NOT_NULL_VIOLATION`                          | `23502`                   | Null value provided for a non-nullable column.                                                                                         |
-| `CHECK_CONSTRAINT_VIOLATION`                  | `23514`                   | Value fails a CHECK constraint.                                                                                                        |
-| `EXCLUSION_CONSTRAINT_VIOLATION`              | `23P01`                   | Exclusion constraint violation (e.g. overlapping ranges).                                                                              |
-| `UNKNOWN`                                     | `23000`, `23001`, `40002` | Unmapped or generic constraint violation. In practice these appear only when raised inside a trigger or procedure, or by an extension. |
+| Reason (`ConstraintViolationExceptionReason`) | SQLSTATE         | Description                                                                                                                            |
+|:----------------------------------------------|:-----------------|:---------------------------------------------------------------------------------------------------------------------------------------|
+| `UNIQUE_CONSTRAINT_VIOLATION`                 | `23505`          | Duplicate value provided for a unique column or index.                                                                                 |
+| `FOREIGN_KEY_VIOLATION`                       | `23503`          | Value does not exist in the referenced table, or a row still referenced was deleted or had its key changed.                            |
+| `RESTRICT_VIOLATION`                          | `23001`          | Row referenced through an `ON DELETE RESTRICT` or `ON UPDATE RESTRICT` foreign key was deleted or had its key changed.                 |
+| `NOT_NULL_VIOLATION`                          | `23502`          | Null value provided for a non-nullable column.                                                                                         |
+| `CHECK_CONSTRAINT_VIOLATION`                  | `23514`          | Value fails a CHECK constraint.                                                                                                        |
+| `EXCLUSION_CONSTRAINT_VIOLATION`              | `23P01`          | Exclusion constraint violation (e.g. overlapping ranges).                                                                              |
+| `UNKNOWN`                                     | `23000`, `40002` | Unmapped or generic constraint violation. In practice these appear only when raised inside a trigger or procedure, or by an extension. |
 
 ### 2. `DataException`
 

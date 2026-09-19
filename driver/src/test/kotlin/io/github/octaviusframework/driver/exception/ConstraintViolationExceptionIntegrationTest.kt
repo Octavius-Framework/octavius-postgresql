@@ -36,6 +36,9 @@ class ConstraintViolationExceptionIntegrationTest {
             )
         """
             ).execute()
+            session.createNativeQuery(
+                "CREATE TABLE IF NOT EXISTS restrict_test_table (id INT PRIMARY KEY, parent_id INT REFERENCES parent_table(id) ON DELETE RESTRICT)"
+            ).execute()
         }
     }
 
@@ -43,6 +46,7 @@ class ConstraintViolationExceptionIntegrationTest {
     fun teardown() {
         getSession().use { session ->
             session.createNativeQuery("DROP TABLE IF EXISTS constraint_test_table").execute()
+            session.createNativeQuery("DROP TABLE IF EXISTS restrict_test_table").execute()
             session.createNativeQuery("DROP TABLE IF EXISTS parent_table").execute()
         }
     }
@@ -74,6 +78,41 @@ class ConstraintViolationExceptionIntegrationTest {
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION, exception.reason)
             assertEquals("constraint_test_table", exception.table)
+            assertNotNull(exception.constraint)
+            assertEquals("public", exception.schema)
+        }
+    }
+
+    @Test
+    fun `should throw FOREIGN_KEY_VIOLATION deleting a row a NO ACTION key references`() {
+        getSession().use { session ->
+            session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
+            session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, 1, 'test', 5)")
+                .execute()
+
+            val exception = assertFailsWith<ConstraintViolationException> {
+                session.createNativeQuery("DELETE FROM parent_table WHERE id = 1").execute()
+            }
+            logger.error(exception) { "" }
+            assertEquals(ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION, exception.reason)
+            assertEquals("constraint_test_table", exception.table)
+            assertNotNull(exception.constraint)
+            assertEquals("public", exception.schema)
+        }
+    }
+
+    @Test
+    fun `should throw RESTRICT_VIOLATION deleting a row a RESTRICT key references`() {
+        getSession().use { session ->
+            session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
+            session.createNativeQuery("INSERT INTO restrict_test_table (id, parent_id) VALUES (1, 1)").execute()
+
+            val exception = assertFailsWith<ConstraintViolationException> {
+                session.createNativeQuery("DELETE FROM parent_table WHERE id = 1").execute()
+            }
+            logger.error(exception) { "" }
+            assertEquals(ConstraintViolationExceptionReason.RESTRICT_VIOLATION, exception.reason)
+            assertEquals("restrict_test_table", exception.table)
             assertNotNull(exception.constraint)
             assertEquals("public", exception.schema)
         }
