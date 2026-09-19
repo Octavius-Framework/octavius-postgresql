@@ -1,3 +1,14 @@
+## Version 2.1.1 (v2.1.1)
+
+### Driver
+
+#### Fixed
+
+- **A `RESTRICT` foreign key refusing a delete or a key change reports `FOREIGN_KEY_VIOLATION`, and
+  `RESTRICT_VIOLATION` is gone.** An application handles that refusal the same way whichever action the key
+  declares, and `sqlState` still tells them apart: `23001` for `RESTRICT`, `23503` for `NO ACTION`. **Code
+  naming `RESTRICT_VIOLATION` no longer compiles; `FOREIGN_KEY_VIOLATION` replaces it.**
+
 ## Version 2.1.0 (v2.1.0)
 
 ### Driver

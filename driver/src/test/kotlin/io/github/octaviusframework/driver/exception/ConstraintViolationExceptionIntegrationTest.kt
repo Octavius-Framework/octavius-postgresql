@@ -95,6 +95,7 @@ class ConstraintViolationExceptionIntegrationTest {
             }
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION, exception.reason)
+            assertEquals("23503", exception.sqlState)
             assertEquals("constraint_test_table", exception.table)
             assertNotNull(exception.constraint)
             assertEquals("public", exception.schema)
@@ -102,7 +103,7 @@ class ConstraintViolationExceptionIntegrationTest {
     }
 
     @Test
-    fun `should throw RESTRICT_VIOLATION deleting a row a RESTRICT key references`() {
+    fun `should throw FOREIGN_KEY_VIOLATION deleting a row a RESTRICT key references`() {
         getSession().use { session ->
             session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
             session.createNativeQuery("INSERT INTO restrict_test_table (id, parent_id) VALUES (1, 1)").execute()
@@ -111,7 +112,8 @@ class ConstraintViolationExceptionIntegrationTest {
                 session.createNativeQuery("DELETE FROM parent_table WHERE id = 1").execute()
             }
             logger.error(exception) { "" }
-            assertEquals(ConstraintViolationExceptionReason.RESTRICT_VIOLATION, exception.reason)
+            assertEquals(ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION, exception.reason)
+            assertEquals("23001", exception.sqlState)
             assertEquals("restrict_test_table", exception.table)
             assertNotNull(exception.constraint)
             assertEquals("public", exception.schema)

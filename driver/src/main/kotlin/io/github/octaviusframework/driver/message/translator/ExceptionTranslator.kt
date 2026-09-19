@@ -77,8 +77,7 @@ internal object ExceptionTranslator {
             state.startsWith("23") -> {
                 val reason = when (state) {
                     "23505" -> ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION
-                    "23503" -> ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION
-                    "23001" -> ConstraintViolationExceptionReason.RESTRICT_VIOLATION
+                    "23503", "23001" -> ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION
                     "23502" -> ConstraintViolationExceptionReason.NOT_NULL_VIOLATION
                     "23514" -> ConstraintViolationExceptionReason.CHECK_CONSTRAINT_VIOLATION
                     "23P01" -> ConstraintViolationExceptionReason.EXCLUSION_CONSTRAINT_VIOLATION

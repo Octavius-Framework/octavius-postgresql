@@ -283,8 +283,7 @@ Which of those the database actually fills in varies by violation: a unique viol
 | Reason (`ConstraintViolationExceptionReason`) | SQLSTATE         | Description                                                                                                                            |
 |:----------------------------------------------|:-----------------|:---------------------------------------------------------------------------------------------------------------------------------------|
 | `UNIQUE_CONSTRAINT_VIOLATION`                 | `23505`          | Duplicate value provided for a unique column or index.                                                                                 |
-| `FOREIGN_KEY_VIOLATION`                       | `23503`          | Value does not exist in the referenced table, or a row still referenced was deleted or had its key changed.                            |
-| `RESTRICT_VIOLATION`                          | `23001`          | Row referenced through an `ON DELETE RESTRICT` or `ON UPDATE RESTRICT` foreign key was deleted or had its key changed.                 |
+| `FOREIGN_KEY_VIOLATION`                       | `23503`, `23001` | Value does not exist in the referenced table, or a referenced row was deleted or had its key changed.                                  |
 | `NOT_NULL_VIOLATION`                          | `23502`          | Null value provided for a non-nullable column.                                                                                         |
 | `CHECK_CONSTRAINT_VIOLATION`                  | `23514`          | Value fails a CHECK constraint.                                                                                                        |
 | `EXCLUSION_CONSTRAINT_VIOLATION`              | `23P01`          | Exclusion constraint violation (e.g. overlapping ranges).                                                                              |

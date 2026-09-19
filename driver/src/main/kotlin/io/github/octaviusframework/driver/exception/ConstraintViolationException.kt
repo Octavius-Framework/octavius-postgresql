@@ -13,16 +13,10 @@ enum class ConstraintViolationExceptionReason {
     UNIQUE_CONSTRAINT_VIOLATION,
 
     /**
-     * A value was provided that does not exist in the referenced table, or a row still referenced was deleted
-     * or had its key changed (PostgreSQL 23503).
+     * A value was provided that does not exist in the referenced table, or a referenced row was deleted or had
+     * its key changed (PostgreSQL 23503, or 23001 when the key's action is `RESTRICT`).
      */
     FOREIGN_KEY_VIOLATION,
-
-    /**
-     * A row referenced through an `ON DELETE RESTRICT` or `ON UPDATE RESTRICT` foreign key was deleted or had
-     * its key changed (PostgreSQL 23001).
-     */
-    RESTRICT_VIOLATION,
 
     /** A null value was provided for a non-nullable column (PostgreSQL 23502). */
     NOT_NULL_VIOLATION,
@@ -93,8 +87,7 @@ class ConstraintViolationException(
 private fun generateDeveloperMessage(reason: ConstraintViolationExceptionReason): String =
     when (reason) {
         ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION -> "A duplicate value was provided for a unique column or index (PostgreSQL 23505)."
-        ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION -> "A value was provided that does not exist in the referenced table, or a row still referenced was deleted or had its key changed (PostgreSQL 23503)."
-        ConstraintViolationExceptionReason.RESTRICT_VIOLATION -> "A row referenced through an ON DELETE RESTRICT or ON UPDATE RESTRICT foreign key was deleted or had its key changed (PostgreSQL 23001)."
+        ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION -> "A value was provided that does not exist in the referenced table, or a referenced row was deleted or had its key changed (PostgreSQL 23503, 23001)."
         ConstraintViolationExceptionReason.NOT_NULL_VIOLATION -> "A null value was provided for a non-nullable column (PostgreSQL 23502)."
         ConstraintViolationExceptionReason.CHECK_CONSTRAINT_VIOLATION -> "A value was provided that fails a CHECK constraint (PostgreSQL 23514)."
         ConstraintViolationExceptionReason.EXCLUSION_CONSTRAINT_VIOLATION -> "Exclusion constraint violations (PostgreSQL 23P01)."
