@@ -56,11 +56,11 @@ Not published: `hikari-integration-tests` (integration tests against a real pool
 All six live under `io.github.octavius-framework` and are released together on the same version:
 
 ```kotlin
-implementation("io.github.octavius-framework:driver:2.0.0")
-implementation("io.github.octavius-framework:client:2.0.0")
-implementation("io.github.octavius-framework:client-scanner:2.0.0")
-implementation("io.github.octavius-framework:migrations:2.0.0")
-implementation("io.github.octavius-framework:driver-spring-integration:2.0.0")
+implementation("io.github.octavius-framework:driver:2.1.0")
+implementation("io.github.octavius-framework:client:2.1.0")
+implementation("io.github.octavius-framework:client-scanner:2.1.0")
+implementation("io.github.octavius-framework:migrations:2.1.0")
+implementation("io.github.octavius-framework:driver-spring-integration:2.1.0")
 ```
 
 Take the ones you want and no more — each brings what it sits on. `client` brings the driver,
