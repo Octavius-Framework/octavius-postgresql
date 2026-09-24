@@ -1,3 +1,14 @@
+## Version 2.1.2 (v2.1.2)
+
+### Driver
+
+#### Fixed
+
+- **Rows keep the query's own converters as their terminal found them.** 2.0.0 said a converter registered on
+  a query after a terminal returned does not reach the rows it returned, and that held only for a query that
+  had none of its own. Each terminal copies the query's converters now, so the rows answer as they did
+  when they came back, and the next terminal is the one that sees the new converter.
+
 ## Version 2.1.1 (v2.1.1)
 
 ### Driver

@@ -82,6 +82,21 @@ class ExecutionCatalogIntegrationTest {
     }
 
     @Test
+    fun `rows keep the query's own converters as their terminal found them`() {
+        session().use { session ->
+            val query = session.createNativeQuery("SELECT 'w'::text")
+                .registerResultConverter(MarkerConverter("first"))
+            val rows = query.fetchRows()
+
+            // Registered after the rows came back, beside one that was there before them.
+            query.registerResultConverter(MarkerConverter("second"))
+
+            assertEquals(Marker("first:w"), rows.single().get<Marker>(0))
+            assertEquals(Marker("second:w"), query.fetchFieldStrict<Marker>())
+        }
+    }
+
+    @Test
     fun `a query's own converter wins over the session's, for that query only`() {
         session().use { session ->
             val query = session.createNativeQuery("SELECT 'z'::text")
