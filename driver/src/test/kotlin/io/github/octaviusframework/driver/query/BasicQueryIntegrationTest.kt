@@ -16,13 +16,13 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
     fun test() {
         val session = openSession()
 
-        val result = session.createNativeQuery("SELECT 1, 'abc', 4.5::float8").fetchRows()
+        val result = session.createNativeQuery("SELECT 1, 'Roma', 4.5::float8").fetchRows()
         val row = result.first()
         assertEquals(1, row.get(0))
-        assertEquals("abc", row.get(1))
+        assertEquals("Roma", row.get(1))
         assertEquals(4.5, row.get(2))
 
-        val result2 = session.createNativeQuery("SELECT $1 as test_int, $2 as test_float, $1 as test_int2")
+        val result2 = session.createNativeQuery("SELECT $1 as legion, $2 as tribute, $1 as legion_again")
             .fetchRowStrict(1, 2.4f)
         assertEquals(1, result2.get(0))
         assertEquals(2.4f, result2.get(1))
@@ -34,10 +34,10 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
     fun testFetchOneWithMultipleRows() {
         val session = openSession()
 
-        // Generate 1000 rows. Thanks to maxRows=2 and PortalSuspended, it should fetch exactly 2 rows
-        // and throw StatementException without loading all 1000 rows into memory.
+        // A thousand legionaries. Thanks to maxRows=2 and PortalSuspended, it should fetch exactly 2 rows
+        // and throw InvalidOperationException without loading all 1000 rows into memory.
         val exception = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT generate_series(1, 1000)").fetchRowStrict()
+            session.createNativeQuery("SELECT generate_series(1, 1000) AS legionary").fetchRowStrict()
         }
 
         assertEquals(InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE, exception.reason)
@@ -55,7 +55,7 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
         // NativeQuery forEachRow
         var sum = 0
         var count = 0
-        session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").forEachRow(fetchSize = 3) {
+        session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").forEachRow(fetchSize = 3) {
             sum += it.get<Int>(0)
             count++
         }
@@ -65,7 +65,7 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
         // NativeQuery forEachField
         var sumField = 0
         var countField = 0
-        session.createNativeQuery("SELECT i * $1 FROM generate_series(1, 10) as i").forEachField<Int>(2, fetchSize = 4) {
+        session.createNativeQuery("SELECT cohort * $1 FROM generate_series(1, 10) AS cohort").forEachField<Int>(2, fetchSize = 4) {
             sumField += it
             countField++
         }
@@ -75,7 +75,7 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
         // NamedParameterQuery forEachField
         var sumNamedField = 0
         var countNamedField = 0
-        session.createNamedQuery("SELECT i * @mult FROM generate_series(1, 10) as i").forEachField<Int>("mult" to 3, fetchSize = 5) {
+        session.createNamedQuery("SELECT cohort * @mult FROM generate_series(1, 10) AS cohort").forEachField<Int>("mult" to 3, fetchSize = 5) {
             sumNamedField += it
             countNamedField++
         }
@@ -89,18 +89,18 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
         val session = openSession()
 
         val e = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").forEachRow(fetchSize = -1) { }
+            session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").forEachRow(fetchSize = -1) { }
         }
         assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, e.reason)
 
         // Zero is not a rejected batch size but Execute's own "no limit": one batch carrying the
         // whole result, which still arrives row by row.
         var seen = 0
-        session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").forEachRow(fetchSize = 0) { seen++ }
+        session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").forEachRow(fetchSize = 0) { seen++ }
         assertEquals(10, seen)
 
         // The refused call never reached the connection, so the session is still usable afterwards.
-        assertEquals(10, session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").fetchRows().size)
+        assertEquals(10, session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").fetchRows().size)
         session.close()
     }
 
@@ -108,7 +108,7 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
     fun `an exception from a streaming block comes back as BLOCK_FAILED carrying the original`() {
         openSession().use { session ->
             val failure = assertFailsWith<MappingException> {
-                session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i")
+                session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort")
                     .forEachRow(fetchSize = 3) { throw IllegalStateException("the aqueduct is dry") }
             }
 

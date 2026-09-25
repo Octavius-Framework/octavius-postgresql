@@ -37,7 +37,7 @@ class LargeObjectIntegrationTest : AbstractIntegrationTest() {
 
             // Write to LO
             val obj = loManager.open(oid, LargeObjectMode.READ_WRITE)
-            val data = "Hello, Large Object!".toByteArray(Charsets.UTF_8)
+            val data = "Senatus Populusque Romanus".toByteArray(Charsets.UTF_8)
             obj.write(data, 0, data.size)
 
             // Seek to beginning
@@ -49,7 +49,7 @@ class LargeObjectIntegrationTest : AbstractIntegrationTest() {
             assertEquals(data.size, bytesRead)
             
             val readString = String(buffer, 0, bytesRead, Charsets.UTF_8)
-            assertEquals("Hello, Large Object!", readString)
+            assertEquals("Senatus Populusque Romanus", readString)
 
             // Tell position
             val position = obj.tell()
@@ -71,7 +71,7 @@ class LargeObjectIntegrationTest : AbstractIntegrationTest() {
 
             val obj = loManager.open(oid, LargeObjectMode.READ_WRITE)
             val outputStream = obj.outputStream()
-            val text = "Streamed Large Object Test Data"
+            val text = "Res Gestae Divi Augusti, streamed a tablet at a time"
             outputStream.write(text.toByteArray(Charsets.UTF_8))
             
             obj.seek(0, SeekWhence.SET)
@@ -92,7 +92,7 @@ class LargeObjectIntegrationTest : AbstractIntegrationTest() {
             val oid = loManager.create()
 
             val obj = loManager.open(oid, LargeObjectMode.READ_WRITE)
-            val data = "Hello length only".toByteArray(Charsets.UTF_8)
+            val data = "Carthago delenda est".toByteArray(Charsets.UTF_8)
             obj.write(data)
 
             obj.seek(0, SeekWhence.SET)

@@ -2,7 +2,6 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.oshai.kotlinlogging.KotlinLogging
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -15,47 +14,34 @@ class ConstraintViolationExceptionIntegrationTest : AbstractIntegrationTest() {
         private val logger = KotlinLogging.logger {}
     }
 
-    @BeforeEach
-    fun setup() {
-        openSession().use { session ->
-            session.createNativeQuery("CREATE TABLE IF NOT EXISTS parent_table (id INT PRIMARY KEY)").execute()
-            session.createNativeQuery(
-                """
-            CREATE TABLE IF NOT EXISTS constraint_test_table (
-                id INT PRIMARY KEY,
-                parent_id INT REFERENCES parent_table(id),
-                not_null_col VARCHAR(50) NOT NULL,
-                check_col INT CHECK (check_col > 0)
-            )
-        """
-            ).execute()
-            session.createNativeQuery(
-                "CREATE TABLE IF NOT EXISTS restrict_test_table (id INT PRIMARY KEY, parent_id INT REFERENCES parent_table(id) ON DELETE RESTRICT)"
-            ).execute()
-        }
-    }
+    override val schema = """
+        CREATE TABLE provinces (id INT PRIMARY KEY);
+        CREATE TABLE governors (
+            id          INT PRIMARY KEY,
+            province_id INT REFERENCES provinces(id),
+            cognomen    VARCHAR(50) NOT NULL,
+            term_years  INT CHECK (term_years > 0)
+        );
+        CREATE TABLE garrisons (id INT PRIMARY KEY, province_id INT REFERENCES provinces(id) ON DELETE RESTRICT);
+    """.trimIndent()
 
-    @AfterEach
-    fun teardown() {
-        openSession().use { session ->
-            session.createNativeQuery("DROP TABLE IF EXISTS constraint_test_table").execute()
-            session.createNativeQuery("DROP TABLE IF EXISTS restrict_test_table").execute()
-            session.createNativeQuery("DROP TABLE IF EXISTS parent_table").execute()
-        }
+    @BeforeEach
+    fun emptyTables() {
+        openSession().use { it.createNativeQuery("TRUNCATE provinces, governors, garrisons").execute() }
     }
 
     @Test
     fun `should throw UNIQUE_CONSTRAINT_VIOLATION`() {
         openSession().use { session ->
-            session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
+            session.createNativeQuery("INSERT INTO provinces (id) VALUES (1)").execute()
 
             val exception = assertFailsWith<ConstraintViolationException> {
-                session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
+                session.createNativeQuery("INSERT INTO provinces (id) VALUES (1)").execute()
             }
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION, exception.reason)
-            assertEquals("parent_table", exception.table)
-            assertNotNull(exception.constraint) // Usually parent_table_pkey
+            assertEquals("provinces", exception.table)
+            assertNotNull(exception.constraint) // Usually provinces_pkey
             assertEquals("public", exception.schema)
         }
     }
@@ -65,12 +51,12 @@ class ConstraintViolationExceptionIntegrationTest : AbstractIntegrationTest() {
         openSession().use { session ->
 
             val exception = assertFailsWith<ConstraintViolationException> {
-                session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, 999, 'test', 5)")
+                session.createNativeQuery("INSERT INTO governors (id, province_id, cognomen, term_years) VALUES (1, 999, 'Varus', 5)")
                     .execute()
             }
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION, exception.reason)
-            assertEquals("constraint_test_table", exception.table)
+            assertEquals("governors", exception.table)
             assertNotNull(exception.constraint)
             assertEquals("public", exception.schema)
         }
@@ -79,17 +65,17 @@ class ConstraintViolationExceptionIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `should throw FOREIGN_KEY_VIOLATION deleting a row a NO ACTION key references`() {
         openSession().use { session ->
-            session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
-            session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, 1, 'test', 5)")
+            session.createNativeQuery("INSERT INTO provinces (id) VALUES (1)").execute()
+            session.createNativeQuery("INSERT INTO governors (id, province_id, cognomen, term_years) VALUES (1, 1, 'Varus', 5)")
                 .execute()
 
             val exception = assertFailsWith<ConstraintViolationException> {
-                session.createNativeQuery("DELETE FROM parent_table WHERE id = 1").execute()
+                session.createNativeQuery("DELETE FROM provinces WHERE id = 1").execute()
             }
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION, exception.reason)
             assertEquals("23503", exception.sqlState)
-            assertEquals("constraint_test_table", exception.table)
+            assertEquals("governors", exception.table)
             assertNotNull(exception.constraint)
             assertEquals("public", exception.schema)
         }
@@ -98,16 +84,16 @@ class ConstraintViolationExceptionIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `should throw FOREIGN_KEY_VIOLATION deleting a row a RESTRICT key references`() {
         openSession().use { session ->
-            session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
-            session.createNativeQuery("INSERT INTO restrict_test_table (id, parent_id) VALUES (1, 1)").execute()
+            session.createNativeQuery("INSERT INTO provinces (id) VALUES (1)").execute()
+            session.createNativeQuery("INSERT INTO garrisons (id, province_id) VALUES (1, 1)").execute()
 
             val exception = assertFailsWith<ConstraintViolationException> {
-                session.createNativeQuery("DELETE FROM parent_table WHERE id = 1").execute()
+                session.createNativeQuery("DELETE FROM provinces WHERE id = 1").execute()
             }
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.FOREIGN_KEY_VIOLATION, exception.reason)
             assertEquals("23001", exception.sqlState)
-            assertEquals("restrict_test_table", exception.table)
+            assertEquals("garrisons", exception.table)
             assertNotNull(exception.constraint)
             assertEquals("public", exception.schema)
         }
@@ -118,13 +104,13 @@ class ConstraintViolationExceptionIntegrationTest : AbstractIntegrationTest() {
         openSession().use { session ->
 
             val exception = assertFailsWith<ConstraintViolationException> {
-                session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, NULL, NULL, 5)")
+                session.createNativeQuery("INSERT INTO governors (id, province_id, cognomen, term_years) VALUES (1, NULL, NULL, 5)")
                     .execute()
             }
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.NOT_NULL_VIOLATION, exception.reason)
-            assertEquals("constraint_test_table", exception.table)
-            assertEquals("not_null_col", exception.column)
+            assertEquals("governors", exception.table)
+            assertEquals("cognomen", exception.column)
             assertEquals("public", exception.schema)
         }
     }
@@ -134,12 +120,12 @@ class ConstraintViolationExceptionIntegrationTest : AbstractIntegrationTest() {
         openSession().use { session ->
 
             val exception = assertFailsWith<ConstraintViolationException> {
-                session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, NULL, 'test', 0)")
+                session.createNativeQuery("INSERT INTO governors (id, province_id, cognomen, term_years) VALUES (1, NULL, 'Varus', 0)")
                     .execute()
             }
             logger.error(exception) { "" }
             assertEquals(ConstraintViolationExceptionReason.CHECK_CONSTRAINT_VIOLATION, exception.reason)
-            assertEquals("constraint_test_table", exception.table)
+            assertEquals("governors", exception.table)
             assertNotNull(exception.constraint)
             assertEquals("public", exception.schema)
         }

@@ -17,16 +17,16 @@ import kotlin.test.assertTrue
 class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
 
     override val schema = """
-        CREATE SCHEMA column_metadata_test;
-        CREATE DOMAIN column_metadata_test.tribute_amount AS numeric(10,2);
-        CREATE TABLE column_metadata_test.senators (
-            id int, cognomen text, province text, tribute numeric(10,2), levy column_metadata_test.tribute_amount
+        CREATE SCHEMA res_publica;
+        CREATE DOMAIN res_publica.tribute_amount AS numeric(10,2);
+        CREATE TABLE res_publica.senators (
+            id int, cognomen text, province text, tribute numeric(10,2), levy res_publica.tribute_amount
         );
         -- Takes attribute number 3 out of the sequence for good, so everything declared after it sits one place
         -- behind its own number.
-        ALTER TABLE column_metadata_test.senators DROP COLUMN province;
-        CREATE VIEW column_metadata_test.consuls AS SELECT id, cognomen FROM column_metadata_test.senators;
-        INSERT INTO column_metadata_test.senators VALUES (1, 'Cato', 12.50, 3.00);
+        ALTER TABLE res_publica.senators DROP COLUMN province;
+        CREATE VIEW res_publica.consuls AS SELECT id, cognomen FROM res_publica.senators;
+        INSERT INTO res_publica.senators VALUES (1, 'Cato', 12.50, 3.00);
     """.trimIndent()
 
     // ---------------------------------- Where a column came from ----------------------------------
@@ -34,14 +34,14 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `an aliased column reports the alias as its name and the column it was read from as its origin`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT cognomen AS name FROM column_metadata_test.senators").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT cognomen AS name FROM res_publica.senators").fetchRowStrict()
             val column = row.metadata.getColumn(0)
 
             assertEquals("name", column.name)
             val origin = column.origin!!
             assertEquals("cognomen", origin.columnName)
             assertEquals("senators", origin.relationName)
-            assertEquals("column_metadata_test", origin.schema)
+            assertEquals("res_publica", origin.schema)
             assertNotEquals(0, origin.relationOid)
         }
     }
@@ -49,7 +49,7 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `a column declared after a dropped one is named by its attribute number and not by its position`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT tribute FROM column_metadata_test.senators").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT tribute FROM res_publica.senators").fetchRowStrict()
             val origin = row.metadata.getColumn(0).origin!!
 
             // Third of the three surviving attributes, fourth by number.
@@ -61,11 +61,11 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `a view is a relation like any other`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT cognomen FROM column_metadata_test.consuls").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT cognomen FROM res_publica.consuls").fetchRowStrict()
             val origin = row.metadata.getColumn(0).origin!!
 
             assertEquals("consuls", origin.relationName)
-            assertEquals("column_metadata_test", origin.schema)
+            assertEquals("res_publica", origin.schema)
             assertEquals("cognomen", origin.columnName)
         }
     }
@@ -73,7 +73,7 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `anything that is not a column reference has no origin at all`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT 1 + 1, upper(cognomen), now() FROM column_metadata_test.senators").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT 1 + 1, upper(cognomen), now() FROM res_publica.senators").fetchRowStrict()
 
             assertNull(row.metadata.getColumn(0).origin)
             assertNull(row.metadata.getColumn(1).origin)
@@ -102,7 +102,7 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `the type is resolved out of the catalog, structure and all`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT tribute, ARRAY['a', 'b'] FROM column_metadata_test.senators").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT tribute, ARRAY['a', 'b'] FROM res_publica.senators").fetchRowStrict()
 
             val tribute = row.metadata.getColumn(0).type
             assertTrue(tribute is PgType.Base)
@@ -119,7 +119,7 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `a domain column is described by the type underneath it`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT levy, 1::column_metadata_test.tribute_amount FROM column_metadata_test.senators").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT levy, 1::res_publica.tribute_amount FROM res_publica.senators").fetchRowStrict()
 
             // The server resolves a domain to its base type before describing a column - for a plain reference
             // and for an explicit cast alike - so a result column never arrives as one, however it was written.
@@ -136,7 +136,7 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `the type modifier carries the precision the type alone does not`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT tribute, cognomen FROM column_metadata_test.senators").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT tribute, cognomen FROM res_publica.senators").fetchRowStrict()
 
             assertEquals(((10 shl 16) or 2) + 4, row.metadata.getColumn(0).typeModifier)
             assertEquals(-1, row.metadata.getColumn(1).typeModifier)
@@ -146,7 +146,7 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `the column reports the OID of its own type`() {
         openSession().use { s ->
-            val row = s.createNativeQuery("SELECT id FROM column_metadata_test.senators").fetchRowStrict()
+            val row = s.createNativeQuery("SELECT id FROM res_publica.senators").fetchRowStrict()
             val column = row.metadata.getColumn(0)
 
             assertEquals(23, column.oid)

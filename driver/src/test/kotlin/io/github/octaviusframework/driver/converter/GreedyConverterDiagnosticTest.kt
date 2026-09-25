@@ -41,23 +41,23 @@ class GreedyConverterDiagnosticTest : AbstractIntegrationTest() {
         ): Dossier = Dossier(source)
     }
 
-    override val schema = "CREATE TABLE greedy_converter_probe (data jsonb)"
+    override val schema = "CREATE TABLE dossiers (data jsonb)"
 
     @Test
     fun `converter producing the wrong type fails as a MappingException naming it`() {
         val session = openSession()
         try {
-            session.createNativeQuery("""INSERT INTO greedy_converter_probe VALUES ('{"a":1}')""").execute()
+            session.createNativeQuery("""INSERT INTO dossiers VALUES ('{"legio":10}')""").execute()
 
             // Scoped to this query, so the rest of the suite is unaffected - the same registration
             // made through typeManager would apply to every session on this database.
-            val query = session.createNativeQuery("SELECT data FROM greedy_converter_probe")
+            val query = session.createNativeQuery("SELECT data FROM dossiers")
                 .registerResultConverter(GreedyDossierConverter())
 
             val row = query.fetchRowStrict()
 
             // Asking for what the converter actually produces still works
-            assertEquals(Dossier("""{"a": 1}"""), row.get<Dossier>(0))
+            assertEquals(Dossier("""{"legio": 10}"""), row.get<Dossier>(0))
 
             // Asking for anything else is the driver's error, not a ClassCastException in our frame
             val e = assertFailsWith<MappingException> { row.get<JsonObject>(0) }

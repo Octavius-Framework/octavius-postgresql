@@ -42,7 +42,7 @@ class TransactionStateExceptionIntegrationTest : AbstractIntegrationTest() {
             session.createNativeQuery("BEGIN READ ONLY").execute()
             try {
                 val exception = assertFailsWith<TransactionStateException> {
-                    session.createNativeQuery("CREATE TEMP TABLE read_only_probe (id INT)").execute()
+                    session.createNativeQuery("CREATE TEMP TABLE edicts (id INT)").execute()
                 }
                 logger.error(exception) { "" }
                 assertEquals("25006", exception.sqlState)
@@ -74,7 +74,7 @@ class TransactionStateExceptionIntegrationTest : AbstractIntegrationTest() {
     fun `should throw NO_ACTIVE_TRANSACTION for a savepoint rollback outside a transaction`() {
         openSession().use { session ->
             val exception = assertFailsWith<TransactionStateException> {
-                session.createNativeQuery("ROLLBACK TO SAVEPOINT no_such_savepoint").execute()
+                session.createNativeQuery("ROLLBACK TO SAVEPOINT rubicon").execute()
             }
             logger.error(exception) { "" }
             assertEquals("25P01", exception.sqlState)

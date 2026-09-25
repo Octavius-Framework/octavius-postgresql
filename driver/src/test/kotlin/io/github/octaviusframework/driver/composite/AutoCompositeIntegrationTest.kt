@@ -8,147 +8,90 @@ import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 
+/**
+ * A reflectively mapped composite carrying another composite, an array, a range, an array of ranges and a
+ * multirange, sent as a parameter and read back - through a positional query and a named one alike.
+ */
 class AutoCompositeIntegrationTest : AbstractIntegrationTest() {
 
-    data class PersonProfile(val firstName: String, val lastName: String)
+    data class RomanName(val praenomen: String, val nomen: String)
 
-    data class EmployeeData(
-        val profile: PersonProfile,
-        val roles: List<String>,
-        val activePeriod: Range<LocalDate>,
-        val scheduleShifts: List<Range<LocalDateTime>>,
-        val availableDays: MultiRange<LocalDate>
+    data class Enlistment(
+        val name: RomanName,
+        val ranks: List<String>,
+        val service: Range<LocalDate>,
+        val watches: List<Range<LocalDateTime>>,
+        val leave: MultiRange<LocalDate>
     )
 
     override val schema = """
-        CREATE TYPE person_profile AS (first_name text, last_name text);
-        CREATE TYPE employee_data AS (
-            profile person_profile,
-            roles text[],
-            active_period daterange,
-            schedule_shifts tsrange[],
-            available_days datemultirange
+        CREATE TYPE roman_name AS (praenomen text, nomen text);
+        CREATE TYPE enlistment AS (
+            name    roman_name,
+            ranks   text[],
+            service daterange,
+            watches tsrange[],
+            leave   datemultirange
         );
     """.trimIndent()
 
+    @BeforeAll
+    fun register() {
+        openSession().use { session ->
+            session.typeManager.registerAutoComposite<RomanName>("roman_name")
+            session.typeManager.registerAutoComposite<Enlistment>("enlistment")
+        }
+    }
+
+    /** Twenty-five years under the standards from AD 9, the first two watches of one night, two leaves. */
+    private fun enlistment() = Enlistment(
+        name = RomanName("Marcus", "Caelius"),
+        ranks = listOf("miles", "centurio"),
+        service = rangeOf(lowerBound = LocalDate(9, 1, 1), upperBound = LocalDate(34, 12, 31)),
+        watches = listOf(
+            rangeOf(lowerBound = LocalDateTime(9, 9, 8, 18, 0), upperBound = LocalDateTime(9, 9, 8, 21, 0)),
+            rangeOf(lowerBound = LocalDateTime(9, 9, 8, 21, 0), upperBound = LocalDateTime(9, 9, 9, 0, 0))
+        ),
+        leave = multiRangeOf(
+            rangeOf(lowerBound = LocalDate(10, 6, 1), upperBound = LocalDate(10, 6, 10)),
+            rangeOf(lowerBound = LocalDate(10, 7, 1), upperBound = LocalDate(10, 7, 15))
+        )
+    )
+
+    private fun assertReadBack(back: Enlistment) {
+        assertEquals("Marcus", back.name.praenomen)
+        assertEquals("Caelius", back.name.nomen)
+        assertEquals(listOf("miles", "centurio"), back.ranks)
+
+        assertEquals(LocalDate(9, 1, 1), back.service.lowerBound)
+        assertEquals(LocalDate(34, 12, 31), back.service.upperBound)
+
+        assertEquals(2, back.watches.size)
+        assertEquals(LocalDateTime(9, 9, 8, 18, 0), back.watches[0].lowerBound)
+
+        assertEquals(2, back.leave.ranges.size)
+        assertEquals(LocalDate(10, 6, 1), back.leave.ranges[0].lowerBound)
+    }
+
     @Test
     fun testEverythingWithNativeQuery() {
-        val session = openSession()
-        try {
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<PersonProfile>("person_profile")
-            session.typeManager.registerAutoComposite<EmployeeData>("employee_data")
+        openSession().use { session ->
+            val row = session.createNativeQuery("SELECT $1 AS enlistment").fetchRowStrict(enlistment())
 
-            val activePeriod = rangeOf(
-                lowerBound = LocalDate(2023, 1, 1),
-                upperBound = LocalDate(2023, 12, 31)
-            )
-
-            val shift1 = rangeOf(
-                lowerBound = LocalDateTime(2023, 5, 1, 8, 0),
-                upperBound = LocalDateTime(2023, 5, 1, 16, 0)
-            )
-            val shift2 = rangeOf(
-                lowerBound = LocalDateTime(2023, 5, 2, 9, 0),
-                upperBound = LocalDateTime(2023, 5, 2, 17, 0)
-            )
-
-            val availableDays = multiRangeOf(
-                rangeOf(lowerBound = LocalDate(2023, 6, 1), upperBound = LocalDate(2023, 6, 10)),
-                rangeOf(lowerBound = LocalDate(2023, 7, 1), upperBound = LocalDate(2023, 7, 15))
-            )
-
-            val emp = EmployeeData(
-                profile = PersonProfile("Jan", "Kowalski"),
-                roles = listOf("admin", "user"),
-                activePeriod = activePeriod,
-                scheduleShifts = listOf(shift1, shift2),
-                availableDays = availableDays
-            )
-
-            val query = "SELECT $1 AS emp"
-            println("Sending EmployeeData Native: $emp")
-            val resultRow = session.createNativeQuery(query).fetchRowStrict(emp)
-            println("Result Row Native: $resultRow")
-
-            val parsedEmp = resultRow.get<EmployeeData>("emp")
-            println("Parsed EmployeeData Native: $parsedEmp")
-
-            assertEquals("Jan", parsedEmp.profile.firstName)
-            assertEquals("Kowalski", parsedEmp.profile.lastName)
-            assertEquals(listOf("admin", "user"), parsedEmp.roles)
-            
-            assertEquals(LocalDate(2023, 1, 1), parsedEmp.activePeriod.lowerBound)
-            assertEquals(LocalDate(2023, 12, 31), parsedEmp.activePeriod.upperBound)
-
-            assertEquals(2, parsedEmp.scheduleShifts.size)
-            assertEquals(LocalDateTime(2023, 5, 1, 8, 0), parsedEmp.scheduleShifts[0].lowerBound)
-            
-            assertEquals(2, parsedEmp.availableDays.ranges.size)
-            assertEquals(LocalDate(2023, 6, 1), parsedEmp.availableDays.ranges[0].lowerBound)
-
-        } finally {
-            session.close()
+            assertReadBack(row.get<Enlistment>("enlistment"))
         }
     }
 
     @Test
     fun testEverythingWithNamedParameterQuery() {
-        val session = openSession()
-        try {
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<PersonProfile>("person_profile")
-            session.typeManager.registerAutoComposite<EmployeeData>("employee_data")
+        openSession().use { session ->
+            val row = session.createNamedQuery("SELECT @enlistment AS enlistment")
+                .fetchRowStrict("enlistment" to enlistment())
 
-            val activePeriod = rangeOf(
-                lowerBound = LocalDate(2023, 1, 1),
-                upperBound = LocalDate(2023, 12, 31)
-            )
-
-            val shift1 = rangeOf(
-                lowerBound = LocalDateTime(2023, 5, 1, 8, 0),
-                upperBound = LocalDateTime(2023, 5, 1, 16, 0)
-            )
-            val shift2 = rangeOf(
-                lowerBound = LocalDateTime(2023, 5, 2, 9, 0),
-                upperBound = LocalDateTime(2023, 5, 2, 17, 0)
-            )
-
-            val availableDays = multiRangeOf(
-                rangeOf(lowerBound = LocalDate(2023, 6, 1), upperBound = LocalDate(2023, 6, 10)),
-                rangeOf(lowerBound = LocalDate(2023, 7, 1), upperBound = LocalDate(2023, 7, 15))
-            )
-
-            val emp = EmployeeData(
-                profile = PersonProfile("Jan", "Kowalski"),
-                roles = listOf("admin", "user"),
-                activePeriod = activePeriod,
-                scheduleShifts = listOf(shift1, shift2),
-                availableDays = availableDays
-            )
-
-            val query = "SELECT @employee AS emp"
-            val resultRow = session.createNamedQuery(query).fetchRowStrict("employee" to emp)
-
-            val parsedEmp = resultRow.get<EmployeeData>("emp")
-
-            assertEquals("Jan", parsedEmp.profile.firstName)
-            assertEquals("Kowalski", parsedEmp.profile.lastName)
-            assertEquals(listOf("admin", "user"), parsedEmp.roles)
-            
-            assertEquals(LocalDate(2023, 1, 1), parsedEmp.activePeriod.lowerBound)
-            assertEquals(LocalDate(2023, 12, 31), parsedEmp.activePeriod.upperBound)
-
-            assertEquals(2, parsedEmp.scheduleShifts.size)
-            assertEquals(LocalDateTime(2023, 5, 1, 8, 0), parsedEmp.scheduleShifts[0].lowerBound)
-            
-            assertEquals(2, parsedEmp.availableDays.ranges.size)
-            assertEquals(LocalDate(2023, 6, 1), parsedEmp.availableDays.ranges[0].lowerBound)
-            
-        } finally {
-            session.close()
+            assertReadBack(row.get<Enlistment>("enlistment"))
         }
     }
 }

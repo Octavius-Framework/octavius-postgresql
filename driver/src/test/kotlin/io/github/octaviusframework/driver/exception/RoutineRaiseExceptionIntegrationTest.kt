@@ -20,14 +20,14 @@ class RoutineRaiseExceptionIntegrationTest : AbstractIntegrationTest() {
                 session.createNativeQuery("""
                     DO $$
                     BEGIN
-                        RAISE EXCEPTION 'Test exception' USING DETAIL = 'The augury was unfavourable', HINT = 'Try tomorrow';
+                        RAISE EXCEPTION 'The assembly is dissolved' USING DETAIL = 'The augury was unfavourable', HINT = 'Try tomorrow';
                     END;
                     $$;
                 """).execute()
             }
             logger.error(exception) { "" }
             assertEquals("P0001", exception.sqlState)
-            assertEquals("Test exception", exception.dbMessage)
+            assertEquals("The assembly is dissolved", exception.dbMessage)
             assertEquals("The augury was unfavourable", exception.dbDetail)
             assertEquals("Try tomorrow", exception.hint)
             assertNotNull(exception.where)
@@ -44,14 +44,14 @@ class RoutineRaiseExceptionIntegrationTest : AbstractIntegrationTest() {
                 session.createNativeQuery("""
                     DO $$
                     BEGIN
-                        RAISE EXCEPTION 'Generic failure' USING ERRCODE = 'plpgsql_error';
+                        RAISE EXCEPTION 'The sacred chickens would not eat' USING ERRCODE = 'plpgsql_error';
                     END;
                     $$;
                 """).execute()
             }
             logger.error(exception) { "" }
             assertEquals("P0000", exception.sqlState)
-            assertEquals("Generic failure", exception.dbMessage)
+            assertEquals("The sacred chickens would not eat", exception.dbMessage)
         }
     }
 
@@ -64,7 +64,7 @@ class RoutineRaiseExceptionIntegrationTest : AbstractIntegrationTest() {
                 session.createNativeQuery("""
                     DO $$
                     BEGIN
-                        RAISE EXCEPTION 'Already enrolled' USING ERRCODE = '23505';
+                        RAISE EXCEPTION 'Already on the census roll' USING ERRCODE = '23505';
                     END;
                     $$;
                 """).execute()

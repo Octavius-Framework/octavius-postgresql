@@ -7,19 +7,20 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 import kotlin.reflect.KClass
 
-data class Circle(val info: String)
+/** A round shield, which is all a `circle` has to be to this test. */
+data class Clipeus(val info: String)
 
-class CircleCodec : TypeCodec<Circle> {
+class ClipeusCodec : TypeCodec<Clipeus> {
     override val pgTypeName: String = "circle"
     override val oid: Int? = null // Explicitly null
-    override val kotlinClass: KClass<Circle> = Circle::class
+    override val kotlinClass: KClass<Clipeus> = Clipeus::class
 
-    override val fromBinary: (ByteArray, Int, Int) -> Circle = { _, _, _ ->
-        Circle("dummy_circle")
+    override val fromBinary: (ByteArray, Int, Int) -> Clipeus = { _, _, _ ->
+        Clipeus("umbo")
     }
     
-    override val toBinary: (Circle, PgByteWriter) -> Unit = { _, _ ->
-        // dummy impl
+    override val toBinary: (Clipeus, PgByteWriter) -> Unit = { _, _ ->
+        // never written: the test only reads one
     }
 }
 
@@ -29,22 +30,22 @@ class CodecRegistrationTest : AbstractIntegrationTest() {
     fun `should register codec without oid by resolving it from database`() {
         val session = openSession()
         
-        val codec = CircleCodec()
+        val codec = ClipeusCodec()
         session.typeManager.registerCodec(codec)
         
         val oid = session.typeManager.resolveOid("circle")
         
-        val retrievedCodec = session.typeManager.codecs.getCodecByOid<Circle>(oid)
+        val retrievedCodec = session.typeManager.codecs.getCodecByOid<Clipeus>(oid)
         
         assertNotNull(retrievedCodec, "Codec should be registered and retrievable by resolved OID")
-        assertEquals(Circle::class, retrievedCodec?.kotlinClass)
+        assertEquals(Clipeus::class, retrievedCodec?.kotlinClass)
 
         // Verify that the codec is used during query execution
-        val row = session.createNativeQuery("SELECT '<(1,2),3>'::circle as circle_test").fetchRowStrict()
-        val result = row.get<Circle>("circle_test")
+        val row = session.createNativeQuery("SELECT '<(1,2),3>'::circle as shield").fetchRowStrict()
+        val result = row.get<Clipeus>("shield")
         
         assertNotNull(result)
-        assertEquals("dummy_circle", result.info)
+        assertEquals("umbo", result.info)
         
         session.close()
     }

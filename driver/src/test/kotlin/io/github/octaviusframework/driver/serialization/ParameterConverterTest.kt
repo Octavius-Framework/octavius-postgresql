@@ -13,19 +13,19 @@ class ParameterConverterTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
-    data class SimpleAddress(val city: String, val zip: String)
-    data class ComplexUser(val id: Int, val name: String, val address: SimpleAddress, val tags: List<String>)
+    data class Domus(val city: String, val street: String)
+    data class Citizen(val id: Int, val name: String, val domus: Domus, val titles: List<String>)
 
     override val schema = """
-        CREATE TYPE simple_address AS (city text, zip text);
-        CREATE TYPE complex_user AS (id int, name text, address simple_address, tags text[]);
+        CREATE TYPE domus AS (city text, street text);
+        CREATE TYPE citizen AS (id int, name text, domus domus, titles text[]);
     """.trimIndent()
 
     @BeforeAll
     fun setup() {
         session = openSession()
-        session.typeManager.registerAutoComposite<SimpleAddress>("simple_address")
-        session.typeManager.registerAutoComposite<ComplexUser>("complex_user")
+        session.typeManager.registerAutoComposite<Domus>("domus")
+        session.typeManager.registerAutoComposite<Citizen>("citizen")
     }
 
     @AfterAll
@@ -35,31 +35,31 @@ class ParameterConverterTest : AbstractIntegrationTest() {
 
     @Test
     fun testDataClassToCompositeConversion() {
-        val address = SimpleAddress("Warsaw", "00-001")
-        val user = ComplexUser(42, "Kacper", address, listOf("developer", "kotlin"))
+        val domus = Domus("Roma", "Via Sacra")
+        val cicero = Citizen(42, "Marcus Tullius Cicero", domus, listOf("consul", "pater patriae"))
 
-        val returnedUser = session.createNativeQuery("SELECT ($1).*")
-            .fetchObjectStrict<ComplexUser>(user)
-        assertEquals(42, returnedUser.id)
-        assertEquals("Kacper", returnedUser.name)
-        assertEquals("Warsaw", returnedUser.address.city)
-        assertEquals("00-001", returnedUser.address.zip)
-        assertEquals(2, returnedUser.tags.size)
-        assertEquals("developer", returnedUser.tags[0])
-        assertEquals("kotlin", returnedUser.tags[1])
+        val returned = session.createNativeQuery("SELECT ($1).*")
+            .fetchObjectStrict<Citizen>(cicero)
+        assertEquals(42, returned.id)
+        assertEquals("Marcus Tullius Cicero", returned.name)
+        assertEquals("Roma", returned.domus.city)
+        assertEquals("Via Sacra", returned.domus.street)
+        assertEquals(2, returned.titles.size)
+        assertEquals("consul", returned.titles[0])
+        assertEquals("pater patriae", returned.titles[1])
     }
 
     @Test
     fun testSimpleListConversion() {
-        val list = listOf("one", "two", "three")
+        val list = listOf("Romulus", "Numa", "Tullus")
         val returnedArray = session.createNativeQuery("SELECT $1 as res")
             .fetchRows(list)
             .first()
             .get<PgArray>("res")
         assertNotNull(returnedArray)
-        assertEquals("one", returnedArray.get<String>(0))
-        assertEquals("two", returnedArray.get<String>(1))
-        assertEquals("three", returnedArray.get<String>(2))
+        assertEquals("Romulus", returnedArray.get<String>(0))
+        assertEquals("Numa", returnedArray.get<String>(1))
+        assertEquals("Tullus", returnedArray.get<String>(2))
     }
 }
 

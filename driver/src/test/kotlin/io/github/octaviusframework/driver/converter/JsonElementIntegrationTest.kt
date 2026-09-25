@@ -22,15 +22,15 @@ import kotlin.reflect.typeOf
 
 class JsonElementIntegrationTest : AbstractIntegrationTest() {
 
-    data class MetadataHolder(
+    data class Dispatch(
         val id: Int,
-        val metadata: JsonObject
+        val report: JsonObject
     )
 
-    class MetadataHolderResultConverter : ResultConverter<PgComposite, MetadataHolder> {
+    class DispatchResultConverter : ResultConverter<PgComposite, Dispatch> {
         override val supportedSourceClass = PgComposite::class
         override fun canConvert(sourceClass: kotlin.reflect.KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
-            return expectedType.classifier == MetadataHolder::class
+            return expectedType.classifier == Dispatch::class
         }
 
         private val jsonObjectType = typeOf<JsonObject>()
@@ -40,40 +40,40 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
             expectedType: KType,
             sourceType: PgType,
             context: DeserializationContext
-        ): MetadataHolder {
-            return MetadataHolder(
+        ): Dispatch {
+            return Dispatch(
                 id = source.get("id"),
-                metadata = context.convert(
-                    source.get("metadata"),
+                report = context.convert(
+                    source.get("report"),
                     jsonObjectType,
-                    source.getAttributeOid("metadata")
+                    source.getAttributeOid("report")
                 )
             )
         }
     }
 
-    class MetadataHolderParameterConverter : ParameterConverter<MetadataHolder> {
-        override val supportedClass = MetadataHolder::class
+    class DispatchParameterConverter : ParameterConverter<Dispatch> {
+        override val supportedClass = Dispatch::class
 
         override fun convert(
-            source: MetadataHolder,
+            source: Dispatch,
             expectedOid: Int,
             context: SerializationContext
         ): Any {
             val composite = if (expectedOid.isKnownOid) {
                 context.types.containers.createComposite(expectedOid)
             } else {
-                context.types.containers.createComposite("metadata_holder")
+                context.types.containers.createComposite("dispatch")
             }
             composite["id"] = source.id
-            composite["metadata"] = context.convert(source.metadata, composite.getAttributeOid("metadata"))
+            composite["report"] = context.convert(source.report, composite.getAttributeOid("report"))
             return composite
         }
     }
 
     override val schema = """
-        CREATE TABLE test_json_elements (id int PRIMARY KEY, data jsonb);
-        CREATE TYPE metadata_holder AS (id int, metadata jsonb);
+        CREATE TABLE dispatches (id int PRIMARY KEY, data jsonb);
+        CREATE TYPE dispatch AS (id int, report jsonb);
     """.trimIndent()
 
     @Test
@@ -81,19 +81,19 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
         val conn = openSession()
         try {
             val inputJson = buildJsonObject {
-                put("key", JsonPrimitive("value123"))
-                put("number", JsonPrimitive(42))
+                put("legio", JsonPrimitive("X Equestris"))
+                put("cohortes", JsonPrimitive(10))
             }
 
-            conn.createNamedQuery("INSERT INTO test_json_elements (id, data) VALUES (@id, @data)")
+            conn.createNamedQuery("INSERT INTO dispatches (id, data) VALUES (@id, @data)")
                 .update(mapOf("id" to 1, "data" to inputJson))
 
-            val row = conn.createNamedQuery("SELECT data FROM test_json_elements WHERE id = @id")
+            val row = conn.createNamedQuery("SELECT data FROM dispatches WHERE id = @id")
                 .fetchRowStrict(mapOf("id" to 1))
 
             val outputJson = row.get<JsonObject>("data")
-            assertEquals("value123", outputJson["key"]?.let { (it as JsonPrimitive).content })
-            assertEquals("42", outputJson["number"]?.let { (it as JsonPrimitive).content })
+            assertEquals("X Equestris", outputJson["legio"]?.let { (it as JsonPrimitive).content })
+            assertEquals("10", outputJson["cohortes"]?.let { (it as JsonPrimitive).content })
         } finally {
             conn.close()
         }
@@ -106,21 +106,21 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
             conn.reloadTypes()
 
             // Register hand-written converters for the composite
-            conn.typeManager.registerResultConverter(MetadataHolderResultConverter())
-            conn.typeManager.registerParameterConverter(MetadataHolderParameterConverter())
+            conn.typeManager.registerResultConverter(DispatchResultConverter())
+            conn.typeManager.registerParameterConverter(DispatchParameterConverter())
 
             val inputJson = buildJsonObject {
-                put("status", JsonPrimitive("active"))
+                put("outcome", JsonPrimitive("victoria"))
             }
-            val holder = MetadataHolder(100, inputJson)
+            val holder = Dispatch(100, inputJson)
 
             val row = conn.createNamedQuery("SELECT @holder as res")
                 .fetchRowStrict("holder" to holder)
 
-            val outputHolder = row.get<MetadataHolder>("res")
+            val outputHolder = row.get<Dispatch>("res")
             assertEquals(100, outputHolder.id)
-            val outputJson = outputHolder.metadata
-            assertEquals("active", (outputJson["status"] as JsonPrimitive).content)
+            val outputJson = outputHolder.report
+            assertEquals("victoria", (outputJson["outcome"] as JsonPrimitive).content)
         } finally {
             conn.close()
         }
@@ -131,8 +131,8 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
         val conn = openSession()
         try {
             val list = listOf(
-                buildJsonObject { put("key1", JsonPrimitive("val1")) },
-                buildJsonObject { put("key2", JsonPrimitive("val2")) }
+                buildJsonObject { put("castra", JsonPrimitive("Vetera")) },
+                buildJsonObject { put("castra", JsonPrimitive("Mogontiacum")) }
             )
 
             // Pass the list with no explicit type; it should be inferred as jsonb[]
@@ -141,8 +141,8 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
 
             val outputList = row.get<List<JsonObject>>("res")
             assertEquals(2, outputList.size)
-            assertEquals("val1", outputList[0]["key1"]?.let { (it as JsonPrimitive).content })
-            assertEquals("val2", outputList[1]["key2"]?.let { (it as JsonPrimitive).content })
+            assertEquals("Vetera", outputList[0]["castra"]?.let { (it as JsonPrimitive).content })
+            assertEquals("Mogontiacum", outputList[1]["castra"]?.let { (it as JsonPrimitive).content })
         } finally {
             conn.close()
         }
@@ -153,7 +153,7 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
         val conn = openSession()
         try {
             val inputJson = buildJsonObject {
-                put("key", JsonPrimitive("explicit"))
+                put("nuntius", JsonPrimitive("veni vidi vici"))
             }
 
             val row = conn.createNamedQuery("SELECT pg_typeof(@data)::text as type_name, @data as res")
@@ -163,7 +163,7 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
             assertEquals("json", typeName)
 
             val outputJson = row.get<JsonElement>("res")
-            assertEquals("explicit", (outputJson as JsonObject)["key"]?.let { (it as JsonPrimitive).content })
+            assertEquals("veni vidi vici", (outputJson as JsonObject)["nuntius"]?.let { (it as JsonPrimitive).content })
         } finally {
             conn.close()
         }

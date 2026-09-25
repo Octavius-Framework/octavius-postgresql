@@ -12,11 +12,13 @@ class DataExceptionIntegrationTest : AbstractIntegrationTest() {
         private val logger = KotlinLogging.logger {}
     }
 
+    override val schema = "CREATE TABLE legion_numerals (numeral VARCHAR(3))"
+
     @Test
     fun `should throw DIVISION_BY_ZERO`() {
         openSession().use { session ->
             val exception = assertFailsWith<DataException> {
-                session.createNativeQuery("SELECT 1 / 0").fetchRowStrict()
+                session.createNativeQuery("SELECT 3000 / 0 AS spoils_per_legion").fetchRowStrict()
             }
             logger.error(exception) { "" }
             assertEquals(DataExceptionReason.DIVISION_BY_ZERO, exception.reason)
@@ -27,7 +29,7 @@ class DataExceptionIntegrationTest : AbstractIntegrationTest() {
     fun `should throw INVALID_FORMAT`() {
         openSession().use { session ->
             val exception = assertFailsWith<DataException> {
-                session.createNativeQuery("SELECT 'not-a-number'::int").fetchRowStrict()
+                session.createNativeQuery("SELECT 'XLII'::int").fetchRowStrict()
             }
             logger.error(exception) { "" }
             assertEquals(DataExceptionReason.INVALID_FORMAT, exception.reason)
@@ -48,16 +50,11 @@ class DataExceptionIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `should throw DATA_TRUNCATION`() {
         openSession().use { session ->
-            session.createNativeQuery("CREATE TABLE IF NOT EXISTS test_truncation (val VARCHAR(3))").execute()
-            try {
-                val exception = assertFailsWith<DataException> {
-                    session.createNativeQuery("INSERT INTO test_truncation VALUES ('too_long')").execute()
-                }
-                logger.error(exception) { "" }
-                assertEquals(DataExceptionReason.DATA_TRUNCATION, exception.reason)
-            } finally {
-                session.createNativeQuery("DROP TABLE test_truncation").execute()
+            val exception = assertFailsWith<DataException> {
+                session.createNativeQuery("INSERT INTO legion_numerals VALUES ('XVIII')").execute()
             }
+            logger.error(exception) { "" }
+            assertEquals(DataExceptionReason.DATA_TRUNCATION, exception.reason)
         }
     }
 
@@ -76,7 +73,7 @@ class DataExceptionIntegrationTest : AbstractIntegrationTest() {
     fun `should throw JSON_ERROR`() {
         openSession().use { session ->
             val exception = assertFailsWith<DataException> {
-                session.createNativeQuery("SELECT '{\"invalid_json\"'::json").fetchRowStrict()
+                session.createNativeQuery("SELECT '{\"legio\": \"X Equestris\"'::json").fetchRowStrict()
             }
             logger.error(exception) { "" }
             assertEquals(DataExceptionReason.INVALID_FORMAT, exception.reason)
@@ -87,7 +84,7 @@ class DataExceptionIntegrationTest : AbstractIntegrationTest() {
     fun `should throw REGEX_ERROR`() {
         openSession().use { session ->
             val exception = assertFailsWith<DataException> {
-                session.createNativeQuery("SELECT 'abc' ~ '*abc'").fetchRowStrict()
+                session.createNativeQuery("SELECT 'Caesar' ~ '*Caesar'").fetchRowStrict()
             }
             logger.error(exception) { "" }
             assertEquals(DataExceptionReason.REGEX_ERROR, exception.reason)

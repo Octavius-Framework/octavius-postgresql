@@ -107,7 +107,7 @@ class CodecIntegrationTest : AbstractIntegrationTest() {
     fun testXmlType() {
         val session = openSession()
 
-        val xmlVal = "<book><title>Effective Kotlin</title></book>"
+        val xmlVal = "<liber><titulus>Commentarii de Bello Gallico</titulus></liber>"
         val resXml = session.createNativeQuery("SELECT $1 as res").fetchField<String>(xmlVal.withPgType(PgStandardType.XML))
         assertEquals(xmlVal, resXml)
 
@@ -151,7 +151,7 @@ class CodecIntegrationTest : AbstractIntegrationTest() {
         assertEquals(doubleVal, session.createNativeQuery("SELECT $1 as res").fetchField<Double>(doubleVal))
 
         // JSON / JSONB
-        val jsonVal = """{"key": "value", "list": [1, 2, 3]}"""
+        val jsonVal = """{"legio": "X Equestris", "cohortes": [1, 2, 3]}"""
         val resJsonb = session.createNativeQuery("SELECT $1::jsonb as res").fetchField<String>(jsonVal.withPgType("jsonb"))
         assertEquals(jsonVal.replace(" ", ""), resJsonb.replace(" ", ""))
 

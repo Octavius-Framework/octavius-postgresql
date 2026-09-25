@@ -12,35 +12,35 @@ class RoutineQueryIntegrationTest : AbstractIntegrationTest() {
     private lateinit var session: OctaviusSession
 
     override val schema = """
-        -- Create a test function
-        CREATE FUNCTION add_numbers(a INT, b INT) RETURNS INT AS $$
+        -- A function: the men a legion musters
+        CREATE FUNCTION muster(cohorts INT, auxilia INT) RETURNS INT AS $$
         BEGIN
-            RETURN a + b;
+            RETURN cohorts + auxilia;
         END;
         $$ LANGUAGE plpgsql;
 
-        -- Create a test procedure
-        CREATE PROCEDURE update_test_val(INOUT val INT, p_add INT) AS $$
+        -- A procedure with an INOUT parameter: the treasury after a levy
+        CREATE PROCEDURE levy(INOUT treasury INT, amount INT) AS $$
         BEGIN
-            val := val + p_add;
+            treasury := treasury + amount;
         END;
         $$ LANGUAGE plpgsql;
 
-        -- Create a table-returning function
-        CREATE FUNCTION get_series(n INT) RETURNS TABLE(num INT) AS $$
+        -- A table-returning function: a legion's cohorts, numbered
+        CREATE FUNCTION number_cohorts(n INT) RETURNS TABLE(cohort INT) AS $$
         BEGIN
             RETURN QUERY SELECT generate_series(1, n);
         END;
         $$ LANGUAGE plpgsql;
 
-        -- Create a void-returning function
-        CREATE FUNCTION returns_void() RETURNS VOID AS $$
+        -- A void-returning function
+        CREATE FUNCTION sacrifice() RETURNS VOID AS $$
         BEGIN
         END;
         $$ LANGUAGE plpgsql;
 
-        -- Create a procedure without OUT parameters
-        CREATE PROCEDURE do_nothing() AS $$
+        -- A procedure without OUT parameters
+        CREATE PROCEDURE adjourn_senate() AS $$
         BEGIN
         END;
         $$ LANGUAGE plpgsql;
@@ -58,40 +58,40 @@ class RoutineQueryIntegrationTest : AbstractIntegrationTest() {
 
     @Test
     fun testCallFunction() {
-        val result = session.createNativeQuery("SELECT add_numbers($1, $2)").fetchFieldStrict<Int>(10, 20)
+        val result = session.createNativeQuery("SELECT muster($1, $2)").fetchFieldStrict<Int>(10, 20)
         assertEquals(30, result)
     }
 
     @Test
     fun testCallFunctionWithNamedParameters() {
-        val result = session.createNamedQuery("SELECT add_numbers(@a, @b)")
-            .fetchFieldStrict<Int>("a" to 5, "b" to 15)
+        val result = session.createNamedQuery("SELECT muster(@cohorts, @auxilia)")
+            .fetchFieldStrict<Int>("cohorts" to 5, "auxilia" to 15)
         assertEquals(20, result)
     }
     
     @Test
     fun testCallTableFunction() {
-        val rows = session.createNativeQuery("SELECT * FROM get_series($1)").fetchFields<Int>(5)
+        val rows = session.createNativeQuery("SELECT * FROM number_cohorts($1)").fetchFields<Int>(5)
         assertEquals(listOf(1, 2, 3, 4, 5), rows)
     }
 
     @Test
     fun testCallProcedure() {
         // Procedure with INOUT requires CALL and returns a row in PostgreSQL
-        val resultRow = session.createNativeQuery("CALL update_test_val($1, $2)").fetchRowStrict(100, 50)
+        val resultRow = session.createNativeQuery("CALL levy($1, $2)").fetchRowStrict(100, 50)
         assertEquals(150, resultRow.get<Int>(0))
     }
 
     @Test
     fun testCallVoidFunction() {
-        val result = session.createNativeQuery("SELECT returns_void()").fetchField<Unit>()
+        val result = session.createNativeQuery("SELECT sacrifice()").fetchField<Unit>()
         assertEquals(Unit, result)
     }
 
     @Test
     fun testCallProcedureWithoutOut() {
-        session.createNativeQuery("CALL do_nothing()").execute()
-        val updateCount = session.createNativeQuery("CALL do_nothing()").update()
+        session.createNativeQuery("CALL adjourn_senate()").execute()
+        val updateCount = session.createNativeQuery("CALL adjourn_senate()").update()
         assertEquals(0L, updateCount)
     }
 }

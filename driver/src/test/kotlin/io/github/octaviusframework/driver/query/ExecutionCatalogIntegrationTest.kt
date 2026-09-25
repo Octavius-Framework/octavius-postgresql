@@ -54,50 +54,50 @@ class ExecutionCatalogIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun `a converter registered after the query was built reaches its first terminal`() {
         openSession().use { session ->
-            val query = session.createNativeQuery("SELECT 'x'::text")
+            val query = session.createNativeQuery("SELECT 'aquila'::text")
             session.typeManager.registerResultConverter(LateMarkerConverter())
 
-            assertEquals(LateMarker("late:x"), query.fetchFieldStrict<LateMarker>())
+            assertEquals(LateMarker("late:aquila"), query.fetchFieldStrict<LateMarker>())
         }
     }
 
     @Test
     fun `rows keep the catalog their own terminal pinned`() {
         openSession().use { session ->
-            val query = session.createNativeQuery("SELECT 'y'::text")
+            val query = session.createNativeQuery("SELECT 'vexillum'::text")
             val rows = query.fetchRows()
 
             // Registered after the rows came back, so it has no say over them.
             query.registerResultConverter(MarkerConverter("query"))
 
-            assertEquals(Marker("session:y"), rows.single().get<Marker>(0))
-            assertEquals(Marker("query:y"), query.fetchFieldStrict<Marker>())
+            assertEquals(Marker("session:vexillum"), rows.single().get<Marker>(0))
+            assertEquals(Marker("query:vexillum"), query.fetchFieldStrict<Marker>())
         }
     }
 
     @Test
     fun `rows keep the query's own converters as their terminal found them`() {
         openSession().use { session ->
-            val query = session.createNativeQuery("SELECT 'w'::text")
+            val query = session.createNativeQuery("SELECT 'signum'::text")
                 .registerResultConverter(MarkerConverter("first"))
             val rows = query.fetchRows()
 
             // Registered after the rows came back, beside one that was there before them.
             query.registerResultConverter(MarkerConverter("second"))
 
-            assertEquals(Marker("first:w"), rows.single().get<Marker>(0))
-            assertEquals(Marker("second:w"), query.fetchFieldStrict<Marker>())
+            assertEquals(Marker("first:signum"), rows.single().get<Marker>(0))
+            assertEquals(Marker("second:signum"), query.fetchFieldStrict<Marker>())
         }
     }
 
     @Test
     fun `a query's own converter wins over the session's, for that query only`() {
         openSession().use { session ->
-            val query = session.createNativeQuery("SELECT 'z'::text")
+            val query = session.createNativeQuery("SELECT 'fasces'::text")
                 .registerResultConverter(MarkerConverter("query"))
 
-            assertEquals(Marker("query:z"), query.fetchFieldStrict<Marker>())
-            assertEquals(Marker("session:z"), session.createNativeQuery("SELECT 'z'::text").fetchFieldStrict<Marker>())
+            assertEquals(Marker("query:fasces"), query.fetchFieldStrict<Marker>())
+            assertEquals(Marker("session:fasces"), session.createNativeQuery("SELECT 'fasces'::text").fetchFieldStrict<Marker>())
         }
     }
 }

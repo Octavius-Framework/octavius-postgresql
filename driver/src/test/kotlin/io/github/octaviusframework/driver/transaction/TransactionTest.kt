@@ -25,8 +25,8 @@ class TransactionTest : AbstractIntegrationTest() {
     fun setup() {
         session = openSession()
 
-        session.createNativeQuery("CREATE TEMP TABLE IF NOT EXISTS test_trx (id INT, value TEXT)").execute()
-        session.createNativeQuery("TRUNCATE TABLE test_trx").execute()
+        session.createNativeQuery("CREATE TEMP TABLE IF NOT EXISTS tributes (id INT, province TEXT)").execute()
+        session.createNativeQuery("TRUNCATE TABLE tributes").execute()
     }
 
     @AfterEach
@@ -37,7 +37,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     private fun countRows(): Long {
-        val rows = session.createNativeQuery("SELECT COUNT(*) FROM test_trx").fetchRows()
+        val rows = session.createNativeQuery("SELECT COUNT(*) FROM tributes").fetchRows()
         return rows[0].get<Long>(0)
     }
 
@@ -46,7 +46,7 @@ class TransactionTest : AbstractIntegrationTest() {
         session.autoCommit = false
         assertFalse(session.autoCommit)
 
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
         assertEquals(1L, countRows())
 
         session.commit() // This should send COMMIT
@@ -59,7 +59,7 @@ class TransactionTest : AbstractIntegrationTest() {
     fun `test rollback`() {
         session.autoCommit = false
 
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
         assertEquals(1L, countRows())
 
         session.rollback()
@@ -72,11 +72,11 @@ class TransactionTest : AbstractIntegrationTest() {
     fun `test savepoints`() {
         session.autoCommit = false
 
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
 
-        val sp1 = session.setSavepoint("sp1")
+        val sp1 = session.setSavepoint("rubicon")
 
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (2, 'B')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (2, 'Hispania')").execute()
 
         assertEquals(2L, countRows())
 
@@ -93,11 +93,11 @@ class TransactionTest : AbstractIntegrationTest() {
     fun `test release savepoint`() {
         session.autoCommit = false
 
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
 
         val sp1 = session.setSavepoint()
 
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (2, 'B')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (2, 'Hispania')").execute()
 
         session.releaseSavepoint(sp1)
 
@@ -115,7 +115,7 @@ class TransactionTest : AbstractIntegrationTest() {
         assertEquals(TransactionState.IN_TRANSACTION, session.transactionState)
 
         try {
-            session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES ('INVALID_INT', 'A')").execute()
+            session.createNativeQuery("INSERT INTO tributes (id, province) VALUES ('XLII', 'Gallia')").execute()
         } catch (e: OctaviusException) {
             // Expected syntax error
         }
@@ -129,9 +129,9 @@ class TransactionTest : AbstractIntegrationTest() {
     @Test
     fun `commit refuses a transaction an earlier error aborted`() {
         session.autoCommit = false
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
         assertThrows<OctaviusException> {
-            session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES ('INVALID_INT', 'B')").execute()
+            session.createNativeQuery("INSERT INTO tributes (id, province) VALUES ('XLII', 'Hispania')").execute()
         }
 
         // Sent, the COMMIT would come back as a ROLLBACK and nothing else, with row 1 gone and nobody told.
@@ -146,9 +146,9 @@ class TransactionTest : AbstractIntegrationTest() {
     @Test
     fun `switching auto-commit back on refuses it on the same terms`() {
         session.autoCommit = false
-        session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
         assertThrows<OctaviusException> {
-            session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES ('INVALID_INT', 'B')").execute()
+            session.createNativeQuery("INSERT INTO tributes (id, province) VALUES ('XLII', 'Hispania')").execute()
         }
 
         val thrown = assertThrows<InvalidOperationException> { session.autoCommit = true }
@@ -164,9 +164,9 @@ class TransactionTest : AbstractIntegrationTest() {
     fun `a required block that swallowed a server error fails at its commit`() {
         val thrown = assertThrows<InvalidOperationException> {
             session.transaction.required {
-                createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+                createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
                 try {
-                    createNativeQuery("INSERT INTO test_trx (id, value) VALUES ('INVALID_INT', 'B')").execute()
+                    createNativeQuery("INSERT INTO tributes (id, province) VALUES ('XLII', 'Hispania')").execute()
                 } catch (e: OctaviusException) {
                     // Caught and carried on from, so the block returns normally over an aborted transaction.
                 }
@@ -181,7 +181,7 @@ class TransactionTest : AbstractIntegrationTest() {
     @Test
     fun `test transaction manager successful block`() {
         session.transaction.required {
-            createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+            createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
         }
 
         // Verify data was committed
@@ -194,11 +194,11 @@ class TransactionTest : AbstractIntegrationTest() {
     fun `test transaction manager failing block rolls back`() {
         try {
             session.transaction.required {
-                createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
-                throw RuntimeException("Simulated error")
+                createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
+                throw RuntimeException("The legion mutinied")
             }
         } catch (e: RuntimeException) {
-            assertEquals("Simulated error", e.message)
+            assertEquals("The legion mutinied", e.message)
         }
 
         // Verify data was rolled back
@@ -210,10 +210,10 @@ class TransactionTest : AbstractIntegrationTest() {
     @Test
     fun `test transaction manager nested successful block`() {
         session.transaction.required {
-            session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+            session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
 
             session.transaction.nested {
-                session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (2, 'B')").execute()
+                session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (2, 'Hispania')").execute()
             }
         }
 
@@ -224,15 +224,15 @@ class TransactionTest : AbstractIntegrationTest() {
     @Test
     fun `test transaction manager nested failing block rolls back to savepoint`() {
         session.transaction.required {
-            session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (1, 'A')").execute()
+            session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
 
             try {
                 session.transaction.nested {
-                    session.createNativeQuery("INSERT INTO test_trx (id, value) VALUES (2, 'B')").execute()
-                    throw RuntimeException("Simulated error in savepoint")
+                    session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (2, 'Hispania')").execute()
+                    throw RuntimeException("The cohort broke ranks")
                 }
             } catch (e: RuntimeException) {
-                assertEquals("Simulated error in savepoint", e.message)
+                assertEquals("The cohort broke ranks", e.message)
             }
             
             // Should still be 1 row within transaction after savepoint rollback

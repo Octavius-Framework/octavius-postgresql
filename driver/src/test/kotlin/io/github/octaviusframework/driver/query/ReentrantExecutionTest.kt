@@ -26,13 +26,13 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
-    override val schema = "CREATE TABLE reentrant_test (id INT, name TEXT)"
+    override val schema = "CREATE TABLE sentries (id INT, name TEXT)"
 
     @BeforeEach
     fun setup() {
         session = openSession()
-        session.createNativeQuery("TRUNCATE reentrant_test").execute()
-        session.createNativeQuery("INSERT INTO reentrant_test SELECT g, 'n' || g FROM generate_series(1, 6) g").update()
+        session.createNativeQuery("TRUNCATE sentries").execute()
+        session.createNativeQuery("INSERT INTO sentries SELECT g, 'vigil ' || g FROM generate_series(1, 6) g").update()
     }
 
     @AfterEach
@@ -43,7 +43,7 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
     @Test
     fun `query from inside a forEach block is refused`() {
         val error = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT id FROM reentrant_test ORDER BY id").forEachRow(fetchSize = 2) {
+            session.createNativeQuery("SELECT id FROM sentries ORDER BY id").forEachRow(fetchSize = 2) {
                 session.createNativeQuery("SELECT 99").fetchFieldStrict<Int>()
             }
         }
@@ -58,8 +58,8 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
     @Test
     fun `execute from inside a forEach block is refused and leaves the session usable`() {
         val error = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT id FROM reentrant_test ORDER BY id").forEachRow(fetchSize = 2) {
-                session.createNativeQuery("SET application_name = 'nope'").execute()
+            session.createNativeQuery("SELECT id FROM sentries ORDER BY id").forEachRow(fetchSize = 2) {
+                session.createNativeQuery("SET application_name = 'desertor'").execute()
             }
         }
         assertEquals(InvalidOperationExceptionReason.CONNECTION_BUSY, error.reason)
@@ -70,8 +70,8 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
     @Test
     fun `starting a COPY from inside a forEach block is refused`() {
         val error = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT id FROM reentrant_test ORDER BY id").forEachRow(fetchSize = 2) {
-                session.copy.copyOut("COPY reentrant_test TO STDOUT")
+            session.createNativeQuery("SELECT id FROM sentries ORDER BY id").forEachRow(fetchSize = 2) {
+                session.copy.copyOut("COPY sentries TO STDOUT")
             }
         }
         assertEquals(InvalidOperationExceptionReason.CONNECTION_BUSY, error.reason)
@@ -83,14 +83,14 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
     fun `query from inside a converter is refused, streaming or not`() {
         // Non-streaming: the converter still runs while the result is being read
         val materialized = assertFailsWith<MappingException> {
-            session.createNativeQuery("SELECT name FROM reentrant_test ORDER BY id")
+            session.createNativeQuery("SELECT name FROM sentries ORDER BY id")
                 .registerResultConverter(SelfQueryingConverter(session))
                 .fetchFields<String>()
         }
         assertTrue(materialized.cause is InvalidOperationException, "expected the guard underneath, got ${materialized.cause}")
 
         val streamed = assertFailsWith<MappingException> {
-            session.createNativeQuery("SELECT name FROM reentrant_test ORDER BY id")
+            session.createNativeQuery("SELECT name FROM sentries ORDER BY id")
                 .registerResultConverter(SelfQueryingConverter(session))
                 .forEachField<String>(fetchSize = 2) { }
         }
@@ -102,7 +102,7 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
     @Test
     fun `converting after the exchange has finished is allowed`() {
         // fetchRows defers conversion to the caller, so a querying converter is fine here
-        val rows = session.createNativeQuery("SELECT name FROM reentrant_test ORDER BY id")
+        val rows = session.createNativeQuery("SELECT name FROM sentries ORDER BY id")
             .registerResultConverter(SelfQueryingConverter(session))
             .fetchRows()
 
@@ -112,13 +112,13 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
     @Test
     fun `sequential queries are unaffected`() {
         repeat(3) {
-            assertEquals(6L, session.createNativeQuery("SELECT count(*) FROM reentrant_test").fetchFieldStrict<Long>())
+            assertEquals(6L, session.createNativeQuery("SELECT count(*) FROM sentries").fetchFieldStrict<Long>())
         }
     }
 
     @Test
     fun `a failed statement releases the connection`() {
-        runCatching { session.createNativeQuery("SELECT * FROM no_such_table").fetchRows() }
+        runCatching { session.createNativeQuery("SELECT * FROM atlantis").fetchRows() }
         assertEquals(1, session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>())
     }
 

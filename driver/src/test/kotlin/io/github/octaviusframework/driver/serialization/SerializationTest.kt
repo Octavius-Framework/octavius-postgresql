@@ -22,7 +22,7 @@ import kotlin.test.assertNotNull
 
 class SerializationTest : AbstractIntegrationTest() {
 
-    override val schema = "CREATE TYPE ser_test_composite AS (id int, name text)"
+    override val schema = "CREATE TYPE legion_standard AS (id int, name text)"
 
     /**
      * Encodes a container the way the driver does: through the codec the catalog binds to its OID, which is
@@ -41,9 +41,9 @@ class SerializationTest : AbstractIntegrationTest() {
         val catalogHolder = GlobalCatalogStore.holderFor(DatabaseKey.from(OctaviusProperties.parse(TestDatabase.URL)))
 
         // 1. Build the composite from scratch through the factory
-        val composite = session.typeManager.containers.createComposite("ser_test_composite")
+        val composite = session.typeManager.containers.createComposite("legion_standard")
         composite["id"] = 777
-        composite["name"] = "factory_test"
+        composite["name"] = "Legio X Equestris"
 
         val writer1 = PgByteWriter()
         catalogHolder.encode(composite, writer1)
@@ -51,7 +51,7 @@ class SerializationTest : AbstractIntegrationTest() {
 
         // Compare against the database
         val expectedCompositeRow =
-            session.createNativeQuery("SELECT ROW(777, 'factory_test')::ser_test_composite as my_comp").fetchRowStrict()
+            session.createNativeQuery("SELECT ROW(777, 'Legio X Equestris')::legion_standard as standard").fetchRowStrict()
         val expectedComposite = expectedCompositeRow.get<PgComposite>(0)
         val writerComp = PgByteWriter()
         catalogHolder.encode(expectedComposite, writerComp)
@@ -93,9 +93,9 @@ class SerializationTest : AbstractIntegrationTest() {
 
         val array = listOf(10, 20, 30)
 
-        val rows = session.createNativeQuery("SELECT $1::int[] as test_col").fetchRows(array)
+        val rows = session.createNativeQuery("SELECT $1::int[] as cohorts").fetchRows(array)
 
-        val returnedArray = rows.first().get<PgArray>("test_col")
+        val returnedArray = rows.first().get<PgArray>("cohorts")
         assertNotNull(returnedArray)
         assertEquals(10, returnedArray.get<Int>(0))
         assertEquals(20, returnedArray.get<Int>(1))
@@ -125,7 +125,7 @@ class SerializationTest : AbstractIntegrationTest() {
         val serializedArray = writer.toByteArray()
 
         val rows = session.createNativeQuery(
-            "SELECT ARRAY[[1, 2, 3], [4, 5, 6]]::int[] as test_col"
+            "SELECT ARRAY[[1, 2, 3], [4, 5, 6]]::int[] as cohorts"
         ).fetchRows()
 
         val expectedArray = rows.first().get<PgArray>(0)
@@ -150,7 +150,7 @@ class SerializationTest : AbstractIntegrationTest() {
         assertEquals(intVal, rowsInt.first().get<Int>("res"))
 
         // 2. String Round Trip
-        val strVal = "Zażółć gęślą jaźń"
+        val strVal = "Gallia est omnis dīvīsa in partēs trēs"
         val rowsStr = session.createNativeQuery("SELECT $1 as res").fetchRows(strVal)
         assertEquals(strVal, rowsStr.first().get<String>("res"))
 
@@ -180,8 +180,8 @@ class SerializationTest : AbstractIntegrationTest() {
 
         // 6. Record Map Serialization
         val recordMap = mapOf(
-            "str_key" to "hello",
-            "int_key" to 12345
+            "cognomen" to "Caesar",
+            "legiones" to 10
         )
 
         val exception = assertThrows<TypeException> {
@@ -197,7 +197,7 @@ class SerializationTest : AbstractIntegrationTest() {
     fun testUnknownTypeSerialization() {
         val session = openSession()
 
-        val stringVal = "some literal value"
+        val stringVal = "alea iacta est"
         val res = session.createNativeQuery("SELECT '$stringVal' as res").fetchField<String>()
 
         assertEquals(stringVal, res)

@@ -25,7 +25,7 @@ class PgIntervalIntegrationTest : AbstractIntegrationTest() {
             months = 14 // 1 year and 2 months
         )
 
-        val result = session.createNativeQuery("SELECT $1 as interval")
+        val result = session.createNativeQuery("SELECT $1 as term_of_office")
             .fetchRowStrict(finiteInterval)
             
         assertEquals(finiteInterval, result.get(0))
@@ -36,7 +36,7 @@ class PgIntervalIntegrationTest : AbstractIntegrationTest() {
     fun `test PgInterval infinity mappings via DB`() {
         val session = openSession()
 
-        val result = session.createNativeQuery("SELECT $1 as f, $2 as p")
+        val result = session.createNativeQuery("SELECT $1 as sine_fine, $2 as ante_urbem")
             .fetchRowStrict(PgInterval.Infinity, PgInterval.MinusInfinity)
 
         assertEquals(PgInterval.Infinity, result.get(0))
@@ -64,7 +64,7 @@ class PgIntervalIntegrationTest : AbstractIntegrationTest() {
     fun `test infinity from Postgres string`() {
         val session = openSession()
 
-        val result = session.createNativeQuery("SELECT 'infinity'::interval as f, '-infinity'::interval as p")
+        val result = session.createNativeQuery("SELECT 'infinity'::interval as sine_fine, '-infinity'::interval as ante_urbem")
             .fetchRowStrict()
 
         assertEquals(PgInterval.Infinity, result.get(0))
@@ -87,7 +87,7 @@ class PgIntervalIntegrationTest : AbstractIntegrationTest() {
         )
         val interval = period.toPgInterval()
 
-        val result = session.createNativeQuery("SELECT $1 as interval")
+        val result = session.createNativeQuery("SELECT $1 as term_of_office")
             .fetchRowStrict(interval)
             
         assertEquals(interval, result.get(0))
@@ -102,7 +102,7 @@ class PgIntervalIntegrationTest : AbstractIntegrationTest() {
         val duration = Duration.parseIsoString("PT45H30M15.123S")
         val interval = duration.toPgIntervalExact()
 
-        val result = session.createNativeQuery("SELECT $1 as interval")
+        val result = session.createNativeQuery("SELECT $1 as term_of_office")
             .fetchRowStrict(interval)
             
         assertEquals(interval, result.get(0))
@@ -118,7 +118,7 @@ class PgIntervalIntegrationTest : AbstractIntegrationTest() {
         val duration = Duration.parseIsoString("PT840H")
         val interval = duration.toPgIntervalApproximate()
 
-        val result = session.createNativeQuery("SELECT $1 as interval")
+        val result = session.createNativeQuery("SELECT $1 as term_of_office")
             .fetchRowStrict(interval)
             
         assertEquals(interval, result.get(0))
@@ -142,7 +142,7 @@ class PgIntervalIntegrationTest : AbstractIntegrationTest() {
         val negativeDuration = Duration.parseIsoString("-PT15H30M")
         val intervalDuration = negativeDuration.toPgIntervalExact()
 
-        val result = session.createNativeQuery("SELECT $1 as p1, $2 as d2")
+        val result = session.createNativeQuery("SELECT $1 as exile, $2 as recall")
             .fetchRowStrict(intervalPeriod, intervalDuration)
             
         assertEquals(intervalPeriod, result.get(0))

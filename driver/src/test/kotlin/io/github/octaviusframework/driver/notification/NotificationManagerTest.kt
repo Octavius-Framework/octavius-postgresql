@@ -15,27 +15,27 @@ class NotificationManagerTest : AbstractIntegrationTest() {
         val listenerSession = openSession()
         val notifierSession = openSession()
 
-        listenerSession.notifications.listen("test_channel")
+        listenerSession.notifications.listen("couriers")
 
         val pollingJob = launch {
             listenerSession.notifications.startPollingListenerLoop(100)
         }
 
         val notificationDeferred = async {
-            listenerSession.notifications.messages.first { it.channel == "test_channel" }
+            listenerSession.notifications.messages.first { it.channel == "couriers" }
         }
 
         // Allow some time for the listener loop and flow collection to start
         delay(300)
 
-        notifierSession.notifications.notify("test_channel", "hello_polling")
+        notifierSession.notifications.notify("couriers", "the Gauls have crossed the Rhine")
 
         val notification = withTimeout(2000) {
             notificationDeferred.await()
         }
 
-        assertEquals("test_channel", notification.channel)
-        assertEquals("hello_polling", notification.payload)
+        assertEquals("couriers", notification.channel)
+        assertEquals("the Gauls have crossed the Rhine", notification.payload)
 
         pollingJob.cancelAndJoin()
         listenerSession.close()
@@ -47,27 +47,27 @@ class NotificationManagerTest : AbstractIntegrationTest() {
         val listenerSession = openSession()
         val notifierSession = openSession()
 
-        listenerSession.notifications.listen("test_channel_int")
+        listenerSession.notifications.listen("beacons")
 
         val listenerJob = launch {
             listenerSession.notifications.startInterruptibleListenerLoop()
         }
 
         val notificationDeferred = async {
-            listenerSession.notifications.messages.first { it.channel == "test_channel_int" }
+            listenerSession.notifications.messages.first { it.channel == "beacons" }
         }
 
         // Allow some time for the listener loop and flow collection to start
         delay(300)
 
-        notifierSession.notifications.notify("test_channel_int", "hello_interruptible")
+        notifierSession.notifications.notify("beacons", "the beacon on the Wall is lit")
 
         val notification = withTimeout(2000) {
             notificationDeferred.await()
         }
 
-        assertEquals("test_channel_int", notification.channel)
-        assertEquals("hello_interruptible", notification.payload)
+        assertEquals("beacons", notification.channel)
+        assertEquals("the beacon on the Wall is lit", notification.payload)
 
         listenerJob.cancelAndJoin()
         // startInterruptibleListenerLoop closes the socket upon cancellation, so we shouldn't explicitly close it without expecting errors or it's fine.

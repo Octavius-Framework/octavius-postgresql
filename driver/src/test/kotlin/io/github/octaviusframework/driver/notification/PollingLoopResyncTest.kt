@@ -18,7 +18,7 @@ class PollingLoopResyncTest : AbstractIntegrationTest() {
     @Test
     fun `connection stays in sync after an idle polling loop`() = runBlocking {
         val session = openSession()
-        session.notifications.listen("resync_probe")
+        session.notifications.listen("watchtower")
 
         // A query before the loop, so there is a previous response available to be replayed
         assertEquals(1, session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>())
@@ -38,7 +38,7 @@ class PollingLoopResyncTest : AbstractIntegrationTest() {
     @Test
     fun `repeated start and cancel leaves the session usable`() = runBlocking {
         val session = openSession()
-        session.notifications.listen("resync_probe_2")
+        session.notifications.listen("signal_fire")
 
         repeat(3) { i ->
             val loop = launch { session.notifications.startPollingListenerLoop(100) }

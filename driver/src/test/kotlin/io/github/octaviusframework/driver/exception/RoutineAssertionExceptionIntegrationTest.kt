@@ -20,9 +20,10 @@ class RoutineAssertionExceptionIntegrationTest : AbstractIntegrationTest() {
                 session.createNativeQuery("""
                     DO $$
                     DECLARE
-                        temp_var INT;
+                        dictator TEXT;
                     BEGIN
-                        SELECT 1 INTO STRICT temp_var WHERE false;
+                        -- a year with no dictator named
+                        SELECT name INTO STRICT dictator FROM (VALUES ('Cincinnatus')) AS dictators(name) WHERE false;
                     END;
                     $$;
                 """).execute()
@@ -42,9 +43,10 @@ class RoutineAssertionExceptionIntegrationTest : AbstractIntegrationTest() {
                 session.createNativeQuery("""
                     DO $$
                     DECLARE
-                        temp_var INT;
+                        consul TEXT;
                     BEGIN
-                        SELECT * INTO STRICT temp_var FROM (VALUES (1), (2)) AS t(c);
+                        -- a year always has two, and STRICT wants one
+                        SELECT name INTO STRICT consul FROM (VALUES ('Caesar'), ('Bibulus')) AS consuls(name);
                     END;
                     $$;
                 """).execute()
@@ -64,7 +66,7 @@ class RoutineAssertionExceptionIntegrationTest : AbstractIntegrationTest() {
                 session.createNativeQuery("""
                     DO $$
                     BEGIN
-                        ASSERT false, 'Assertion failed';
+                        ASSERT false, 'The auspices were not taken';
                     END;
                     $$;
                 """).execute()
