@@ -21,11 +21,10 @@ import kotlin.test.assertTrue
  * Covers [DynamicWriteStrategy]: when an unwrapped instance of a registered class is written as a
  * `dynamic_dto`, and what wrapping overrides.
  *
- * Every test builds its own client, because the thing under test is installed into the driver's type registry
- * and that registry is global to the database. Two clients on one database do not hold a mode each - the last
- * one to register wins for both - so each test also drops the registry on the way in and the way out. Without
- * that, a converter left behind by an earlier test would claim a value this one expects the composite path to
- * take, and the mode would look like it worked when it had not been consulted.
+ * Every test builds its own client on the mode under test, and what it registers belongs to the database rather
+ * than to that client: a class an earlier test registered would still be registered on that test's mode, and
+ * registering it again on another one is refused. So each test also drops the registry on the way in and the
+ * way out, and every mode is tested on registrations of its own.
  */
 class DynamicWriteStrategyTest {
 

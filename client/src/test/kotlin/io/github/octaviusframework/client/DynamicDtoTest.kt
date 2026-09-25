@@ -342,6 +342,71 @@ class DynamicDtoTest {
         )
     }
 
+    @Test
+    fun `inside an anonymous record, however deep, each one reads as its class`() {
+        // The driver's CrazyRecordIntegrationTest without dynamic_dto, which the driver does not know: a record
+        // read as a map hands every value to the chain as Any, and that is enough for each discriminator to be
+        // resolved where it sits - beside an enum, in a nested record, in an array, in a record in an array.
+        val grant = "dynamic_dto('land_grant', jsonb_build_object('province', 'Asia', 'iugera', 7))"
+        val pension = "dynamic_dto('military_pension', jsonb_build_object('legion', 'X Fretensis', 'annual', 900))"
+
+        val rec = db.rawQuery(
+            """
+            SELECT ROW(
+                'plain', 'insanity'::text,
+                'office', 'PRAETOR'::magistrature,
+                'benefit', $grant,
+                'nested', ROW(
+                    'appointment', dynamic_dto('appointment', jsonb_build_object('office', 'CONSUL')),
+                    'benefits', ARRAY[$grant, $pension]
+                ),
+                'rows', ARRAY[
+                    ROW('id', 1, 'benefit', $pension),
+                    ROW('id', 2, 'benefit', NULL::public.dynamic_dto)
+                ]::record[]
+            )
+            """
+        ).fetchFieldStrict<Map<String, Any?>>()
+
+        assertEquals("insanity", rec["plain"])
+        assertEquals(Magistrature.Praetor, rec["office"])
+        assertEquals(LandGrant("Asia", 7), rec["benefit"])
+
+        @Suppress("UNCHECKED_CAST")
+        val nested = rec["nested"] as Map<String, Any?>
+        assertEquals(Appointment(Magistrature.Consul), nested["appointment"])
+        assertEquals(listOf(LandGrant("Asia", 7), MilitaryPension("X Fretensis", 900)), nested["benefits"])
+
+        @Suppress("UNCHECKED_CAST")
+        val rows = rec["rows"] as List<Map<String, Any?>>
+        assertEquals(listOf(mapOf("id" to 1, "benefit" to MilitaryPension("X Fretensis", 900)), mapOf("id" to 2, "benefit" to null)), rows)
+    }
+
+    @Test
+    fun `and as the key of that map, it is its class as well`() {
+        // A record read as a map converts its keys through the chain too, against the key type asked for - so
+        // a key can be a dynamic_dto, and what it becomes is an object with equals, which a map can look up.
+        val grant = "dynamic_dto('land_grant', jsonb_build_object('province', 'Asia', 'iugera', 7))"
+        val pension = "dynamic_dto('military_pension', jsonb_build_object('legion', 'X Gemina', 'annual', 300))"
+
+        val byBenefit = db.rawQuery("SELECT ROW($grant, 1, $pension, 2)").fetchFieldStrict<Map<Benefit, Int>>()
+        assertEquals(mapOf(LandGrant("Asia", 7) to 1, MilitaryPension("X Gemina", 300) to 2), byBenefit)
+        assertEquals(1, byBenefit[LandGrant("Asia", 7)])
+
+        val both = db.rawQuery("SELECT ROW($grant, $pension)").fetchFieldStrict<Map<Any, Any?>>()
+        assertEquals(mapOf<Any, Any?>(LandGrant("Asia", 7) to MilitaryPension("X Gemina", 300)), both)
+    }
+
+    @Test
+    fun `and two keys that decode to the same object are one key too many`() {
+        val grant = "dynamic_dto('land_grant', jsonb_build_object('province', 'Asia', 'iugera', 7))"
+
+        val thrown = assertFailsWith<MappingException> {
+            db.rawQuery("SELECT ROW($grant, 1, $grant, 2)").fetchFieldStrict<Map<Benefit, Int>>()
+        }
+        assertTrue(thrown.details.contains("Duplicate key"), thrown.details)
+    }
+
     // --- A different Json, for one query --------------------------------------------------------------
 
     @Test

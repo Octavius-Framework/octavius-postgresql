@@ -179,17 +179,19 @@ session.typeManager.registerEnum<LegioStatus>()
 | `registerParameterConverter(converter)` | Kotlin object → database parameter mapping.                                                    |
 | `registerEnum<T>(...)`                  | Registers both directions for a Kotlin enum in one call.                                       |
 | `registerAutoComposite<T>(...)`         | Maps a data class to a PostgreSQL composite type reflectively.                                 |
+| `attach(type) { }`                      | Keeps a layer's own value per database, read back as `catalog.attachment(type)`.               |
 | `dictionary`                            | The types the catalog describes — `getPgType(oid)`, `getArrayType(...)`, `forEachType { }`.    |
 | `codecs`                                | Codec lookups — `getCodecByOid(...)`, `getCodecByClass(...)`.                                  |
-| `catalog`                               | The dictionaries, converters and composite and enum registrations, as one immutable value.     |
+| `catalog`                               | The dictionaries, converters, registrations and attachments, as one immutable value.           |
 | `containers`                            | `ContainerFactory` — builds `PgComposite`, `PgRange`, `PgMultirange` instances by name or OID. |
 | `detached()`                            | A `TypeLookup` with no session behind it, for something outliving the session it came from.    |
 
-Everything but the `register*` rows reads. They are separate types, not a convention: `TypeLookup` carries
-`catalog`, `dictionary`, `codecs`, `containers` and `resolveOid`, and **no `register*` at all**. A conversion
-reaches it as `context.types`, so registering a type, a codec or a converter from inside a converter is
-not something the API allows — it could not have affected the conversion it was made from, the catalog having
-been pinned before the statement went out, and would have reached every other session on the database instead.
+Everything but the `register*` and `attach` rows reads. They are separate types, not a convention: `TypeLookup`
+carries `catalog`, `dictionary`, `codecs`, `containers` and `resolveOid`, and **no `register*` or `attach` at
+all**. A conversion reaches it as `context.types`, so registering a type, a codec or a converter from inside a
+converter is not something the API allows — it could not have affected the conversion it was made from, the
+catalog having been pinned before the statement went out, and would have reached every other session on the
+database instead.
 
 ### Scope: a session handle over global state
 

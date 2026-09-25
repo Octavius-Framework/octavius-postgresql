@@ -123,6 +123,24 @@ class TypeManager internal constructor(
     fun registerCodec(codec: TypeCodec<*>) = holder.update { it.withCodec(codec) }
 
     /**
+     * Keeps a value for this database under [type], for a layer built on the driver whose registrations belong
+     * to the database rather than to any one session.
+     *
+     * The value lives in the catalog beside the driver's own registrations and has their scope: every session on
+     * the database reads it, a reload carries it over, [GlobalCatalogStore.removeCatalog] drops it, and a
+     * converter reads it through [TypeCatalog.attachment] on the catalog its execution pinned. Keep it immutable:
+     * the catalog is replaced whole rather than edited, and a value changed in place would change under an
+     * execution that had pinned it.
+     *
+     * @param type The class to keep it under, which is also the class it is read back as.
+     * @param transform Given the value kept now, or `null`, returns the one to keep instead. It runs once, under
+     *   the lock every registration takes, so reading the current value and replacing it is one step; a throw
+     *   leaves the catalog as it was.
+     */
+    fun <T : Any> attach(type: KClass<T>, transform: (T?) -> T) =
+        holder.update { it.withAttachment(type, transform(it.attachment(type))) }
+
+    /**
      * Registers a composite type mapped reflectively onto the data class [T].
      *
      * Property names are matched to attribute names by converting `camelCase` to `snake_case`;

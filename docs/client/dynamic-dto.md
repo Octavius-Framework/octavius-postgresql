@@ -179,7 +179,10 @@ derivation and moves with the class instead of tracking it; stating the name at 
 where both are present.
 
 Registration is **global to the database**, the driver's type registry being keyed that way, so it belongs at
-startup and not per request. Two names for one class, or one name for two classes, is refused.
+startup and not per request. Every client on the database reads the same names, and a class is read and written
+on the `Json` and the write strategy of the client that registered it, whichever client a query runs through.
+Two names for one class, or one name for two classes, is refused, and so is the same class registered again on
+another strategy. Registered again under the same name, it changes nothing — its `Json` included.
 
 ## Reading
 
@@ -261,10 +264,9 @@ Where the destination is known and the value does not belong in it, this is a `M
 (`NO_CONVERTER_FOUND`) naming both — rather than a `dynamic_dto` sent where a composite was declared, which the
 server refuses a moment later with `42804` and nothing pointing at the class responsible.
 
-> A mode is given to a client, but what enforces it is a converter on the driver's type registry — which is
-> global to the database. Two clients on one database do not hold a mode each: the one that registered a
-> dynamic type last is the one whose mode applies to both. Where an application builds a second client against
-> the same database, give it the same mode.
+> A mode is given to a client and goes with every class registered through it: that class is written on that
+> mode whichever client a query runs through. A class is registered once per database, so a second client
+> registering it on another mode is refused rather than overriding the first.
 
 ## What JSON Does Not Carry
 
@@ -391,11 +393,12 @@ value wrapped by hand. Query registries sit ahead of the session's and are disca
 rest of the application goes on reading the way it did — see
 [Per-Query Converters](queries.md#per-query-converters).
 
-A `Json` built here replaces the client's rather than adding to it, so put `octaviusSerializersModule` on it
-too where the class has a `@Contextual` property — otherwise that one query reads the payload differently from
-every other.
+A `Json` built here replaces the one the class was registered with rather than adding to it, so put
+`octaviusSerializersModule` on it too where the class has a `@Contextual` property — otherwise that one query
+reads the payload differently from every other.
 
-The client-wide default is `dynamicJson` on `fromDataSource` and `fromSessionProvider`.
+The one a class is registered with is `dynamicJson` on `fromDataSource` or `fromSessionProvider`, of the
+client that registered it.
 
 ## Next
 

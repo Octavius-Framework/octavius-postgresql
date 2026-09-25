@@ -38,7 +38,8 @@ internal fun builtinCatalog(): TypeCatalog {
         parameterConverters = emptyList(),
         registeredComposites = emptyMap(),
         compositeClassByName = emptyMap(),
-        registeredEnums = emptyMap()
+        registeredEnums = emptyMap(),
+        attachments = emptyMap()
     )
 
     for (converter in listOf(
