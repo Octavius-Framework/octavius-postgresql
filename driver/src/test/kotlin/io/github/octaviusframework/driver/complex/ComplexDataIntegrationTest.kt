@@ -1,17 +1,13 @@
 package io.github.octaviusframework.driver.complex
 
 import io.github.octaviusframework.identifier.CaseConvention
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.datetime.LocalDateTime
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import java.math.BigDecimal
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class ComplexDataIntegrationTest {
+class ComplexDataIntegrationTest : AbstractIntegrationTest() {
 
     enum class TestStatus { Active, Inactive, Pending, NotStarted }
     enum class TestPriority { Low, Medium, High, Critical }
@@ -55,90 +51,62 @@ class ComplexDataIntegrationTest {
         val budget: BigDecimal
     )
 
-    @BeforeAll
-    fun setup() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("""
-                DROP TABLE IF EXISTS complex_test_data CASCADE;
-                DROP TYPE IF EXISTS test_project CASCADE;
-                DROP TYPE IF EXISTS test_task CASCADE;
-                DROP TYPE IF EXISTS test_person CASCADE;
-                DROP TYPE IF EXISTS test_metadata CASCADE;
-                DROP TYPE IF EXISTS test_category CASCADE;
-                DROP TYPE IF EXISTS test_priority CASCADE;
-                DROP TYPE IF EXISTS test_status CASCADE;
+    override val schema = """
+        CREATE TYPE test_status AS ENUM ('active', 'inactive', 'pending', 'not_started');
+        CREATE TYPE test_priority AS ENUM ('low', 'medium', 'high', 'critical');
+        CREATE TYPE test_category AS ENUM ('bug_fix', 'feature', 'enhancement', 'documentation');
 
-                CREATE TYPE test_status AS ENUM ('active', 'inactive', 'pending', 'not_started');
-                CREATE TYPE test_priority AS ENUM ('low', 'medium', 'high', 'critical');
-                CREATE TYPE test_category AS ENUM ('bug_fix', 'feature', 'enhancement', 'documentation');
+        CREATE TYPE test_metadata AS (
+            created_at timestamp,
+            updated_at timestamp,
+            version integer,
+            tags text[]
+        );
 
-                CREATE TYPE test_metadata AS (
-                    created_at timestamp,
-                    updated_at timestamp,
-                    version integer,
-                    tags text[]
-                );
+        CREATE TYPE test_person AS (
+            name text,
+            age integer,
+            email text,
+            active boolean,
+            roles text[]
+        );
 
-                CREATE TYPE test_person AS (
-                    name text,
-                    age integer,
-                    email text,
-                    active boolean,
-                    roles text[]
-                );
+        CREATE TYPE test_task AS (
+            id integer,
+            title text,
+            description text,
+            status test_status,
+            priority test_priority,
+            category test_category,
+            assignee test_person,
+            metadata test_metadata,
+            subtasks text[],
+            estimated_hours numeric
+        );
 
-                CREATE TYPE test_task AS (
-                    id integer,
-                    title text,
-                    description text,
-                    status test_status,
-                    priority test_priority,
-                    category test_category,
-                    assignee test_person,
-                    metadata test_metadata,
-                    subtasks text[],
-                    estimated_hours numeric
-                );
+        CREATE TYPE test_project AS (
+            name text,
+            description text,
+            status test_status,
+            team_members test_person[],
+            tasks test_task[],
+            metadata test_metadata,
+            budget numeric
+        );
 
-                CREATE TYPE test_project AS (
-                    name text,
-                    description text,
-                    status test_status,
-                    team_members test_person[],
-                    tasks test_task[],
-                    metadata test_metadata,
-                    budget numeric
-                );
-
-                CREATE TABLE complex_test_data (
-                    id SERIAL PRIMARY KEY,
-                    simple_text text,
-                    simple_number integer,
-                    simple_bool boolean,
-                    project_data test_project,
-                    person_array test_person[]
-                );
-            """.trimIndent()).execute()
-        } finally {
-            session.close()
-        }
-    }
-
-    @AfterAll
-    fun teardown() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP SCHEMA public CASCADE").execute()
-            session.createNativeQuery("CREATE SCHEMA public").execute()
-        } finally {
-            session.close()
-        }
-    }
+        CREATE TABLE complex_test_data (
+            id SERIAL PRIMARY KEY,
+            simple_text text,
+            simple_number integer,
+            simple_bool boolean,
+            project_data test_project,
+            person_array test_person[]
+        );
+    """.trimIndent()
 
     @Test
     fun `should insert and then retrieve an entire complex object`() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
             session.reloadTypes()
             session.typeManager.registerEnum<TestStatus>("test_status", pgConvention = CaseConvention.SNAKE_CASE_LOWER)
@@ -187,7 +155,7 @@ class ComplexDataIntegrationTest {
 
     @Test
     fun `should update a complex array field in an existing row`() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
             session.reloadTypes()
             session.typeManager.registerEnum<TestStatus>("test_status", pgConvention = CaseConvention.SNAKE_CASE_LOWER)

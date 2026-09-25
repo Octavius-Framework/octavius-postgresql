@@ -1,53 +1,25 @@
 package io.github.octaviusframework.driver.composite
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.range.MultiRange
 import io.github.octaviusframework.driver.type.range.Range
 import io.github.octaviusframework.driver.type.range.multiRangeOf
 import io.github.octaviusframework.driver.type.range.rangeOf
-import org.junit.jupiter.api.AfterAll
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class CompositeRangeIntegrationTest {
+class CompositeRangeIntegrationTest : AbstractIntegrationTest() {
 
     data class SimpleData(val major: Int, val minor: Int)
 
-    @BeforeAll
-    fun setup() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data_range CASCADE").execute()
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data CASCADE").execute()
-
-            session.createNativeQuery("CREATE TYPE simple_data AS (major int, minor int)").execute()
-
-            session.createNativeQuery("CREATE TYPE simple_data_range AS RANGE (subtype = simple_data)").execute()
-        } catch (e: Exception) {
-            println("Exception during setup: ${e.message}")
-            throw e
-        } finally {
-            session.close()
-        }
-    }
-
-    @AfterAll
-    fun teardown() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data_range CASCADE").execute()
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data CASCADE").execute()
-        } finally {
-            session.close()
-        }
-    }
+    override val schema = """
+        CREATE TYPE simple_data AS (major int, minor int);
+        CREATE TYPE simple_data_range AS RANGE (subtype = simple_data);
+    """.trimIndent()
 
     @Test
     fun testCompositeRangeNativeQuery() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
             session.reloadTypes()
             session.typeManager.registerAutoComposite<SimpleData>("simple_data")
@@ -70,7 +42,7 @@ class CompositeRangeIntegrationTest {
 
     @Test
     fun testCompositeMultiRangeNativeQuery() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
             session.reloadTypes()
             session.typeManager.registerAutoComposite<SimpleData>("simple_data")

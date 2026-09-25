@@ -1,17 +1,13 @@
 package io.github.octaviusframework.driver.complex
 
 import io.github.octaviusframework.identifier.CaseConvention
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.datetime.LocalDateTime
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import java.math.BigDecimal
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class CrazyRecordIntegrationTest {
+class CrazyRecordIntegrationTest : AbstractIntegrationTest() {
 
     enum class TestStatus { Active, Inactive, Pending, NotStarted }
     enum class TestPriority { Low, Medium, High, Critical }
@@ -55,77 +51,50 @@ class CrazyRecordIntegrationTest {
         val budget: BigDecimal
     )
 
-    @BeforeAll
-    fun setup() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("""
-                DROP TYPE IF EXISTS test_project CASCADE;
-                DROP TYPE IF EXISTS test_task CASCADE;
-                DROP TYPE IF EXISTS test_person CASCADE;
-                DROP TYPE IF EXISTS test_metadata CASCADE;
-                DROP TYPE IF EXISTS test_category CASCADE;
-                DROP TYPE IF EXISTS test_priority CASCADE;
-                DROP TYPE IF EXISTS test_status CASCADE;
+    override val schema = """
+        CREATE TYPE test_status AS ENUM ('active', 'inactive', 'pending', 'not_started');
+        CREATE TYPE test_priority AS ENUM ('low', 'medium', 'high', 'critical');
+        CREATE TYPE test_category AS ENUM ('bug_fix', 'feature', 'enhancement', 'documentation');
 
-                CREATE TYPE test_status AS ENUM ('active', 'inactive', 'pending', 'not_started');
-                CREATE TYPE test_priority AS ENUM ('low', 'medium', 'high', 'critical');
-                CREATE TYPE test_category AS ENUM ('bug_fix', 'feature', 'enhancement', 'documentation');
-                
-                CREATE TYPE test_metadata AS (
-                    created_at TIMESTAMP,
-                    updated_at TIMESTAMP,
-                    version INT,
-                    tags TEXT[]
-                );
-                CREATE TYPE test_person AS (
-                    name TEXT,
-                    age INT,
-                    email TEXT,
-                    active BOOLEAN,
-                    roles TEXT[]
-                );
-                CREATE TYPE test_task AS (
-                    id INT,
-                    title TEXT,
-                    description TEXT,
-                    status test_status,
-                    priority test_priority,
-                    category test_category,
-                    assignee test_person,
-                    metadata test_metadata,
-                    subtasks TEXT[],
-                    estimated_hours NUMERIC
-                );
-                CREATE TYPE test_project AS (
-                    name TEXT,
-                    description TEXT,
-                    status test_status,
-                    team_members test_person[],
-                    tasks test_task[],
-                    metadata test_metadata,
-                    budget NUMERIC
-                );
-            """.trimIndent()).execute()
-        } finally {
-            session.close()
-        }
-    }
-
-    @AfterAll
-    fun teardown() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP SCHEMA public CASCADE").execute()
-            session.createNativeQuery("CREATE SCHEMA public").execute()
-        } finally {
-            session.close()
-        }
-    }
+        CREATE TYPE test_metadata AS (
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP,
+            version INT,
+            tags TEXT[]
+        );
+        CREATE TYPE test_person AS (
+            name TEXT,
+            age INT,
+            email TEXT,
+            active BOOLEAN,
+            roles TEXT[]
+        );
+        CREATE TYPE test_task AS (
+            id INT,
+            title TEXT,
+            description TEXT,
+            status test_status,
+            priority test_priority,
+            category test_category,
+            assignee test_person,
+            metadata test_metadata,
+            subtasks TEXT[],
+            estimated_hours NUMERIC
+        );
+        CREATE TYPE test_project AS (
+            name TEXT,
+            description TEXT,
+            status test_status,
+            team_members test_person[],
+            tasks test_task[],
+            metadata test_metadata,
+            budget NUMERIC
+        );
+    """.trimIndent()
 
     @Test
     fun `should read absolutely insane record with composites, enums, and nested records`() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
             session.reloadTypes()
             session.typeManager.registerEnum<TestStatus>("test_status", pgConvention = CaseConvention.SNAKE_CASE_LOWER)

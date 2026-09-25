@@ -1,11 +1,10 @@
 package io.github.octaviusframework.driver.codec
 
 import io.github.octaviusframework.driver.exception.CodecException
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.type.PgStandardType
 import io.github.octaviusframework.driver.type.geometric.*
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -13,16 +12,11 @@ import java.math.BigDecimal
 import java.util.*
 import kotlin.uuid.Uuid
 
-class CodecIntegrationTest {
-
-    private fun getSession() = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-        user = "postgres"
-        password = "1234"
-    })
+class CodecIntegrationTest : AbstractIntegrationTest() {
 
     @Test
     fun testGeometricTypes() {
-        val session = getSession()
+        val session = openSession()
         
         // Point
         val point = PgPoint(1.5, 2.5)
@@ -64,7 +58,7 @@ class CodecIntegrationTest {
 
     @Test
     fun testBitStringTypes() {
-        val session = getSession()
+        val session = openSession()
         
         val bitSet = BitSet()
         bitSet.set(0)
@@ -79,7 +73,7 @@ class CodecIntegrationTest {
 
     @Test
     fun testNetworkTypes() {
-        val session = getSession()
+        val session = openSession()
 
         // Inet
         val inetVal = "192.168.1.5/24"
@@ -111,7 +105,7 @@ class CodecIntegrationTest {
 
     @Test
     fun testXmlType() {
-        val session = getSession()
+        val session = openSession()
 
         val xmlVal = "<book><title>Effective Kotlin</title></book>"
         val resXml = session.createNativeQuery("SELECT $1 as res").fetchField<String>(xmlVal.withPgType(PgStandardType.XML))
@@ -122,7 +116,7 @@ class CodecIntegrationTest {
 
     @Test
     fun testStandardTypes() {
-        val session = getSession()
+        val session = openSession()
 
         // Boolean
         val boolVal = true

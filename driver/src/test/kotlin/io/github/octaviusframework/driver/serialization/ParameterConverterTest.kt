@@ -1,38 +1,29 @@
 package io.github.octaviusframework.driver.serialization
 
 import io.github.octaviusframework.driver.container.PgArray
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class ParameterConverterTest {
+class ParameterConverterTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
     data class SimpleAddress(val city: String, val zip: String)
     data class ComplexUser(val id: Int, val name: String, val address: SimpleAddress, val tags: List<String>)
 
+    override val schema = """
+        CREATE TYPE simple_address AS (city text, zip text);
+        CREATE TYPE complex_user AS (id int, name text, address simple_address, tags text[]);
+    """.trimIndent()
+
     @BeforeAll
     fun setup() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-
-        session.createNativeQuery("DROP TYPE IF EXISTS simple_address CASCADE").execute()
-        session.createNativeQuery("CREATE TYPE simple_address AS (city text, zip text)").execute()
-
-        session.createNativeQuery("DROP TYPE IF EXISTS complex_user CASCADE").execute()
-        session.createNativeQuery("CREATE TYPE complex_user AS (id int, name text, address simple_address, tags text[])").execute()
-        
-        session.reloadTypes()
+        session = openSession()
         session.typeManager.registerAutoComposite<SimpleAddress>("simple_address")
         session.typeManager.registerAutoComposite<ComplexUser>("complex_user")
     }

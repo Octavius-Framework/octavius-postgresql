@@ -1,26 +1,20 @@
 package io.github.octaviusframework.driver.lo
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.test.assertNotEquals
 
-class LargeObjectIntegrationTest {
+class LargeObjectIntegrationTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
     @BeforeEach
     fun setup() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        session = openSession()
     }
 
     @AfterEach

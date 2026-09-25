@@ -2,11 +2,9 @@ package io.github.octaviusframework.driver.copy
 
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
-import io.github.octaviusframework.driver.jdbc.OctaviusConnection
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.TransactionState
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -17,29 +15,21 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 
-class CopyManagerTest {
+class CopyManagerTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
-    private fun newSession(): OctaviusSession {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        return getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-    }
+    override val schema = "CREATE TABLE copy_test (id INT, name TEXT)"
 
     @BeforeEach
     fun setup() {
-        session = newSession()
-
-        session.createNativeQuery("CREATE TABLE IF NOT EXISTS copy_test (id INT, name TEXT)").execute()
+        session = openSession()
         session.createNativeQuery("TRUNCATE TABLE copy_test").execute()
     }
 
     @AfterEach
     fun teardown() {
         if (::session.isInitialized) {
-            session.createNativeQuery("DROP TABLE IF EXISTS copy_test").execute()
             session.close()
         }
     }
@@ -146,7 +136,7 @@ class CopyManagerTest {
         session.close()
         assertFalse(session.isValid(1), "a connection in copy mode must not survive the close")
 
-        session = newSession()
+        session = openSession()
         val count = session.createNativeQuery("SELECT count(*) FROM copy_test").fetchFieldStrict<Long>()
         assertEquals(0L, count)
     }

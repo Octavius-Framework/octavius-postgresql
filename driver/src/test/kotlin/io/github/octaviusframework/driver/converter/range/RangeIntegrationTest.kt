@@ -4,8 +4,7 @@ import io.github.octaviusframework.driver.type.range.MultiRange
 import io.github.octaviusframework.driver.type.range.Range
 import io.github.octaviusframework.driver.type.range.rangeOf
 import io.github.octaviusframework.driver.type.range.multiRangeOf
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -13,17 +12,11 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class RangeIntegrationTest {
-
-    private fun getSession() =
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-            user = "postgres"
-            password = "1234"
-        })
+class RangeIntegrationTest : AbstractIntegrationTest() {
 
     @Test
     fun testRangeSelect() {
-        val session = getSession()
+        val session = openSession()
 
         val rangeResult = session.createNativeQuery("SELECT '[10,20)'::int4range").fetchRowStrict()
         val range = rangeResult.get<Range<Int>>(0)
@@ -37,7 +30,7 @@ class RangeIntegrationTest {
 
     @Test
     fun testMultiRangeSelect() {
-        val session = getSession()
+        val session = openSession()
 
         val multiRangeResult = session.createNativeQuery("SELECT '{[1,5], [10,20)}'::int4multirange").fetchRowStrict()
         val multiRange = multiRangeResult.get<MultiRange<Int>>(0)
@@ -60,7 +53,7 @@ class RangeIntegrationTest {
 
     @Test
     fun testRangeParameter() {
-        val session = getSession()
+        val session = openSession()
 
         val inputRange = rangeOf(lowerBound = 5, upperBound = 15, isLowerInclusive = true, isUpperInclusive = true)
 
@@ -77,7 +70,7 @@ class RangeIntegrationTest {
 
     @Test
     fun testMultiRangeParameter() {
-        val session = getSession()
+        val session = openSession()
 
         val inputMultiRange = multiRangeOf(
             listOf(

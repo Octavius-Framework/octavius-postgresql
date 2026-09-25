@@ -2,16 +2,15 @@ package io.github.octaviusframework.driver.converter
 
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.type.PgStandardType
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.assertThrows
 
 /**
@@ -20,8 +19,7 @@ import org.junit.jupiter.api.assertThrows
  * driver reports it as `NO_CONVERTER_FOUND` with the attribute in the path — the same shape the read direction uses
  * for the same mistake — instead of letting it fail one layer down with no path at all.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class ParameterMismatchIntegrationTest {
+class ParameterMismatchIntegrationTest : AbstractIntegrationTest() {
 
     data class Tribute(val amount: Int, val currency: String)
     data class Assessment(val label: String, val payload: Tribute)
@@ -31,21 +29,16 @@ class ParameterMismatchIntegrationTest {
 
     private lateinit var session: OctaviusSession
 
+    override val schema = """
+        CREATE SCHEMA parammm;
+        CREATE TYPE parammm.tribute AS (amount int, currency text);
+        CREATE TYPE parammm.assessment AS (label text, payload parammm.tribute);
+        CREATE TYPE parammm.holder AS (big int8);
+    """.trimIndent()
+
     @BeforeAll
     fun setup() {
-        session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        session.createNativeQuery("DROP SCHEMA IF EXISTS parammm CASCADE").execute()
-        session.createNativeQuery("CREATE SCHEMA parammm").execute()
-        session.createNativeQuery(
-            """
-            CREATE TYPE parammm.tribute AS (amount int, currency text);
-            CREATE TYPE parammm.assessment AS (label text, payload parammm.tribute);
-            CREATE TYPE parammm.holder AS (big int8);
-            """.trimIndent()
-        ).execute()
-        session.createNativeQuery("SET seach_path TO parammm, public")
-        session.reloadTypes()
-
+        session = openSession()
         session.typeManager.registerAutoComposite<Assessment>("assessment", schema = "parammm")
         session.typeManager.registerAutoComposite<NarrowInt>("holder", schema = "parammm")
         session.typeManager.registerAutoComposite<MatchingLong>("holder", schema = "parammm")
@@ -54,7 +47,6 @@ class ParameterMismatchIntegrationTest {
 
     @AfterAll
     fun teardown() {
-        session.createNativeQuery("DROP SCHEMA IF EXISTS parammm CASCADE").execute()
         session.close()
     }
 

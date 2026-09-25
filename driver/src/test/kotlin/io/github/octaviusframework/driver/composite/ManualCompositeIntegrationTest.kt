@@ -6,19 +6,15 @@ import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterCo
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.container.PgComposite
-import org.junit.jupiter.api.AfterAll
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import kotlin.reflect.KType
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class ManualCompositeIntegrationTest {
+class ManualCompositeIntegrationTest : AbstractIntegrationTest() {
 
     data class PaymentInfo(val amount: Int, val currency: String)
 
@@ -59,33 +55,14 @@ class ManualCompositeIntegrationTest {
         }
     }
 
-    @BeforeAll
-    fun setup() {
-        val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            conn.createNativeQuery("DROP TABLE IF EXISTS orders CASCADE").execute()
-            conn.createNativeQuery("DROP TYPE IF EXISTS payment_info CASCADE").execute()
-            conn.createNativeQuery("CREATE TYPE payment_info AS (amount int, currency text)").execute()
-            conn.createNativeQuery("CREATE TABLE orders (id int PRIMARY KEY, payment payment_info)").execute()
-        } finally {
-            conn.close()
-        }
-    }
-
-    @AfterAll
-    fun teardown() {
-        val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            conn.createNativeQuery("DROP TABLE IF EXISTS orders CASCADE").execute()
-            conn.createNativeQuery("DROP TYPE IF EXISTS payment_info CASCADE").execute()
-        } finally {
-            conn.close()
-        }
-    }
+    override val schema = """
+        CREATE TYPE payment_info AS (amount int, currency text);
+        CREATE TABLE orders (id int PRIMARY KEY, payment payment_info);
+    """.trimIndent()
 
     @Test
     fun testTransactionWithManualCompositeMapper() {
-        val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val conn = openSession()
         try {
             // Force a fresh type load, payment_info included
             conn.reloadTypes()

@@ -1,26 +1,20 @@
 package io.github.octaviusframework.driver.exception
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class DataExceptionIntegrationTest {
+class DataExceptionIntegrationTest : AbstractIntegrationTest() {
 
     companion object {
         private val logger = KotlinLogging.logger {}
     }
 
-    private fun getSession() = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-        user = "postgres"
-        password = "1234"
-    })
-
     @Test
     fun `should throw DIVISION_BY_ZERO`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<DataException> {
                 session.createNativeQuery("SELECT 1 / 0").fetchRowStrict()
             }
@@ -31,7 +25,7 @@ class DataExceptionIntegrationTest {
 
     @Test
     fun `should throw INVALID_FORMAT`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<DataException> {
                 session.createNativeQuery("SELECT 'not-a-number'::int").fetchRowStrict()
             }
@@ -42,7 +36,7 @@ class DataExceptionIntegrationTest {
 
     @Test
     fun `should throw NUMERIC_OUT_OF_RANGE`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<DataException> {
                 session.createNativeQuery("SELECT 10000000000::int").fetchRowStrict()
             }
@@ -53,7 +47,7 @@ class DataExceptionIntegrationTest {
     
     @Test
     fun `should throw DATA_TRUNCATION`() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("CREATE TABLE IF NOT EXISTS test_truncation (val VARCHAR(3))").execute()
             try {
                 val exception = assertFailsWith<DataException> {
@@ -69,7 +63,7 @@ class DataExceptionIntegrationTest {
 
     @Test
     fun `should throw ARRAY_SUBSCRIPT_ERROR`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<DataException> {
                 session.createNativeQuery("SELECT ARRAY[ARRAY[1,2], ARRAY[1]]").fetchRowStrict()
             }
@@ -80,7 +74,7 @@ class DataExceptionIntegrationTest {
 
     @Test
     fun `should throw JSON_ERROR`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<DataException> {
                 session.createNativeQuery("SELECT '{\"invalid_json\"'::json").fetchRowStrict()
             }
@@ -91,7 +85,7 @@ class DataExceptionIntegrationTest {
 
     @Test
     fun `should throw REGEX_ERROR`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<DataException> {
                 session.createNativeQuery("SELECT 'abc' ~ '*abc'").fetchRowStrict()
             }

@@ -1,7 +1,6 @@
 package io.github.octaviusframework.driver.exception
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -9,19 +8,14 @@ import org.junit.jupiter.api.assertNotNull
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class RoutineAssertionExceptionIntegrationTest {
+class RoutineAssertionExceptionIntegrationTest : AbstractIntegrationTest() {
     companion object {
         private val logger = KotlinLogging.logger {}
     }
 
-    private fun getSession() = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-        user = "postgres"
-        password = "1234"
-    })
-
     @Test
     fun `should throw NO_DATA_FOUND`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<RoutineAssertionException> {
                 session.createNativeQuery("""
                     DO $$
@@ -43,7 +37,7 @@ class RoutineAssertionExceptionIntegrationTest {
 
     @Test
     fun `should throw TOO_MANY_ROWS`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<RoutineAssertionException> {
                 session.createNativeQuery("""
                     DO $$
@@ -65,7 +59,7 @@ class RoutineAssertionExceptionIntegrationTest {
 
     @Test
     fun `should throw ASSERT_FAILURE`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<RoutineAssertionException> {
                 session.createNativeQuery("""
                     DO $$

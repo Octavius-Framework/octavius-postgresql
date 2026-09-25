@@ -5,22 +5,16 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.StatementException
-import io.github.octaviusframework.driver.exception.StatementExceptionReason
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class BasicQueryIntegrationTest {
+class BasicQueryIntegrationTest : AbstractIntegrationTest() {
 
     @Test
     fun test() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         val result = session.createNativeQuery("SELECT 1, 'abc', 4.5::float8").fetchRows()
         val row = result.first()
@@ -38,10 +32,7 @@ class BasicQueryIntegrationTest {
 
     @Test
     fun testFetchOneWithMultipleRows() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         // Generate 1000 rows. Thanks to maxRows=2 and PortalSuspended, it should fetch exactly 2 rows
         // and throw StatementException without loading all 1000 rows into memory.
@@ -59,10 +50,7 @@ class BasicQueryIntegrationTest {
 
     @Test
     fun testForEachMethods() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         // NativeQuery forEachRow
         var sum = 0
@@ -98,10 +86,7 @@ class BasicQueryIntegrationTest {
 
     @Test
     fun testForEachRejectsANegativeFetchSizeButNotZero() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         val e = assertFailsWith<InvalidOperationException> {
             session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").forEachRow(fetchSize = -1) { }
@@ -121,11 +106,7 @@ class BasicQueryIntegrationTest {
 
     @Test
     fun `an exception from a streaming block comes back as BLOCK_FAILED carrying the original`() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props).use { session ->
+        openSession().use { session ->
             val failure = assertFailsWith<MappingException> {
                 session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i")
                     .forEachRow(fetchSize = 3) { throw IllegalStateException("the aqueduct is dry") }

@@ -6,23 +6,21 @@ import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterCo
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.PgStandardType
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
-class JsonElementIntegrationTest {
+class JsonElementIntegrationTest : AbstractIntegrationTest() {
 
     data class MetadataHolder(
         val id: Int,
@@ -73,38 +71,14 @@ class JsonElementIntegrationTest {
         }
     }
 
-    companion object {
-        @BeforeAll
-        @JvmStatic
-        fun setup() {
-            val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-            try {
-                conn.createNativeQuery("DROP TABLE IF EXISTS test_json_elements CASCADE").execute()
-                conn.createNativeQuery("CREATE TABLE test_json_elements (id int PRIMARY KEY, data jsonb)").execute()
-
-                conn.createNativeQuery("DROP TYPE IF EXISTS metadata_holder CASCADE").execute()
-                conn.createNativeQuery("CREATE TYPE metadata_holder AS (id int, metadata jsonb)").execute()
-            } finally {
-                conn.close()
-            }
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun teardown() {
-            val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-            try {
-                conn.createNativeQuery("DROP TABLE IF EXISTS test_json_elements CASCADE").execute()
-                conn.createNativeQuery("DROP TYPE IF EXISTS metadata_holder CASCADE").execute()
-            } finally {
-                conn.close()
-            }
-        }
-    }
+    override val schema = """
+        CREATE TABLE test_json_elements (id int PRIMARY KEY, data jsonb);
+        CREATE TYPE metadata_holder AS (id int, metadata jsonb);
+    """.trimIndent()
 
     @Test
     fun testJsonElementAsParameterAndResult() {
-        val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val conn = openSession()
         try {
             val inputJson = buildJsonObject {
                 put("key", JsonPrimitive("value123"))
@@ -127,7 +101,7 @@ class JsonElementIntegrationTest {
 
     @Test
     fun testJsonElementInsideComposite() {
-        val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val conn = openSession()
         try {
             conn.reloadTypes()
 
@@ -154,7 +128,7 @@ class JsonElementIntegrationTest {
 
     @Test
     fun testJsonElementListAsParameter() {
-        val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val conn = openSession()
         try {
             val list = listOf(
                 buildJsonObject { put("key1", JsonPrimitive("val1")) },
@@ -176,7 +150,7 @@ class JsonElementIntegrationTest {
 
     @Test
     fun testJsonElementWithExplicitType() {
-        val conn = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val conn = openSession()
         try {
             val inputJson = buildJsonObject {
                 put("key", JsonPrimitive("explicit"))

@@ -1,11 +1,9 @@
 package io.github.octaviusframework.driver.notice
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 
 object TestNoticeHandler : NoticeHandler {
@@ -15,18 +13,13 @@ object TestNoticeHandler : NoticeHandler {
     }
 }
 
-class NoticeHandlerTest {
+class NoticeHandlerTest : AbstractIntegrationTest() {
 
     @Test
     fun testNoticeHandlerReceivesNotice() = runBlocking {
         TestNoticeHandler.lastNotice = null
         
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        props.noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler"
-        
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession { noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
         
         // Generate a notice
         session.createNativeQuery("DO $$ BEGIN RAISE NOTICE 'test notice from test'; END; $$;").execute()
@@ -51,12 +44,7 @@ class NoticeHandlerTest {
     fun testNoticeExposesEveryFieldTheServerSends() = runBlocking {
         TestNoticeHandler.lastNotice = null
 
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        props.noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession { noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
 
         session.createNativeQuery(
             """DO $$ BEGIN

@@ -1,81 +1,59 @@
 package io.github.octaviusframework.driver.query
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 
-class RoutineQueryIntegrationTest {
+class RoutineQueryIntegrationTest : AbstractIntegrationTest() {
 
-    companion object {
-        private lateinit var session: OctaviusSession
+    private lateinit var session: OctaviusSession
 
-        @JvmStatic
-        @BeforeAll
-        fun setup() {
-            val props = OctaviusProperties()
-            props.user = "postgres"
-            props.password = "1234"
-            
-            session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-            
-            // Create a test function
-            session.createNativeQuery("""
-                CREATE OR REPLACE FUNCTION add_numbers(a INT, b INT) RETURNS INT AS $$
-                BEGIN
-                    RETURN a + b;
-                END;
-                $$ LANGUAGE plpgsql;
-            """).execute()
+    override val schema = """
+        -- Create a test function
+        CREATE FUNCTION add_numbers(a INT, b INT) RETURNS INT AS $$
+        BEGIN
+            RETURN a + b;
+        END;
+        $$ LANGUAGE plpgsql;
 
-            // Create a test procedure
-            session.createNativeQuery("""
-                CREATE OR REPLACE PROCEDURE update_test_val(INOUT val INT, p_add INT) AS $$
-                BEGIN
-                    val := val + p_add;
-                END;
-                $$ LANGUAGE plpgsql;
-            """).execute()
-            
-            // Create a table-returning function
-            session.createNativeQuery("""
-                CREATE OR REPLACE FUNCTION get_series(n INT) RETURNS TABLE(num INT) AS $$
-                BEGIN
-                    RETURN QUERY SELECT generate_series(1, n);
-                END;
-                $$ LANGUAGE plpgsql;
-            """).execute()
+        -- Create a test procedure
+        CREATE PROCEDURE update_test_val(INOUT val INT, p_add INT) AS $$
+        BEGIN
+            val := val + p_add;
+        END;
+        $$ LANGUAGE plpgsql;
 
-            // Create a void-returning function
-            session.createNativeQuery("""
-                CREATE OR REPLACE FUNCTION returns_void() RETURNS VOID AS $$
-                BEGIN
-                END;
-                $$ LANGUAGE plpgsql;
-            """).execute()
+        -- Create a table-returning function
+        CREATE FUNCTION get_series(n INT) RETURNS TABLE(num INT) AS $$
+        BEGIN
+            RETURN QUERY SELECT generate_series(1, n);
+        END;
+        $$ LANGUAGE plpgsql;
 
-            // Create a procedure without OUT parameters
-            session.createNativeQuery("""
-                CREATE OR REPLACE PROCEDURE do_nothing() AS $$
-                BEGIN
-                END;
-                $$ LANGUAGE plpgsql;
-            """).execute()
-        }
+        -- Create a void-returning function
+        CREATE FUNCTION returns_void() RETURNS VOID AS $$
+        BEGIN
+        END;
+        $$ LANGUAGE plpgsql;
 
-        @JvmStatic
-        @AfterAll
-        fun teardown() {
-            session.createNativeQuery("DROP FUNCTION IF EXISTS add_numbers(INT, INT)").execute()
-            session.createNativeQuery("DROP PROCEDURE IF EXISTS update_test_val(INT, INT)").execute()
-            session.createNativeQuery("DROP FUNCTION IF EXISTS get_series(INT)").execute()
-            session.createNativeQuery("DROP FUNCTION IF EXISTS returns_void()").execute()
-            session.createNativeQuery("DROP PROCEDURE IF EXISTS do_nothing()").execute()
-            session.close()
-        }
+        -- Create a procedure without OUT parameters
+        CREATE PROCEDURE do_nothing() AS $$
+        BEGIN
+        END;
+        $$ LANGUAGE plpgsql;
+    """.trimIndent()
+
+    @BeforeAll
+    fun setup() {
+        session = openSession()
+    }
+
+    @AfterAll
+    fun teardown() {
+        session.close()
     }
 
     @Test

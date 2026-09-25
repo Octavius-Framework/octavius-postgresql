@@ -1,20 +1,16 @@
 package io.github.octaviusframework.driver.composite
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.range.MultiRange
 import io.github.octaviusframework.driver.type.range.Range
 import io.github.octaviusframework.driver.type.range.rangeOf
 import io.github.octaviusframework.driver.type.range.multiRangeOf
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class AutoCompositeIntegrationTest {
+class AutoCompositeIntegrationTest : AbstractIntegrationTest() {
 
     data class PersonProfile(val firstName: String, val lastName: String)
 
@@ -26,40 +22,20 @@ class AutoCompositeIntegrationTest {
         val availableDays: MultiRange<LocalDate>
     )
 
-    @BeforeAll
-    fun setup() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS person_profile CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE person_profile AS (first_name text, last_name text)").execute()
-
-            session.createNativeQuery("DROP TYPE IF EXISTS employee_data CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE employee_data AS (" +
-                    "profile person_profile, " +
-                    "roles text[], " +
-                    "active_period daterange, " +
-                    "schedule_shifts tsrange[], " +
-                    "available_days datemultirange" +
-                    ")").execute()
-        } finally {
-            session.close()
-        }
-    }
-
-    @AfterAll
-    fun teardown() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP SCHEMA public CASCADE").execute()
-            session.createNativeQuery("CREATE SCHEMA public").execute()
-        } finally {
-            session.close()
-        }
-    }
+    override val schema = """
+        CREATE TYPE person_profile AS (first_name text, last_name text);
+        CREATE TYPE employee_data AS (
+            profile person_profile,
+            roles text[],
+            active_period daterange,
+            schedule_shifts tsrange[],
+            available_days datemultirange
+        );
+    """.trimIndent()
 
     @Test
     fun testEverythingWithNativeQuery() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
             session.reloadTypes()
             session.typeManager.registerAutoComposite<PersonProfile>("person_profile")
@@ -120,7 +96,7 @@ class AutoCompositeIntegrationTest {
 
     @Test
     fun testEverythingWithNamedParameterQuery() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
             session.reloadTypes()
             session.typeManager.registerAutoComposite<PersonProfile>("person_profile")

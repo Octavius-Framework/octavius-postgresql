@@ -1,7 +1,6 @@
 package io.github.octaviusframework.driver.exception
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -10,24 +9,19 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class PermissionDeniedExceptionIntegrationTest {
+class PermissionDeniedExceptionIntegrationTest : AbstractIntegrationTest() {
     companion object {
         private val logger = KotlinLogging.logger {}
     }
 
-    private fun getAdminSession() = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-        user = "postgres"
-        password = "1234"
-    })
-
-    private fun getNoPermSession() = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
+    private fun getNoPermSession() = openSession {
         user = "test_user_no_perms"
         password = "password"
-    })
+    }
 
     @BeforeEach
     fun setup() {
-        getAdminSession().use { session ->
+        openSession().use { session ->
             try { session.createNativeQuery("DROP OWNED BY test_user_no_perms").execute() } catch (e: Exception) {}
             try { session.createNativeQuery("DROP USER IF EXISTS test_user_no_perms").execute() } catch (e: Exception) {}
             session.createNativeQuery("CREATE USER test_user_no_perms WITH PASSWORD 'password'").execute()
@@ -39,7 +33,7 @@ class PermissionDeniedExceptionIntegrationTest {
 
     @AfterEach
     fun teardown() {
-        getAdminSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("DROP TABLE IF EXISTS perm_test_table").execute()
             try {
                 session.createNativeQuery("REVOKE USAGE ON SCHEMA public FROM test_user_no_perms").execute()

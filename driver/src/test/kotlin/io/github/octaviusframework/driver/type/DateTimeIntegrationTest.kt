@@ -1,8 +1,7 @@
 package io.github.octaviusframework.driver.type
 
 import io.github.octaviusframework.driver.exception.CodecException
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.octaviusframework.type.datetime.DISTANT_FUTURE
 import io.github.octaviusframework.type.datetime.DISTANT_PAST
 import kotlinx.datetime.LocalDate
@@ -13,14 +12,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.time.Instant
 
-class DateTimeIntegrationTest {
+class DateTimeIntegrationTest : AbstractIntegrationTest() {
 
     @Test
     fun `test DateTime infinity mappings via DB`() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         // 1. Test LocalDate mapping
         val dateResult = session.createNativeQuery("SELECT $1 as f, $2 as p")
@@ -44,10 +40,7 @@ class DateTimeIntegrationTest {
 
     @Test
     fun `test Date overlap with infinity throws exception via DB`() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         val pgEpochDays = 10957L
 

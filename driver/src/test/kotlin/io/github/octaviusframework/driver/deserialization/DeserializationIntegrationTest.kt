@@ -3,10 +3,10 @@ package io.github.octaviusframework.driver.deserialization
 import io.github.octaviusframework.annotation.PgName
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -14,23 +14,21 @@ import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
 
-class DeserializationIntegrationTest {
+class DeserializationIntegrationTest : AbstractIntegrationTest() {
 
     data class IntegrationAddress(val street: String, val city: String)
     data class IntegrationUser(val id: Int, val name: String, val address: IntegrationAddress)
 
+    override val schema = """
+        CREATE TYPE integ_address AS (street text, city text);
+        CREATE TYPE integ_user AS (id int, name text, address integ_address);
+    """.trimIndent()
+
     @Test
     fun testRealDatabaseDeserialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
 
         try {
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_address AS (street text, city text)").execute()
-
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_user CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_user AS (id int, name text, address integ_address)").execute()
-
-            session.reloadTypes()
             session.typeManager.registerAutoComposite<IntegrationAddress>("integ_address")
             session.typeManager.registerAutoComposite<IntegrationUser>("integ_user")
 
@@ -46,24 +44,15 @@ class DeserializationIntegrationTest {
             assertEquals("Warszawa", parsedUser.address.city)
             
         } finally {
-            try {
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_user CASCADE").execute()
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            } catch (e: Exception) {
-            }
             session.close()
         }
     }
 
     @Test
     fun testRealDatabaseArrayDeserialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
 
         try {
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_address AS (street text, city text)").execute()
-
-            session.reloadTypes()
             session.typeManager.registerAutoComposite<IntegrationAddress>("integ_address")
 
             val result = session.createNativeQuery("SELECT ARRAY[ROW('M1', 'W1')::integ_address, ROW('M2', 'W2')::integ_address] AS addresses").fetchRowStrict()
@@ -77,17 +66,13 @@ class DeserializationIntegrationTest {
             assertEquals("W2", parsedList[1].city)
             
         } finally {
-            try {
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            } catch (e: Exception) {
-            }
             session.close()
         }
     }
 
     @Test
     fun testJsonDeserialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
 
         try {
             val result = session.createNativeQuery("SELECT '{\"key\": \"value1\"}'::json AS js, '{\"key2\": \"value2\"}'::jsonb AS jsb").fetchRowStrict()
@@ -130,7 +115,7 @@ class DeserializationIntegrationTest {
 
     @Test
     fun testExplicitEnumAndCompositeConverters() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
 
         try {
             // Register explicit converters of our own
@@ -218,7 +203,7 @@ class DeserializationIntegrationTest {
 
     @Test
     fun testDomainTypeHandling() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
 
         try {
             session.createNativeQuery("DROP TYPE IF EXISTS domain_user CASCADE").execute()
@@ -270,7 +255,7 @@ class DeserializationIntegrationTest {
 
     @Test
     fun testRealDatabaseMapKeyDeserializationAndSerialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
 
         try {
             session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
@@ -315,7 +300,7 @@ class DeserializationIntegrationTest {
 
     @Test
     fun testRecordTypeHandling() {
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234").use { session ->
+        openSession().use { session ->
             val result =
                 session.createNativeQuery("SELECT ROW('a', ROW('b', 1), 'c', '[\"b\",\"c\"]'::json) AS rec").fetchRowStrict()
 

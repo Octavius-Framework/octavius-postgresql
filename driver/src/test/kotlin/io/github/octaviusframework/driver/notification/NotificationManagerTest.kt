@@ -1,7 +1,6 @@
 package io.github.octaviusframework.driver.notification
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.jupiter.api.Test
@@ -9,16 +8,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import io.github.octaviusframework.driver.exception.NetworkException
 
-class NotificationManagerTest {
+class NotificationManagerTest : AbstractIntegrationTest() {
 
     @Test
     fun testPollingListener() = runBlocking {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val listenerSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-        val notifierSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val listenerSession = openSession()
+        val notifierSession = openSession()
 
         listenerSession.notifications.listen("test_channel")
 
@@ -49,12 +44,8 @@ class NotificationManagerTest {
 
     @Test
     fun testInterruptibleListener() = runBlocking {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val listenerSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-        val notifierSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val listenerSession = openSession()
+        val notifierSession = openSession()
 
         listenerSession.notifications.listen("test_channel_int")
 
@@ -86,12 +77,8 @@ class NotificationManagerTest {
 
     @Test
     fun testPollingListenerThrowsOnNetworkError() = runBlocking {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val listenerSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-        val adminSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val listenerSession = openSession()
+        val adminSession = openSession()
 
         val pid = listenerSession.createNativeQuery("SELECT pg_backend_pid()").fetchField<Int>()
 
@@ -115,12 +102,8 @@ class NotificationManagerTest {
 
     @Test
     fun testInterruptibleListenerThrowsOnNetworkError() = runBlocking {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val listenerSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-        val adminSession = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val listenerSession = openSession()
+        val adminSession = openSession()
 
         val pid = listenerSession.createNativeQuery("SELECT pg_backend_pid()").fetchField<Int>()
 

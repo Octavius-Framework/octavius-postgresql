@@ -2,13 +2,11 @@ package io.github.octaviusframework.driver.query
 
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
@@ -18,12 +16,11 @@ import kotlin.reflect.KType
  * Every claim here is about the catalog an execution reads: a registration reaches the terminals that start
  * after it, and a result stays with the catalog its own terminal pinned.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class ExecutionCatalogIntegrationTest {
+class ExecutionCatalogIntegrationTest : AbstractIntegrationTest() {
 
     /**
-     * Targets nothing else in the suite asks for. A session registration is global to the database, so a
-     * converter registered here would reach every other test were it keyed on anything they read.
+     * A target nothing else asks for, so that the converter this class registers on the session - global to the
+     * database for as long as the class runs - decides only what these tests read.
      */
     data class Marker(val value: String)
 
@@ -49,17 +46,14 @@ class ExecutionCatalogIntegrationTest {
             LateMarker("late:$source")
     }
 
-    private fun session(): OctaviusSession =
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-
     @BeforeAll
     fun registerOnTheSession() {
-        session().use { it.typeManager.registerResultConverter(MarkerConverter("session")) }
+        openSession().use { it.typeManager.registerResultConverter(MarkerConverter("session")) }
     }
 
     @Test
     fun `a converter registered after the query was built reaches its first terminal`() {
-        session().use { session ->
+        openSession().use { session ->
             val query = session.createNativeQuery("SELECT 'x'::text")
             session.typeManager.registerResultConverter(LateMarkerConverter())
 
@@ -69,7 +63,7 @@ class ExecutionCatalogIntegrationTest {
 
     @Test
     fun `rows keep the catalog their own terminal pinned`() {
-        session().use { session ->
+        openSession().use { session ->
             val query = session.createNativeQuery("SELECT 'y'::text")
             val rows = query.fetchRows()
 
@@ -83,7 +77,7 @@ class ExecutionCatalogIntegrationTest {
 
     @Test
     fun `rows keep the query's own converters as their terminal found them`() {
-        session().use { session ->
+        openSession().use { session ->
             val query = session.createNativeQuery("SELECT 'w'::text")
                 .registerResultConverter(MarkerConverter("first"))
             val rows = query.fetchRows()
@@ -98,7 +92,7 @@ class ExecutionCatalogIntegrationTest {
 
     @Test
     fun `a query's own converter wins over the session's, for that query only`() {
-        session().use { session ->
+        openSession().use { session ->
             val query = session.createNativeQuery("SELECT 'z'::text")
                 .registerResultConverter(MarkerConverter("query"))
 

@@ -1,8 +1,7 @@
 package io.github.octaviusframework.driver.codec
 
 import io.github.octaviusframework.driver.io.PgByteWriter
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
@@ -24,15 +23,11 @@ class CircleCodec : TypeCodec<Circle> {
     }
 }
 
-class CodecRegistrationTest {
+class CodecRegistrationTest : AbstractIntegrationTest() {
 
     @Test
     fun `should register codec without oid by resolving it from database`() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
         
         val codec = CircleCodec()
         session.typeManager.registerCodec(codec)

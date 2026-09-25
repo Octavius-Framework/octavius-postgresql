@@ -4,9 +4,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
-import io.github.octaviusframework.driver.session.OctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -17,13 +15,7 @@ import kotlin.test.assertTrue
  * Pins down the two independent questions the field family answers: how many rows came back, which the
  * `Strict` suffix governs, and whether a value had to be there at all, which the nullability of `T` does.
  */
-class FieldNullabilityIntegrationTest {
-
-    private fun session(): OctaviusSession =
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-            user = "postgres"
-            password = "1234"
-        })
+class FieldNullabilityIntegrationTest : AbstractIntegrationTest() {
 
     private val noRows = "SELECT 'x'::text WHERE false"
     private val oneNullRow = "SELECT NULL::text"
@@ -32,7 +24,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchField with a non-nullable type should throw when no row matched`() {
-        session().use { s ->
+        openSession().use { s ->
             val e = assertFailsWith<MappingException> {
                 s.createNativeQuery(noRows).fetchField<String>()
             }
@@ -42,7 +34,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchField with a non-nullable type should throw when the value is NULL`() {
-        session().use { s ->
+        openSession().use { s ->
             val e = assertFailsWith<MappingException> {
                 s.createNativeQuery(oneNullRow).fetchField<String>()
             }
@@ -52,7 +44,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchField with a nullable type should return null for both kinds of absence`() {
-        session().use { s ->
+        openSession().use { s ->
             assertNull(s.createNativeQuery(noRows).fetchField<String?>())
             assertNull(s.createNativeQuery(oneNullRow).fetchField<String?>())
         }
@@ -60,7 +52,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchField should still return a present value`() {
-        session().use { s ->
+        openSession().use { s ->
             assertEquals("x", s.createNativeQuery("SELECT 'x'::text").fetchField<String>())
         }
     }
@@ -72,7 +64,7 @@ class FieldNullabilityIntegrationTest {
      */
     @Test
     fun `fetchField should return T as declared, without widening it to nullable`() {
-        session().use { s ->
+        openSession().use { s ->
             val native: String = s.createNativeQuery("SELECT 'x'::text").fetchField<String>()
             val namedMap: String = s.createNamedQuery("SELECT @v::text").fetchField<String>(mapOf("v" to "x"))
             val namedPair: String = s.createNamedQuery("SELECT @v::text").fetchField<String>("v" to "x")
@@ -87,7 +79,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `named fetchField should follow the same rule through the map form`() {
-        session().use { s ->
+        openSession().use { s ->
             val e = assertFailsWith<MappingException> {
                 s.createNamedQuery("SELECT 'x'::text WHERE @flag").fetchField<String>(mapOf("flag" to false))
             }
@@ -105,7 +97,7 @@ class FieldNullabilityIntegrationTest {
      */
     @Test
     fun `named fetchField should follow the same rule through the pair form`() {
-        session().use { s ->
+        openSession().use { s ->
             val noRow = assertFailsWith<MappingException> {
                 s.createNamedQuery("SELECT 'x'::text WHERE @flag").fetchField<String>("flag" to false)
             }
@@ -124,7 +116,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `named fetchFields should reject a NULL value under a non-nullable type in both forms`() {
-        session().use { s ->
+        openSession().use { s ->
             assertFailsWith<MappingException> {
                 s.createNamedQuery("SELECT NULL::text WHERE @flag").fetchFields<String>("flag" to true)
             }
@@ -139,7 +131,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchFieldStrict should report an empty result as a size problem even for a nullable type`() {
-        session().use { s ->
+        openSession().use { s ->
             val e = assertFailsWith<InvalidOperationException> {
                 s.createNativeQuery(noRows).fetchFieldStrict<String?>()
             }
@@ -149,14 +141,14 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchFieldStrict should still return null for a NULL value under a nullable type`() {
-        session().use { s ->
+        openSession().use { s ->
             assertNull(s.createNativeQuery(oneNullRow).fetchFieldStrict<String?>())
         }
     }
 
     @Test
     fun `both variants should reject more than one row`() {
-        session().use { s ->
+        openSession().use { s ->
             val plain = assertFailsWith<InvalidOperationException> {
                 s.createNativeQuery("SELECT i FROM generate_series(1, 2) AS i").fetchField<Int>()
             }
@@ -173,7 +165,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchFields should return an empty list rather than throwing when no row matched`() {
-        session().use { s ->
+        openSession().use { s ->
             assertTrue(s.createNativeQuery(noRows).fetchFields<String>().isEmpty())
         }
     }
@@ -182,7 +174,7 @@ class FieldNullabilityIntegrationTest {
 
     @Test
     fun `fetchRow and fetchObject should still return null when no row matched`() {
-        session().use { s ->
+        openSession().use { s ->
             assertNull(s.createNativeQuery("SELECT 1 AS a WHERE false").fetchRow())
             assertNull(s.createNativeQuery("SELECT 1 AS a WHERE false").fetchObject<Map<String, Any?>>())
         }

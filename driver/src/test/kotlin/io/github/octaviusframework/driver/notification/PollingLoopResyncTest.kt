@@ -1,8 +1,6 @@
 package io.github.octaviusframework.driver.notification
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
-import io.github.octaviusframework.driver.session.OctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -15,16 +13,11 @@ import kotlin.test.assertEquals
  * buffer exactly as it was, so the connection is still in sync afterwards - a buffer rewound by
  * a failed fill would replay bytes already consumed and answer later queries with earlier results.
  */
-class PollingLoopResyncTest {
-
-    private fun newSession(): OctaviusSession = getOctaviusSession(OctaviusProperties().apply {
-        user = "postgres"; password = "1234"
-        serverName = "localhost"; portNumber = 5432; databaseName = "octavius_test"
-    })
+class PollingLoopResyncTest : AbstractIntegrationTest() {
 
     @Test
     fun `connection stays in sync after an idle polling loop`() = runBlocking {
-        val session = newSession()
+        val session = openSession()
         session.notifications.listen("resync_probe")
 
         // A query before the loop, so there is a previous response available to be replayed
@@ -44,7 +37,7 @@ class PollingLoopResyncTest {
 
     @Test
     fun `repeated start and cancel leaves the session usable`() = runBlocking {
-        val session = newSession()
+        val session = openSession()
         session.notifications.listen("resync_probe_2")
 
         repeat(3) { i ->

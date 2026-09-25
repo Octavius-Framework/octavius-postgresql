@@ -1,7 +1,6 @@
 package io.github.octaviusframework.driver.exception
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -10,21 +9,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
-class ConstraintViolationExceptionIntegrationTest {
+class ConstraintViolationExceptionIntegrationTest : AbstractIntegrationTest() {
 
     companion object {
         private val logger = KotlinLogging.logger {}
     }
 
-    private fun getSession() =
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-            user = "postgres"
-            password = "1234"
-        })
-
     @BeforeEach
     fun setup() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("CREATE TABLE IF NOT EXISTS parent_table (id INT PRIMARY KEY)").execute()
             session.createNativeQuery(
                 """
@@ -44,7 +37,7 @@ class ConstraintViolationExceptionIntegrationTest {
 
     @AfterEach
     fun teardown() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("DROP TABLE IF EXISTS constraint_test_table").execute()
             session.createNativeQuery("DROP TABLE IF EXISTS restrict_test_table").execute()
             session.createNativeQuery("DROP TABLE IF EXISTS parent_table").execute()
@@ -53,7 +46,7 @@ class ConstraintViolationExceptionIntegrationTest {
 
     @Test
     fun `should throw UNIQUE_CONSTRAINT_VIOLATION`() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
 
             val exception = assertFailsWith<ConstraintViolationException> {
@@ -69,7 +62,7 @@ class ConstraintViolationExceptionIntegrationTest {
 
     @Test
     fun `should throw FOREIGN_KEY_VIOLATION`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<ConstraintViolationException> {
                 session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, 999, 'test', 5)")
@@ -85,7 +78,7 @@ class ConstraintViolationExceptionIntegrationTest {
 
     @Test
     fun `should throw FOREIGN_KEY_VIOLATION deleting a row a NO ACTION key references`() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
             session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, 1, 'test', 5)")
                 .execute()
@@ -104,7 +97,7 @@ class ConstraintViolationExceptionIntegrationTest {
 
     @Test
     fun `should throw FOREIGN_KEY_VIOLATION deleting a row a RESTRICT key references`() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("INSERT INTO parent_table (id) VALUES (1)").execute()
             session.createNativeQuery("INSERT INTO restrict_test_table (id, parent_id) VALUES (1, 1)").execute()
 
@@ -122,7 +115,7 @@ class ConstraintViolationExceptionIntegrationTest {
 
     @Test
     fun `should throw NOT_NULL_VIOLATION`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<ConstraintViolationException> {
                 session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, NULL, NULL, 5)")
@@ -138,7 +131,7 @@ class ConstraintViolationExceptionIntegrationTest {
 
     @Test
     fun `should throw CHECK_CONSTRAINT_VIOLATION`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<ConstraintViolationException> {
                 session.createNativeQuery("INSERT INTO constraint_test_table (id, parent_id, not_null_col, check_col) VALUES (1, NULL, 'test', 0)")

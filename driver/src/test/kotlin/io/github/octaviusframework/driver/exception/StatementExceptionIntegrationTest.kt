@@ -1,7 +1,6 @@
 package io.github.octaviusframework.driver.exception
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -9,21 +8,15 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-class StatementExceptionIntegrationTest {
+class StatementExceptionIntegrationTest : AbstractIntegrationTest() {
 
     companion object {
         private val logger = KotlinLogging.logger {}
     }
 
-    private fun getSession() =
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-            user = "postgres"
-            password = "1234"
-        })
-
     @Test
     fun `should throw StatementException with correct position for native query syntax error`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<StatementException> {
                 // Error at 'FRO', which is at index 9, position 10
@@ -43,7 +36,7 @@ class StatementExceptionIntegrationTest {
 
     @Test
     fun `should throw StatementException with correct position for named query syntax error`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<StatementException> {
                 // Named parameter query transforms "SELECT @param FRO test_table"
@@ -66,7 +59,7 @@ class StatementExceptionIntegrationTest {
 
     @Test
     fun `should throw StatementException for unclosed quote in parser for named query`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<StatementException> {
                 // The unclosed quote starts at index 15
@@ -86,7 +79,7 @@ class StatementExceptionIntegrationTest {
 
     @Test
     fun `should throw StatementException for undefined object with correct position`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<StatementException> {
                 session.createNativeQuery("SELECT * FROM some_non_existent_table").fetchRows()
@@ -101,7 +94,7 @@ class StatementExceptionIntegrationTest {
 
     @Test
     fun `should throw StatementException for unclosed comment in parser for named query`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<StatementException> {
                 // The unclosed comment starts at index 14
@@ -120,7 +113,7 @@ class StatementExceptionIntegrationTest {
 
     @Test
     fun `should throw StatementException for duplicate object`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             session.createNativeQuery("CREATE TABLE IF NOT EXISTS duplicate_table_test (id INT)").execute()
 
@@ -137,7 +130,7 @@ class StatementExceptionIntegrationTest {
 
     @Test
     fun `should throw StatementException for data type error`() {
-        getSession().use { session ->
+        openSession().use { session ->
 
             val exception = assertFailsWith<StatementException> {
                 // Trigger 42804 datatype_mismatch

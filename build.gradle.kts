@@ -4,6 +4,8 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.dokka.gradle.DokkaExtension
 import org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
 
 plugins {
     alias(libs.plugins.kotlin.jvm) apply false
@@ -20,6 +22,17 @@ allprojects {
     repositories {
         mavenCentral()
     }
+}
+
+/**
+ * The one database every integration test shares. A test class starts by dropping its `public` schema, so two test
+ * tasks on it at once - under `--parallel` - would drop it under each other. A service with a single usage runs
+ * them one after another whatever Gradle is asked to do.
+ */
+abstract class TestDatabaseService : BuildService<BuildServiceParameters.None>
+
+val testDatabase = gradle.sharedServices.registerIfAbsent("testDatabase", TestDatabaseService::class) {
+    maxParallelUsages.set(1)
 }
 
 dependencies {
@@ -71,6 +84,7 @@ subprojects {
 
         tasks.withType<Test> {
             useJUnitPlatform()
+            usesService(testDatabase)
         }
     }
 

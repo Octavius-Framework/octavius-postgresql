@@ -5,10 +5,9 @@ import io.github.octaviusframework.driver.converter.result.mapper.ResultConverte
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.MappingException
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -23,26 +22,21 @@ import kotlin.test.assertTrue
  * a `forEach` block, a converter - must not be able to start its own statement on that session:
  * it would interleave its messages into the exchange in flight and desynchronize the connection.
  */
-class ReentrantExecutionTest {
+class ReentrantExecutionTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
-    private fun newSession(): OctaviusSession = getOctaviusSession(OctaviusProperties().apply {
-        user = "postgres"; password = "1234"
-        serverName = "localhost"; portNumber = 5432; databaseName = "octavius_test"
-    })
+    override val schema = "CREATE TABLE reentrant_test (id INT, name TEXT)"
 
     @BeforeEach
     fun setup() {
-        session = newSession()
-        session.createNativeQuery("CREATE TABLE IF NOT EXISTS reentrant_test (id INT, name TEXT)").execute()
+        session = openSession()
         session.createNativeQuery("TRUNCATE reentrant_test").execute()
         session.createNativeQuery("INSERT INTO reentrant_test SELECT g, 'n' || g FROM generate_series(1, 6) g").update()
     }
 
     @AfterEach
     fun teardown() {
-        runCatching { session.createNativeQuery("DROP TABLE IF EXISTS reentrant_test").execute() }
         session.close()
     }
 

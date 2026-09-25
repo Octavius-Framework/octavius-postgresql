@@ -4,8 +4,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.TransactionState
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -18,17 +17,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.time.Duration.Companion.seconds
 
-class TransactionTest {
+class TransactionTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
     @BeforeEach
     fun setup() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        session = openSession()
 
         session.createNativeQuery("CREATE TEMP TABLE IF NOT EXISTS test_trx (id INT, value TEXT)").execute()
         session.createNativeQuery("TRUNCATE TABLE test_trx").execute()

@@ -2,6 +2,8 @@ package io.github.octaviusframework.driver.initialization
 
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 
@@ -10,14 +12,11 @@ import kotlin.test.assertEquals
  * about it - parsing, rendering, precedence - is settled without a server; this is the one part that
  * only PostgreSQL can answer.
  */
-class ApplicationNameIntegrationTest {
+class ApplicationNameIntegrationTest : AbstractIntegrationTest() {
 
-    private fun properties() = OctaviusProperties().apply {
-        serverName = "localhost"
-        portNumber = 5432
-        databaseName = "octavius_test"
-        user = "postgres"
-        password = "1234"
+    private fun properties() = OctaviusProperties.parse(TestDatabase.URL).apply {
+        user = TestDatabase.USER
+        password = TestDatabase.PASSWORD
     }
 
     /** What `pg_stat_activity` shows for this connection's own backend. */
@@ -38,11 +37,9 @@ class ApplicationNameIntegrationTest {
 
     @Test
     fun `should reach the server when it comes from a url`() {
-        val props = OctaviusProperties.parse(
-            "jdbc:octavius://localhost:5432/octavius_test?application_name=CuriaApi"
-        )
-        props.user = "postgres"
-        props.password = "1234"
+        val props = OctaviusProperties.parse("${TestDatabase.URL}?application_name=CuriaApi")
+        props.user = TestDatabase.USER
+        props.password = TestDatabase.PASSWORD
 
         assertEquals("CuriaApi", reportedName(props))
     }
