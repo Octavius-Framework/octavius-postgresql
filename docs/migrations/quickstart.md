@@ -11,7 +11,7 @@ it had come back round, the camp was not yet set for the night.*
 
 ```kotlin
 dependencies {
-    implementation("io.github.octavius-framework:migrations:2.1.2")
+    implementation("io.github.octavius-framework:migrations:2.2.0")
 }
 ```
 

@@ -14,7 +14,7 @@ repositories {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
-    implementation("io.github.octavius-framework:driver-spring-integration:2.1.2")
+    implementation("io.github.octavius-framework:driver-spring-integration:2.2.0")
     implementation("tools.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 

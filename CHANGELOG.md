@@ -4,41 +4,32 @@
 
 #### Changed
 
-- **Every integration test class starts from an empty database, and the tests name that database in one
-  place.** `test-support`, a module nothing publishes, holds the connection the tests use and an
-  `AbstractIntegrationTest` that drops every schema and forgets the driver's type catalog before a class runs,
-  then creates what the class declares. A class no longer cleans up after itself, and nothing one class
-  registered - a converter, a codec, a composite - reaches the next. The test tasks of different modules take
-  turns on the database, `--parallel` or not.
+- **Every integration test class starts from an empty database.** `test-support`, a module nothing publishes,
+  names the test database once and drops every schema and the driver's type catalog before each class, so
+  nothing one class creates or registers reaches the next. Test tasks of different modules take turns on it.
 
 ### Driver
 
 #### Added
 
 - **`TypeManager.attach(type) { }` keeps a value for a layer built on the driver in the database's catalog, and
-  `TypeCatalog.attachment(type)` reads it back.** It has the scope the driver's own registrations have: one per
-  database, carried across a reload, dropped by `removeCatalog`, and pinned for an execution, so a converter
-  reading it through `context.types.catalog` sees one value for the whole statement. The client keeps its
-  `dynamic_dto` names there.
+  `TypeCatalog.attachment(type)` reads it back.** One per database, like the driver's own registrations:
+  carried across a reload, dropped by `removeCatalog`, pinned for an execution.
 
 ### Client
 
 #### Fixed
 
-- **`dynamic_dto` names belong to the database, as the documentation said, rather than to each client.** Every
-  client put its converters on the database's catalog but kept its names to itself, so once a second client on
-  the same database registered a class, its converters claimed every `dynamic_dto` read as `Any` or a supertype,
-  and every value written where `dynamic_dto` was declared, and failed on the names only the first client knew.
-  **A class is registered once per database now**: every client reads the same names, and a class is written on
-  the strategy and read with the `Json` of the client that registered it, whichever client the query runs
-  through - where the mode used to be that of whichever client registered last.
+- **`dynamic_dto` names belong to the database, as the documentation said, rather than to each client.** Once a
+  second client on the same database registered a class, reads as `Any` or a supertype and writes where
+  `dynamic_dto` was declared failed for the classes only the first one knew. **A class is registered once per
+  database now**, and written on the strategy and read with the `Json` of the client that registered it,
+  whichever client runs the query.
 
-- **One class under two names is refused**, as the documentation said it was; the second name used to be taken
-  quietly. **So is a class registered again by a client on another `DynamicWriteStrategy`.** The same class
-  under the same name again changes nothing, its `Json` included.
+- **One class under two names is refused, as the documentation said, and so is a class registered again on
+  another `DynamicWriteStrategy`.** The same class under the same name again changes nothing.
 
-- **Reading a `dynamic_dto` as `DynamicDto` no longer needs its name registered.** The raw form was refused for
-  a name nothing was registered under, although it is the one read that needs no class.
+- **Reading a `dynamic_dto` as `DynamicDto` no longer needs its name registered.**
 
 ## Version 2.1.2 (v2.1.2)
 
