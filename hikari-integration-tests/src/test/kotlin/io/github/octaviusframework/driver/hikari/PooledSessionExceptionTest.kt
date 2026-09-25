@@ -7,6 +7,7 @@ import io.github.octaviusframework.driver.exception.InitializationExceptionReaso
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -27,9 +28,9 @@ import java.sql.SQLTransientConnectionException
 class PooledSessionExceptionTest {
 
     private fun pool(configure: HikariConfig.() -> Unit = {}) = HikariDataSource(HikariConfig().apply {
-        jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-        username = "postgres"
-        password = "1234"
+        jdbcUrl = TestDatabase.URL
+        username = TestDatabase.USER
+        password = TestDatabase.PASSWORD
         maximumPoolSize = 1
         configure()
     })
@@ -70,7 +71,7 @@ class PooledSessionExceptionTest {
     @Test
     fun `should report per-call credentials the pool refuses as an Octavius failure`() {
         pool().use { ds ->
-            val ex = assertThrows<InitializationException> { ds.getOctaviusSession("postgres", "1234") }
+            val ex = assertThrows<InitializationException> { ds.getOctaviusSession(TestDatabase.USER, TestDatabase.PASSWORD) }
 
             assertEquals(InitializationExceptionReason.CONNECTION_ERROR, ex.reason)
             assertInstanceOf<SQLFeatureNotSupportedException>(ex.cause)
@@ -80,9 +81,9 @@ class PooledSessionExceptionTest {
     @Test
     fun `should keep the driver's own exception when the pool could not reach the server`() {
         val ds = HikariDataSource(HikariConfig().apply {
-            jdbcUrl = "jdbc:octavius://localhost:${closedPort()}/octavius_test"
-            username = "postgres"
-            password = "1234"
+            jdbcUrl = "jdbc:octavius://${TestDatabase.HOST}:${closedPort()}/${TestDatabase.DATABASE}"
+            username = TestDatabase.USER
+            password = TestDatabase.PASSWORD
             connectionTimeout = 500
             initializationFailTimeout = -1 // do not probe the database while building the pool
         })

@@ -1,26 +1,23 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.client.transaction.TransactionPropagation
-import io.github.octaviusframework.driver.exception.InitializationException
-import io.github.octaviusframework.driver.exception.InitializationExceptionReason
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 
-class DefaultSessionProviderNestingTest {
+class DefaultSessionProviderNestingTest : AbstractIntegrationTest() {
 
-    private fun pool(size: Int, connectionTimeoutMs: Long = 30_000) = HikariDataSource(HikariConfig().apply {
-        jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-        username = "postgres"
-        password = "1234"
+    override val schema = "CREATE TABLE probe_rows (tag TEXT PRIMARY KEY)"
+
+    private fun pool(size: Int, connectionTimeoutMs: Long = 30_000) = TestDatabase.dataSource {
         maximumPoolSize = size
         connectionTimeout = connectionTimeoutMs
-    })
+    }
 
     /** Six rows out of nothing, so a walk has something to walk and the test owns no table. */
     private val SIX_ROWS = "SELECT n FROM generate_series(1, 6) AS n"
@@ -68,7 +65,6 @@ class DefaultSessionProviderNestingTest {
     fun `work after a REQUIRES_NEW still rolls back with the outer transaction`() {
         pool(3).use { p ->
             OctaviusClient.fromDataSource(p).use { db ->
-                db.rawQuery("CREATE TABLE IF NOT EXISTS probe_rows (tag TEXT PRIMARY KEY)").execute()
                 db.rawQuery("TRUNCATE probe_rows").execute()
 
                 assertFailsWith<IllegalStateException> {
@@ -84,8 +80,6 @@ class DefaultSessionProviderNestingTest {
 
                 val tags = db.rawQuery("SELECT tag FROM probe_rows ORDER BY tag").fetchFields<String>()
                 assertEquals(listOf("inner"), tags, "'after' must have rolled back with the outer transaction")
-
-                db.rawQuery("DROP TABLE probe_rows").execute()
             }
         }
     }
@@ -263,13 +257,8 @@ class DefaultSessionProviderNestingTest {
     private fun withProbeTable(body: (OctaviusClient) -> Unit) {
         pool(3).use { p ->
             OctaviusClient.fromDataSource(p).use { db ->
-                db.rawQuery("CREATE TABLE IF NOT EXISTS probe_rows (tag TEXT PRIMARY KEY)").execute()
                 db.rawQuery("TRUNCATE probe_rows").execute()
-                try {
-                    body(db)
-                } finally {
-                    db.rawQuery("DROP TABLE IF EXISTS probe_rows").execute()
-                }
+                body(db)
             }
         }
     }

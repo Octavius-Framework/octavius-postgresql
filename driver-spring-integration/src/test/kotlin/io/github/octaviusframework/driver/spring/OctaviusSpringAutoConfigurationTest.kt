@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.spring
 
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.boot.autoconfigure.AutoConfigurations
@@ -11,7 +12,6 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager
 import org.springframework.jdbc.support.JdbcTransactionManager
 import org.springframework.transaction.PlatformTransactionManager
 import javax.sql.DataSource
-import org.mockito.Mockito.mock
 import org.springframework.beans.factory.getBean
 
 class OctaviusSpringAutoConfigurationTest {
@@ -19,9 +19,9 @@ class OctaviusSpringAutoConfigurationTest {
     private val contextRunner = ApplicationContextRunner()
         .withConfiguration(AutoConfigurations.of(OctaviusSpringAutoConfiguration::class.java, DataSourceAutoConfiguration::class.java))
         .withPropertyValues(
-            "spring.datasource.url=jdbc:octavius://localhost:5432/octavius_test",
-            "spring.datasource.username=postgres",
-            "spring.datasource.password=1234",
+            "spring.datasource.url=${TestDatabase.URL}",
+            "spring.datasource.username=${TestDatabase.USER}",
+            "spring.datasource.password=${TestDatabase.PASSWORD}",
             "spring.datasource.driver-class-name=io.github.octaviusframework.driver.jdbc.OctaviusDriver"
         )
 

@@ -1,9 +1,8 @@
 package io.github.octaviusframework.migrations
 
 import io.github.octaviusframework.driver.jdbc.OctaviusDataSource
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
+import io.github.octaviusframework.testsupport.TestDatabase
 
 /**
  * The database the integration tests here run against, and the schema they are allowed to make a mess of.
@@ -15,13 +14,7 @@ internal object MigrationTestDatabase {
 
     const val SCHEMA = "octavius_migrations_test"
 
-    fun session(): OctaviusSession = getOctaviusSession(
-        "jdbc:octavius://localhost:5432/octavius_test",
-        OctaviusProperties().apply {
-            user = "postgres"
-            password = "1234"
-        }
-    )
+    fun session(): OctaviusSession = TestDatabase.openSession()
 
     /** Wipes the test schema and puts an empty one back. */
     fun reset() {
@@ -37,9 +30,9 @@ internal object MigrationTestDatabase {
 
     /** The same database behind a `DataSource`, which is how the migrator is meant to be reached. */
     fun dataSource(): OctaviusDataSource = OctaviusDataSource().apply {
-        url = "jdbc:octavius://localhost:5432/octavius_test"
-        user = "postgres"
-        password = "1234"
+        url = TestDatabase.URL
+        user = TestDatabase.USER
+        password = TestDatabase.PASSWORD
     }
 
     fun drop() {

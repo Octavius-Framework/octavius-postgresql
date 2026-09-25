@@ -1,7 +1,5 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.annotation.PgEnumType
 import io.github.octaviusframework.client.dynamic.DynamicDto
 import io.github.octaviusframework.driver.exception.InvalidOperationException
@@ -16,7 +14,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNamingStrategy
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -29,7 +26,7 @@ import kotlin.test.assertTrue
  * Covers `dynamic_dto` end to end: one column holding several unrelated shapes, written from Kotlin and built
  * in SQL, and read back as the classes registered for them.
  */
-class DynamicDtoTest {
+class DynamicDtoTest : AbstractClientIntegrationTest() {
 
     @OptIn(ExperimentalSerializationApi::class)
     private val snakeCase = Json { namingStrategy = JsonNamingStrategy.SnakeCase }
@@ -81,73 +78,48 @@ class DynamicDtoTest {
 
     data class Archived(val id: Int, val record: Benefit)
 
-    companion object {
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
+    override val schema = "CREATE TYPE public.magistrature AS ENUM ('QUAESTOR', 'AEDILE', 'PRAETOR', 'CONSUL')"
 
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            dataSource = HikariDataSource(HikariConfig().apply {
-                jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-                username = "postgres"
-                password = "1234"
-                maximumPoolSize = 2
-            })
-            db = OctaviusClient.fromDataSource(dataSource)
+    @BeforeAll
+    fun setUp() {
+        // Installing after the pool was built is the harder case: the driver read its type catalogue when
+        // it connected, so this only works if install() reloads it.
+        db.dynamicTypes.install()
+        db.dynamicTypes.install() // twice, because the DDL claims to be safe run twice
 
-            db.rawQuery("DROP TYPE IF EXISTS public.magistrature").execute()
-            db.rawQuery("CREATE TYPE public.magistrature AS ENUM ('QUAESTOR', 'AEDILE', 'PRAETOR', 'CONSUL')")
-                .execute()
+        db.dynamicTypes.register<LandGrant>("land_grant")
+        db.dynamicTypes.register<MilitaryPension>("military_pension")
+        db.dynamicTypes.register<Citation>("citation")
+        db.dynamicTypes.register<Stipend>("stipend")
+        db.dynamicTypes.register<TributeAssessment>("tribute_assessment")
+        db.dynamicTypes.register<Appointment>("appointment")
+        db.dynamicTypes.register<Deployment>("deployment")
 
-            // Installing after the pool was built is the harder case: the driver read its type catalogue when
-            // it connected, so this only works if install() reloads it.
-            db.dynamicTypes.install()
-            db.dynamicTypes.install() // twice, because the DDL claims to be safe run twice
+        // After the client was built, which is the only order there is: a client is constructed before
+        // anything is registered on it.
+        db.execute { typeManager.registerEnum<Magistrature>("magistrature") }
 
-            db.dynamicTypes.register<LandGrant>("land_grant")
-            db.dynamicTypes.register<MilitaryPension>("military_pension")
-            db.dynamicTypes.register<Citation>("citation")
-            db.dynamicTypes.register<Stipend>("stipend")
-            db.dynamicTypes.register<TributeAssessment>("tribute_assessment")
-            db.dynamicTypes.register<Appointment>("appointment")
-            db.dynamicTypes.register<Deployment>("deployment")
-
-            // After the client was built, which is the only order there is: a client is constructed before
-            // anything is registered on it.
-            db.execute { typeManager.registerEnum<Magistrature>("magistrature") }
-
-            db.rawQuery(
-                """
-                CREATE TABLE IF NOT EXISTS dyn_veterans (
-                    id       SERIAL PRIMARY KEY,
-                    name     TEXT NOT NULL,
-                    benefit  public.dynamic_dto,
-                    benefits public.dynamic_dto[],
-                    office   public.magistrature
-                );
-                CREATE TABLE IF NOT EXISTS dyn_grants (
-                    veteran_id INT  NOT NULL,
-                    province   TEXT NOT NULL,
-                    iugera     INT  NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS dyn_archives (
-                    id          SERIAL PRIMARY KEY,
-                    record_type TEXT  NOT NULL,
-                    payload     JSONB NOT NULL
-                )
-                """.trimIndent()
-            ).execute()
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS dyn_veterans, dyn_grants, dyn_archives").execute()
-            db.rawQuery("DROP TYPE IF EXISTS public.magistrature").execute()
-            db.close()
-            dataSource.close()
-        }
+        db.rawQuery(
+            """
+            CREATE TABLE dyn_veterans (
+                id       SERIAL PRIMARY KEY,
+                name     TEXT NOT NULL,
+                benefit  public.dynamic_dto,
+                benefits public.dynamic_dto[],
+                office   public.magistrature
+            );
+            CREATE TABLE dyn_grants (
+                veteran_id INT  NOT NULL,
+                province   TEXT NOT NULL,
+                iugera     INT  NOT NULL
+            );
+            CREATE TABLE dyn_archives (
+                id          SERIAL PRIMARY KEY,
+                record_type TEXT  NOT NULL,
+                payload     JSONB NOT NULL
+            )
+            """.trimIndent()
+        ).execute()
     }
 
     @BeforeEach

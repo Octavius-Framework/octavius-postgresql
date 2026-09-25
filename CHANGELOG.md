@@ -1,5 +1,16 @@
 ## Version 2.2.0 (v2.2.0)
 
+### Project
+
+#### Changed
+
+- **Every integration test class starts from an empty database, and the tests name that database in one
+  place.** `test-support`, a module nothing publishes, holds the connection the tests use and an
+  `AbstractIntegrationTest` that drops every schema and forgets the driver's type catalog before a class runs,
+  then creates what the class declares. A class no longer cleans up after itself, and nothing one class
+  registered - a converter, a codec, a composite - reaches the next. The test tasks of different modules take
+  turns on the database, `--parallel` or not.
+
 ### Driver
 
 #### Added

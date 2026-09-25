@@ -1,19 +1,19 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
+import io.github.octaviusframework.client.dynamic.DYNAMIC_DTO_DDL
 import io.github.octaviusframework.client.dynamic.DynamicDto
 import io.github.octaviusframework.client.dynamic.DynamicWriteStrategy
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.serializer.octaviusJson
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNamingStrategy
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  * registry and drops it again on the way out, since the registry lives in the driver's catalog and would
  * otherwise carry one test's registrations into the next.
  */
-class DynamicTypesAcrossClientsTest {
+class DynamicTypesAcrossClientsTest : AbstractIntegrationTest() {
 
     @Serializable
     data class Grant(val province: String, val iugera: Int)
@@ -39,29 +39,12 @@ class DynamicTypesAcrossClientsTest {
     @Serializable
     data class Stipend(val provinceName: String, val annualAmount: Int)
 
-    companion object {
-        private const val URL = "jdbc:octavius://localhost:5432/octavius_test"
-
-        private fun dataSource(): HikariDataSource = HikariDataSource(HikariConfig().apply {
-            jdbcUrl = URL
-            username = "postgres"
-            password = "1234"
-            maximumPoolSize = 2
-        })
-
-        @BeforeAll
-        @JvmStatic
-        fun installType() {
-            GlobalCatalogStore.removeCatalog(URL)
-            dataSource().use { ds -> OctaviusClient.fromDataSource(ds).use { it.dynamicTypes.install() } }
-            GlobalCatalogStore.removeCatalog(URL)
-        }
-    }
+    override val schema = DYNAMIC_DTO_DDL
 
     @BeforeEach
     @AfterEach
     fun dropRegistry() {
-        GlobalCatalogStore.removeCatalog(URL)
+        GlobalCatalogStore.removeCatalog(TestDatabase.URL)
     }
 
     /** Runs [block] with two clients on the same database, each on a pool of its own. */
@@ -71,8 +54,8 @@ class DynamicTypesAcrossClientsTest {
         firstJson: Json = octaviusJson,
         block: (OctaviusClient, OctaviusClient) -> Unit
     ) {
-        dataSource().use { dsA ->
-            dataSource().use { dsB ->
+        TestDatabase.dataSource().use { dsA ->
+            TestDatabase.dataSource().use { dsB ->
                 OctaviusClient.fromDataSource(dsA, dynamicJson = firstJson, dynamicWriteStrategy = first).use { a ->
                     OctaviusClient.fromDataSource(dsB, dynamicWriteStrategy = second).use { b -> block(a, b) }
                 }

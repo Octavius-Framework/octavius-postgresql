@@ -1,15 +1,11 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.client.query.LockWaitMode
 import io.github.octaviusframework.client.query.QueryFragment
 import io.github.octaviusframework.client.query.join
 import io.github.octaviusframework.client.query.withParam
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -21,44 +17,18 @@ import kotlin.test.assertTrue
  * Covers the four builders in both of the ways they can be wrong: the SQL they render, asserted directly, and
  * whether PostgreSQL accepts what they rendered, asserted by running it.
  */
-class QueryBuilderTest {
+class QueryBuilderTest : AbstractClientIntegrationTest() {
 
     data class Legion(val id: Int, val name: String, val strength: Int)
 
-    companion object {
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
-
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            dataSource = HikariDataSource(HikariConfig().apply {
-                jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-                username = "postgres"
-                password = "1234"
-                maximumPoolSize = 2
-            })
-            db = OctaviusClient.fromDataSource(dataSource)
-            db.rawQuery(
-                """
-                CREATE TABLE IF NOT EXISTS builder_legions (
-                    id       SERIAL PRIMARY KEY,
-                    name     TEXT NOT NULL UNIQUE,
-                    strength INT  NOT NULL DEFAULT 0,
-                    province TEXT
-                )
-                """.trimIndent()
-            ).execute()
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS builder_legions").execute()
-            db.close()
-            dataSource.close()
-        }
-    }
+    override val schema = """
+        CREATE TABLE builder_legions (
+            id       SERIAL PRIMARY KEY,
+            name     TEXT NOT NULL UNIQUE,
+            strength INT  NOT NULL DEFAULT 0,
+            province TEXT
+        );
+    """.trimIndent()
 
     @BeforeEach
     fun clearTable() {

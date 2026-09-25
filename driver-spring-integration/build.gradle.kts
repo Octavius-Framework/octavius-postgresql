@@ -20,6 +20,7 @@ dependencies {
     implementation(hikari.hikaricp)
     implementation(libs.kotlin.logging)
 
+    testImplementation(projects.testSupport)
     testImplementation(spring.spring.boot.starter.test)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)

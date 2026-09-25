@@ -9,6 +9,7 @@ import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.StatementExceptionReason
 import io.github.octaviusframework.driver.spring.exception.OctaviusDataAccessException
 import io.github.octaviusframework.driver.spring.exception.OctaviusExceptionTranslator
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertInstanceOf
@@ -30,9 +31,9 @@ class OctaviusExceptionTranslationTest {
     @Test
     fun `should translate a failure to obtain a connection`() {
         val dataSource = HikariDataSource(HikariConfig().apply {
-            jdbcUrl = "jdbc:octavius://localhost:${closedPort()}/octavius_test"
-            username = "postgres"
-            password = "1234"
+            jdbcUrl = "jdbc:octavius://${TestDatabase.HOST}:${closedPort()}/${TestDatabase.DATABASE}"
+            username = TestDatabase.USER
+            password = TestDatabase.PASSWORD
             driverClassName = "io.github.octaviusframework.driver.jdbc.OctaviusDriver"
             connectionTimeout = 500
             initializationFailTimeout = -1 // do not probe the database while building the pool

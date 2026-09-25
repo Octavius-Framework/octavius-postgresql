@@ -1,7 +1,5 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.client.transaction.StepHandle
 import io.github.octaviusframework.client.transaction.TransactionPlan
 import io.github.octaviusframework.client.transaction.TransactionValue
@@ -14,7 +12,6 @@ import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.row.Row
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -31,62 +28,32 @@ import kotlin.test.assertTrue
  * the driver can then send it, and what happens where it cannot. Reaching for a column of something that has
  * none does not compile, so it is not among these.
  */
-class TransactionValueMatrixTest {
+class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
 
     data class Probe(val id: Int, val name: String, val amount: Int)
 
     /** Registered against `public.tv_rank`, which is what makes a converter claim that column. */
     enum class Rank { Legatus, Tribunus }
 
-    companion object {
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
+    override val schema = """
+        CREATE TABLE tv_probe (
+            id     SERIAL PRIMARY KEY,
+            name   TEXT NOT NULL,
+            amount INT  NOT NULL
+        );
+        CREATE TABLE tv_sink (
+            id     SERIAL PRIMARY KEY,
+            name   TEXT,
+            amount INT
+        );
+        CREATE TYPE public.tv_probe_t AS (id int, name text, amount int);
+        CREATE TYPE public.tv_rank AS ENUM ('LEGATUS', 'TRIBUNUS');
+        CREATE TABLE tv_shapes (id SERIAL PRIMARY KEY, rank public.tv_rank, doc jsonb);
+    """.trimIndent()
 
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            dataSource = HikariDataSource(HikariConfig().apply {
-                jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-                username = "postgres"
-                password = "1234"
-                maximumPoolSize = 2
-            })
-            db = OctaviusClient.fromDataSource(dataSource)
-            db.rawQuery(
-                """
-                CREATE TABLE IF NOT EXISTS tv_probe (
-                    id     SERIAL PRIMARY KEY,
-                    name   TEXT NOT NULL,
-                    amount INT  NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS tv_sink (
-                    id     SERIAL PRIMARY KEY,
-                    name   TEXT,
-                    amount INT
-                )
-                """.trimIndent()
-            ).execute()
-            db.rawQuery(
-                "DROP TYPE IF EXISTS public.tv_probe_t CASCADE; " +
-                    "CREATE TYPE public.tv_probe_t AS (id int, name text, amount int); " +
-                    "DROP TYPE IF EXISTS public.tv_rank CASCADE; " +
-                    "CREATE TYPE public.tv_rank AS ENUM ('LEGATUS', 'TRIBUNUS'); " +
-                    "DROP TABLE IF EXISTS tv_shapes; " +
-                    "CREATE TABLE tv_shapes (id SERIAL PRIMARY KEY, rank public.tv_rank, doc jsonb)"
-            ).execute()
-            db.execute {
-                reloadTypes()
-                typeManager.registerEnum<Rank>("tv_rank", "public")
-            }
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS tv_sink; DROP TABLE IF EXISTS tv_probe; DROP TABLE IF EXISTS tv_shapes; DROP TYPE IF EXISTS public.tv_probe_t; DROP TYPE IF EXISTS public.tv_rank").execute()
-            db.close()
-            dataSource.close()
-        }
+    @BeforeAll
+    fun registerRank() {
+        db.execute { typeManager.registerEnum<Rank>("tv_rank", "public") }
     }
 
     @BeforeEach

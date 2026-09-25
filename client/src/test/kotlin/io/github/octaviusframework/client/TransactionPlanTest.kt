@@ -1,7 +1,5 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.client.transaction.TransactionPlan
 import io.github.octaviusframework.client.transaction.map
 import io.github.octaviusframework.client.transaction.spread
@@ -10,8 +8,6 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -23,52 +19,26 @@ import kotlin.test.assertTrue
  * Covers [TransactionPlan] against a real PostgreSQL: that a later step sees what an earlier one produced,
  * that the whole thing is one transaction, and that a handle used against the wrong shape says so.
  */
-class TransactionPlanTest {
+class TransactionPlanTest : AbstractClientIntegrationTest() {
 
     data class Item(val province: String, val amount: Int)
 
     /** Wider than the projection the mapping test selects, which is what makes that step fail. */
     data class Edict(val id: Int, val title: String, val tribute: Int)
 
-    companion object {
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
-
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            dataSource = HikariDataSource(HikariConfig().apply {
-                jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-                username = "postgres"
-                password = "1234"
-                maximumPoolSize = 2
-            })
-            db = OctaviusClient.fromDataSource(dataSource)
-            db.rawQuery(
-                """
-                CREATE TABLE IF NOT EXISTS plan_edicts (
-                    id      SERIAL PRIMARY KEY,
-                    title   TEXT NOT NULL UNIQUE,
-                    tribute INT  NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS plan_items (
-                    id       SERIAL PRIMARY KEY,
-                    edict_id INT  NOT NULL REFERENCES plan_edicts(id),
-                    province TEXT NOT NULL,
-                    amount   INT  NOT NULL
-                )
-                """.trimIndent()
-            ).execute()
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS plan_items; DROP TABLE IF EXISTS plan_edicts").execute()
-            db.close()
-            dataSource.close()
-        }
-    }
+    override val schema = """
+        CREATE TABLE plan_edicts (
+            id      SERIAL PRIMARY KEY,
+            title   TEXT NOT NULL UNIQUE,
+            tribute INT  NOT NULL
+        );
+        CREATE TABLE plan_items (
+            id       SERIAL PRIMARY KEY,
+            edict_id INT  NOT NULL REFERENCES plan_edicts(id),
+            province TEXT NOT NULL,
+            amount   INT  NOT NULL
+        );
+    """.trimIndent()
 
     @BeforeEach
     fun clearTables() {

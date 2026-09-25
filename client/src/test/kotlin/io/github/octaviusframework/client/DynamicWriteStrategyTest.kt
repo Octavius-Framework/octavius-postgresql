@@ -1,16 +1,15 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
+import io.github.octaviusframework.client.dynamic.DYNAMIC_DTO_DDL
 import io.github.octaviusframework.client.dynamic.DynamicWriteStrategy
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import kotlinx.serialization.Serializable
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -26,7 +25,7 @@ import kotlin.test.assertTrue
  * registering it again on another one is refused. So each test also drops the registry on the way in and the
  * way out, and every mode is tested on registrations of its own.
  */
-class DynamicWriteStrategyTest {
+class DynamicWriteStrategyTest : AbstractIntegrationTest() {
 
     /** Registered as a dynamic type and as nothing else: the unambiguous case. */
     @Serializable
@@ -43,83 +42,21 @@ class DynamicWriteStrategyTest {
      */
     data class Decoration(val award: Honour, val citation: Triumph)
 
-    companion object {
-        private const val URL = "jdbc:octavius://localhost:5432/octavius_test"
-
-        private fun dataSource(): HikariDataSource = HikariDataSource(HikariConfig().apply {
-            jdbcUrl = URL
-            username = "postgres"
-            password = "1234"
-            maximumPoolSize = 2
-        })
-
-        @BeforeAll
-        @JvmStatic
-        fun createSchema() {
-            GlobalCatalogStore.removeCatalog(URL)
-            dataSource().use { ds ->
-                OctaviusClient.fromDataSource(ds).use { db ->
-                    db.dynamicTypes.install()
-                    db.rawQuery(
-                        """
-                        DO ${'$'}do${'$'} BEGIN
-                            IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-                                           WHERE t.typname = 'honour' AND n.nspname = 'public') THEN
-                                CREATE TYPE public.honour AS (title text, year int);
-                            END IF;
-                        END ${'$'}do${'$'}
-                        """.trimIndent()
-                    ).execute()
-                    db.rawQuery(
-                        """
-                        DO ${'$'}do${'$'} BEGIN
-                            IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-                                           WHERE t.typname = 'decoration' AND n.nspname = 'public') THEN
-                                CREATE TYPE public.decoration AS (award public.honour, citation public.dynamic_dto);
-                            END IF;
-                        END ${'$'}do${'$'}
-                        """.trimIndent()
-                    ).execute()
-                    db.rawQuery(
-                        """
-                        CREATE TABLE IF NOT EXISTS dyn_strategy (
-                            id            SERIAL PRIMARY KEY,
-                            as_dynamic    public.dynamic_dto,
-                            as_composite  public.honour,
-                            as_composites public.honour[],
-                            as_nested     public.decoration
-                        )
-                        """.trimIndent()
-                    ).execute()
-                }
-            }
-            GlobalCatalogStore.removeCatalog(URL)
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun dropSchema() {
-            GlobalCatalogStore.removeCatalog(URL)
-            dataSource().use { ds ->
-                OctaviusClient.fromDataSource(ds).use { db ->
-                    db.rawQuery("DROP TABLE IF EXISTS dyn_strategy").execute()
-                    db.rawQuery("DROP TYPE IF EXISTS public.decoration").execute()
-                    db.rawQuery("DROP TYPE IF EXISTS public.honour").execute()
-                }
-            }
-            GlobalCatalogStore.removeCatalog(URL)
-        }
-    }
+    override val schema = DYNAMIC_DTO_DDL + ";\n" + """
+        CREATE TYPE public.honour AS (title text, year int);
+        CREATE TYPE public.decoration AS (award public.honour, citation public.dynamic_dto);
+        CREATE TABLE dyn_strategy (
+            id            SERIAL PRIMARY KEY,
+            as_dynamic    public.dynamic_dto,
+            as_composite  public.honour,
+            as_composites public.honour[],
+            as_nested     public.decoration
+        );
+    """.trimIndent()
 
     @BeforeEach
     fun clearTable() {
-        GlobalCatalogStore.removeCatalog(URL)
-        dataSource().use { ds ->
-            OctaviusClient.fromDataSource(ds).use { db ->
-                db.rawQuery("TRUNCATE dyn_strategy RESTART IDENTITY").execute()
-            }
-        }
-        GlobalCatalogStore.removeCatalog(URL)
+        openSession().use { it.createNativeQuery("TRUNCATE dyn_strategy RESTART IDENTITY").execute() }
     }
 
     /**
@@ -127,9 +64,9 @@ class DynamicWriteStrategyTest {
      * either side so no converter outlives the test that installed it.
      */
     private fun withStrategy(strategy: DynamicWriteStrategy, block: (OctaviusClient) -> Unit) {
-        GlobalCatalogStore.removeCatalog(URL)
+        GlobalCatalogStore.removeCatalog(TestDatabase.URL)
         try {
-            dataSource().use { ds ->
+            TestDatabase.dataSource().use { ds ->
                 OctaviusClient.fromDataSource(ds, dynamicWriteStrategy = strategy).use { db ->
                     db.dynamicTypes.register<Triumph>("triumph")
                     db.dynamicTypes.register<Honour>("honour_dyn")
@@ -141,7 +78,7 @@ class DynamicWriteStrategyTest {
                 }
             }
         } finally {
-            GlobalCatalogStore.removeCatalog(URL)
+            GlobalCatalogStore.removeCatalog(TestDatabase.URL)
         }
     }
 
