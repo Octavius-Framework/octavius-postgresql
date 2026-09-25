@@ -46,10 +46,6 @@ jobs:
       # `pg-model` is the multiplatform module and so has no `test` task at all - `test` alone builds its jar
       # and runs none of its tests. `allTests` is the aggregate over both targets it publishes.
       - name: Run Tests
-        env:
-          DB_URL: jdbc:postgresql://localhost:5432/octavius_test
-          DB_USERNAME: postgres
-          DB_PASSWORD: 1234
         run: ./gradlew test :pg-model:allTests
 
   test-ssl:
@@ -129,9 +125,6 @@ jobs:
       - name: Run SSL Tests
         env:
           TEST_SSL: "true"
-          DB_URL: jdbc:postgresql://localhost:5433/octavius_test
-          DB_USERNAME: postgres
-          DB_PASSWORD: 1234
           SSL_ROOT_CERT: ${{ github.workspace }}/.ssl/ca.crt
           SSL_CERT: ${{ github.workspace }}/.ssl/client.crt
           SSL_KEY: ${{ github.workspace }}/.ssl/client.key
