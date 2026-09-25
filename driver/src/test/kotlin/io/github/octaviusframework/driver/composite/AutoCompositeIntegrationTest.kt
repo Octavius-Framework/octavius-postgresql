@@ -13,7 +13,9 @@ import org.junit.jupiter.api.Test
 
 /**
  * A reflectively mapped composite carrying another composite, an array, a range, an array of ranges and a
- * multirange, sent as a parameter and read back - through a positional query and a named one alike.
+ * multirange, sent as a parameter and read back - through a positional query and a named one alike. Then the
+ * two shapes a composite takes that the catalog has to be read carefully for: a table's row type with a column
+ * dropped out of its middle, and a composite that is `NULL` beside one whose every attribute is.
  */
 class AutoCompositeIntegrationTest : AbstractIntegrationTest() {
 
@@ -27,6 +29,9 @@ class AutoCompositeIntegrationTest : AbstractIntegrationTest() {
         val leave: MultiRange<LocalDate>
     )
 
+    /** The roll of a table whose middle column was dropped: `legion` and `cohorts` are attributes 1 and 3. */
+    data class GarrisonRoll(val legion: String, val cohorts: Int)
+
     override val schema = """
         CREATE TYPE roman_name AS (praenomen text, nomen text);
         CREATE TYPE enlistment AS (
@@ -36,6 +41,10 @@ class AutoCompositeIntegrationTest : AbstractIntegrationTest() {
             watches tsrange[],
             leave   datemultirange
         );
+
+        CREATE TABLE garrison_roll (legion text, prefect text, cohorts int);
+        ALTER TABLE garrison_roll DROP COLUMN prefect;
+        INSERT INTO garrison_roll VALUES ('XX Valeria Victrix', 10);
     """.trimIndent()
 
     @BeforeAll
@@ -43,6 +52,7 @@ class AutoCompositeIntegrationTest : AbstractIntegrationTest() {
         openSession().use { session ->
             session.typeManager.registerAutoComposite<RomanName>("roman_name")
             session.typeManager.registerAutoComposite<Enlistment>("enlistment")
+            session.typeManager.registerAutoComposite<GarrisonRoll>("garrison_roll")
         }
     }
 
@@ -92,6 +102,30 @@ class AutoCompositeIntegrationTest : AbstractIntegrationTest() {
                 .fetchRowStrict("enlistment" to enlistment())
 
             assertReadBack(row.get<Enlistment>("enlistment"))
+        }
+    }
+
+    @Test
+    fun `a table's row type reads and writes around a column dropped from its middle`() {
+        openSession().use { session ->
+            val roll = session.createNativeQuery("SELECT g FROM garrison_roll g").fetchFieldStrict<GarrisonRoll>()
+            assertEquals(GarrisonRoll("XX Valeria Victrix", 10), roll)
+
+            val cohorts = session.createNativeQuery("SELECT ($1::garrison_roll).cohorts")
+                .fetchFieldStrict<Int>(GarrisonRoll("II Augusta", 9))
+            assertEquals(9, cohorts)
+        }
+    }
+
+    @Test
+    fun `a NULL composite is not a composite of NULLs`() {
+        // SQL cannot tell them apart - ROW(NULL, NULL) IS NULL is true - but the wire can, and so does the
+        // mapping: one is no value, the other is a value with nothing in it.
+        openSession().use { session ->
+            val row = session.createNativeQuery("SELECT NULL::roman_name, ROW(NULL, NULL)::roman_name").fetchRowStrict()
+
+            assertEquals(null, row.get<Map<String, Any?>?>(0))
+            assertEquals(mapOf("praenomen" to null, "nomen" to null), row.get<Map<String, Any?>?>(1))
         }
     }
 }

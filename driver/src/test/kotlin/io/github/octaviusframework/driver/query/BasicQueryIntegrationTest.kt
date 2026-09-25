@@ -5,6 +5,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.StatementException
+import io.github.octaviusframework.driver.row.Row
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -117,6 +118,34 @@ class BasicQueryIntegrationTest : AbstractIntegrationTest() {
             assertEquals(MappingExceptionReason.BLOCK_FAILED, failure.reason)
             assertEquals("the aqueduct is dry", failure.cause?.message)
             assertEquals(IllegalStateException::class, failure.cause!!::class)
+        }
+    }
+
+    @Test
+    fun `a row too large for the cached buffer, between two that fit, leaves every row as it was read`() {
+        // Rows up to maxCachedRowSize are read into one buffer the connection reuses, and a larger one into an
+        // array of its own. The default limit is 64 KiB, so the second branch takes a lower one to reach: at 1 KiB
+        // the second row (8008 bytes) goes over it, and the others (28 bytes) share the buffer, each overwriting
+        // the one before. Every row repeats a letter of its own, so a row read from another's bytes shows it.
+        val sql = """
+            SELECT repeat(chr(64 + i), n) AS roll, convert_to(repeat(chr(64 + i), n), 'UTF8') AS tablet
+            FROM (VALUES (1, 10), (2, 4000), (3, 10), (4, 10)) AS legions(i, n)
+        """.trimIndent()
+        val expected = listOf('A' to 10, 'B' to 4000, 'C' to 10, 'D' to 10)
+
+        openSession { maxCachedRowSize = 1024 }.use { session ->
+            val whole = session.createNativeQuery(sql).fetchRows()
+            val streamed = mutableListOf<Row>()
+            session.createNativeQuery(sql).forEachRow(fetchSize = 1) { streamed += it }
+
+            for (rows in listOf(whole, streamed)) {
+                assertEquals(expected, rows.map { it.get<String>("roll").let { roll -> roll.first() to roll.length } })
+                for ((row, pair) in rows.zip(expected)) {
+                    val (letter, length) = pair
+                    assertEquals(letter.toString().repeat(length), row.get<String>("roll"))
+                    assertEquals(letter.toString().repeat(length), row.get<ByteArray>("tablet").decodeToString())
+                }
+            }
         }
     }
 }
