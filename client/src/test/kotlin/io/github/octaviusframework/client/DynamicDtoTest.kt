@@ -316,9 +316,10 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
 
     @Test
     fun `inside an anonymous record, however deep, each one reads as its class`() {
-        // The driver's CrazyRecordIntegrationTest without dynamic_dto, which the driver does not know: a record
-        // read as a map hands every value to the chain as Any, and that is enough for each discriminator to be
-        // resolved where it sits - beside an enum, in a nested record, in an array, in a record in an array.
+        // The anonymous record of the driver's ComplexDataIntegrationTest without dynamic_dto, which the driver
+        // does not know: a record read as a map hands every value to the chain as Any, and that is enough for each
+        // discriminator to be resolved where it sits - beside an enum, in a nested record, in an array, in a
+        // record in an array.
         val grant = "dynamic_dto('land_grant', jsonb_build_object('province', 'Asia', 'iugera', 7))"
         val pension = "dynamic_dto('military_pension', jsonb_build_object('legion', 'X Fretensis', 'annual', 900))"
 
