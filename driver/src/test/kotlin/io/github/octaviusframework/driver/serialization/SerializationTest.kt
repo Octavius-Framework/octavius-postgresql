@@ -1,26 +1,28 @@
 package io.github.octaviusframework.driver.serialization
 
 import io.github.octaviusframework.driver.io.PgByteWriter
-import io.github.octaviusframework.driver.codec.dynamic.ContainerCodec
 import io.github.octaviusframework.driver.container.ArrayDimension
 import io.github.octaviusframework.driver.container.PgArray
 import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.codec.encodeSafely
 import io.github.octaviusframework.driver.container.PgContainer
 import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.registry.DatabaseKey
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import kotlin.test.assertContentEquals
 import kotlin.test.assertNotNull
 
-class SerializationTest {
+class SerializationTest : AbstractIntegrationTest() {
+
+    override val schema = "CREATE TYPE legion_standard AS (id int, name text)"
 
     /**
      * Encodes a container the way the driver does: through the codec the catalog binds to its OID, which is
@@ -34,23 +36,14 @@ class SerializationTest {
 
     @Test
     fun testFactoryAndSerializationRoundtrip() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
+        val session = openSession()
 
-        val url = "jdbc:octavius://localhost:5432/octavius_test"
-        val session = getOctaviusSession(url, props)
-
-        session.createNativeQuery("DROP TYPE IF EXISTS ser_test_composite CASCADE").execute()
-        session.createNativeQuery("CREATE TYPE ser_test_composite AS (id int, name text)").execute()
-        session.reloadTypes()
-
-        val catalogHolder = GlobalCatalogStore.holderFor(DatabaseKey.from(OctaviusProperties.parse(url)))
+        val catalogHolder = GlobalCatalogStore.holderFor(DatabaseKey.from(OctaviusProperties.parse(TestDatabase.URL)))
 
         // 1. Build the composite from scratch through the factory
-        val composite = session.typeManager.containers.createComposite("ser_test_composite")
+        val composite = session.typeManager.containers.createComposite("legion_standard")
         composite["id"] = 777
-        composite["name"] = "factory_test"
+        composite["name"] = "Legio X Equestris"
 
         val writer1 = PgByteWriter()
         catalogHolder.encode(composite, writer1)
@@ -58,7 +51,7 @@ class SerializationTest {
 
         // Compare against the database
         val expectedCompositeRow =
-            session.createNativeQuery("SELECT ROW(777, 'factory_test')::ser_test_composite as my_comp").fetchRowStrict()
+            session.createNativeQuery("SELECT ROW(777, 'Legio X Equestris')::legion_standard as standard").fetchRowStrict()
         val expectedComposite = expectedCompositeRow.get<PgComposite>(0)
         val writerComp = PgByteWriter()
         catalogHolder.encode(expectedComposite, writerComp)
@@ -96,17 +89,13 @@ class SerializationTest {
 
     @Test
     fun testQueryWithParameters() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         val array = listOf(10, 20, 30)
 
-        val rows = session.createNativeQuery("SELECT $1::int[] as test_col").fetchRows(array)
+        val rows = session.createNativeQuery("SELECT $1::int[] as cohorts").fetchRows(array)
 
-        val returnedArray = rows.first().get<PgArray>("test_col")
+        val returnedArray = rows.first().get<PgArray>("cohorts")
         assertNotNull(returnedArray)
         assertEquals(10, returnedArray.get<Int>(0))
         assertEquals(20, returnedArray.get<Int>(1))
@@ -116,14 +105,9 @@ class SerializationTest {
 
     @Test
     fun testMultidimensionalArray() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
+        val session = openSession()
 
-        val url = "jdbc:octavius://localhost:5432/octavius_test"
-        val session = getOctaviusSession(url, props)
-
-        val catalogHolder = GlobalCatalogStore.holderFor(DatabaseKey.from(OctaviusProperties.parse(url)))
+        val catalogHolder = GlobalCatalogStore.holderFor(DatabaseKey.from(OctaviusProperties.parse(TestDatabase.URL)))
 
         // A 2x3 array (2 rows, 3 columns)
         val multiArray = PgArray(
@@ -141,7 +125,7 @@ class SerializationTest {
         val serializedArray = writer.toByteArray()
 
         val rows = session.createNativeQuery(
-            "SELECT ARRAY[[1, 2, 3], [4, 5, 6]]::int[] as test_col"
+            "SELECT ARRAY[[1, 2, 3], [4, 5, 6]]::int[] as cohorts"
         ).fetchRows()
 
         val expectedArray = rows.first().get<PgArray>(0)
@@ -158,11 +142,7 @@ class SerializationTest {
 
     @Test
     fun testParameterSerializerDatabaseRoundTrip() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         // 1. Integer Round Trip
         val intVal = 424242
@@ -170,7 +150,7 @@ class SerializationTest {
         assertEquals(intVal, rowsInt.first().get<Int>("res"))
 
         // 2. String Round Trip
-        val strVal = "Zażółć gęślą jaźń"
+        val strVal = "Gallia est omnis dīvīsa in partēs trēs"
         val rowsStr = session.createNativeQuery("SELECT $1 as res").fetchRows(strVal)
         assertEquals(strVal, rowsStr.first().get<String>("res"))
 
@@ -196,16 +176,12 @@ class SerializationTest {
     }
     @Test
     fun testRecordMapSerialization() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         // 6. Record Map Serialization
         val recordMap = mapOf(
-            "str_key" to "hello",
-            "int_key" to 12345
+            "cognomen" to "Caesar",
+            "legiones" to 10
         )
 
         val exception = assertThrows<TypeException> {
@@ -219,13 +195,9 @@ class SerializationTest {
 
     @Test
     fun testUnknownTypeSerialization() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
+        val session = openSession()
 
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-
-        val stringVal = "some literal value"
+        val stringVal = "alea iacta est"
         val res = session.createNativeQuery("SELECT '$stringVal' as res").fetchField<String>()
 
         assertEquals(stringVal, res)

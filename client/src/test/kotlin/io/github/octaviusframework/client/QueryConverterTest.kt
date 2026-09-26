@@ -1,15 +1,11 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.type.PgType
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.reflect.KClass
@@ -25,7 +21,7 @@ import kotlin.test.assertFailsWith
  * would reach every session pointing at it. What these tests pin is that the client's builders reach that, and
  * reach only that.
  */
-class QueryConverterTest {
+class QueryConverterTest : AbstractClientIntegrationTest() {
 
     /** Reads an `int4` as a `String`, which nothing does by default - so its effect is unmistakable. */
     private object TaggedIntConverter : ResultConverter<Int, String> {
@@ -50,32 +46,9 @@ class QueryConverterTest {
 
     enum class Rank { Legatus, Tribunus }
 
-    companion object {
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
+    override val poolSize = 1 // one connection, so a leaked converter would certainly be seen
 
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            dataSource = HikariDataSource(HikariConfig().apply {
-                jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-                username = "postgres"
-                password = "1234"
-                maximumPoolSize = 1 // one connection, so a leaked converter would certainly be seen
-            })
-            db = OctaviusClient.fromDataSource(dataSource)
-            db.rawQuery("CREATE TABLE IF NOT EXISTS qc_probe (id SERIAL PRIMARY KEY, amount INT, label TEXT)")
-                .execute()
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS qc_probe").execute()
-            db.close()
-            dataSource.close()
-        }
-    }
+    override val schema = "CREATE TABLE qc_probe (id SERIAL PRIMARY KEY, amount INT, label TEXT)"
 
     @BeforeEach
     fun seed() {

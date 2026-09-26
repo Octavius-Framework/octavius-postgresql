@@ -5,10 +5,9 @@ import io.github.octaviusframework.driver.converter.result.mapper.ResultConverte
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.MappingException
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -23,33 +22,28 @@ import kotlin.test.assertTrue
  * a `forEach` block, a converter - must not be able to start its own statement on that session:
  * it would interleave its messages into the exchange in flight and desynchronize the connection.
  */
-class ReentrantExecutionTest {
+class ReentrantExecutionTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
-    private fun newSession(): OctaviusSession = getOctaviusSession(OctaviusProperties().apply {
-        user = "postgres"; password = "1234"
-        serverName = "localhost"; portNumber = 5432; databaseName = "octavius_test"
-    })
+    override val schema = "CREATE TABLE sentries (id INT, name TEXT)"
 
     @BeforeEach
     fun setup() {
-        session = newSession()
-        session.createNativeQuery("CREATE TABLE IF NOT EXISTS reentrant_test (id INT, name TEXT)").execute()
-        session.createNativeQuery("TRUNCATE reentrant_test").execute()
-        session.createNativeQuery("INSERT INTO reentrant_test SELECT g, 'n' || g FROM generate_series(1, 6) g").update()
+        session = openSession()
+        session.createNativeQuery("TRUNCATE sentries").execute()
+        session.createNativeQuery("INSERT INTO sentries SELECT g, 'vigil ' || g FROM generate_series(1, 6) g").update()
     }
 
     @AfterEach
     fun teardown() {
-        runCatching { session.createNativeQuery("DROP TABLE IF EXISTS reentrant_test").execute() }
         session.close()
     }
 
     @Test
     fun `query from inside a forEach block is refused`() {
         val error = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT id FROM reentrant_test ORDER BY id").forEachRow(fetchSize = 2) {
+            session.createNativeQuery("SELECT id FROM sentries ORDER BY id").forEachRow(fetchSize = 2) {
                 session.createNativeQuery("SELECT 99").fetchFieldStrict<Int>()
             }
         }
@@ -64,8 +58,8 @@ class ReentrantExecutionTest {
     @Test
     fun `execute from inside a forEach block is refused and leaves the session usable`() {
         val error = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT id FROM reentrant_test ORDER BY id").forEachRow(fetchSize = 2) {
-                session.createNativeQuery("SET application_name = 'nope'").execute()
+            session.createNativeQuery("SELECT id FROM sentries ORDER BY id").forEachRow(fetchSize = 2) {
+                session.createNativeQuery("SET application_name = 'desertor'").execute()
             }
         }
         assertEquals(InvalidOperationExceptionReason.CONNECTION_BUSY, error.reason)
@@ -76,8 +70,8 @@ class ReentrantExecutionTest {
     @Test
     fun `starting a COPY from inside a forEach block is refused`() {
         val error = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT id FROM reentrant_test ORDER BY id").forEachRow(fetchSize = 2) {
-                session.copy.copyOut("COPY reentrant_test TO STDOUT")
+            session.createNativeQuery("SELECT id FROM sentries ORDER BY id").forEachRow(fetchSize = 2) {
+                session.copy.copyOut("COPY sentries TO STDOUT")
             }
         }
         assertEquals(InvalidOperationExceptionReason.CONNECTION_BUSY, error.reason)
@@ -89,14 +83,14 @@ class ReentrantExecutionTest {
     fun `query from inside a converter is refused, streaming or not`() {
         // Non-streaming: the converter still runs while the result is being read
         val materialized = assertFailsWith<MappingException> {
-            session.createNativeQuery("SELECT name FROM reentrant_test ORDER BY id")
+            session.createNativeQuery("SELECT name FROM sentries ORDER BY id")
                 .registerResultConverter(SelfQueryingConverter(session))
                 .fetchFields<String>()
         }
         assertTrue(materialized.cause is InvalidOperationException, "expected the guard underneath, got ${materialized.cause}")
 
         val streamed = assertFailsWith<MappingException> {
-            session.createNativeQuery("SELECT name FROM reentrant_test ORDER BY id")
+            session.createNativeQuery("SELECT name FROM sentries ORDER BY id")
                 .registerResultConverter(SelfQueryingConverter(session))
                 .forEachField<String>(fetchSize = 2) { }
         }
@@ -108,7 +102,7 @@ class ReentrantExecutionTest {
     @Test
     fun `converting after the exchange has finished is allowed`() {
         // fetchRows defers conversion to the caller, so a querying converter is fine here
-        val rows = session.createNativeQuery("SELECT name FROM reentrant_test ORDER BY id")
+        val rows = session.createNativeQuery("SELECT name FROM sentries ORDER BY id")
             .registerResultConverter(SelfQueryingConverter(session))
             .fetchRows()
 
@@ -118,13 +112,13 @@ class ReentrantExecutionTest {
     @Test
     fun `sequential queries are unaffected`() {
         repeat(3) {
-            assertEquals(6L, session.createNativeQuery("SELECT count(*) FROM reentrant_test").fetchFieldStrict<Long>())
+            assertEquals(6L, session.createNativeQuery("SELECT count(*) FROM sentries").fetchFieldStrict<Long>())
         }
     }
 
     @Test
     fun `a failed statement releases the connection`() {
-        runCatching { session.createNativeQuery("SELECT * FROM no_such_table").fetchRows() }
+        runCatching { session.createNativeQuery("SELECT * FROM atlantis").fetchRows() }
         assertEquals(1, session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>())
     }
 

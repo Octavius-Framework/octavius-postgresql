@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.spring
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
 import io.github.octaviusframework.driver.spring.exception.OctaviusDataAccessException
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
@@ -24,9 +25,9 @@ import org.springframework.transaction.annotation.Transactional
 @SpringBootTest(
     classes = [AbortTestApplication::class, OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class],
     properties = [
-        "spring.datasource.url=jdbc:octavius://localhost:5432/octavius_test",
-        "spring.datasource.username=postgres",
-        "spring.datasource.password=1234",
+        "spring.datasource.url=${TestDatabase.URL}",
+        "spring.datasource.username=${TestDatabase.USER}",
+        "spring.datasource.password=${TestDatabase.PASSWORD}",
         "spring.datasource.driver-class-name=io.github.octaviusframework.driver.jdbc.OctaviusDriver",
         "spring.datasource.hikari.maximum-pool-size=1",
         "spring.datasource.hikari.minimum-idle=1"

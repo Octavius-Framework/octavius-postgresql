@@ -1,11 +1,9 @@
 package io.github.octaviusframework.driver.notice
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 
 object TestNoticeHandler : NoticeHandler {
@@ -15,25 +13,20 @@ object TestNoticeHandler : NoticeHandler {
     }
 }
 
-class NoticeHandlerTest {
+class NoticeHandlerTest : AbstractIntegrationTest() {
 
     @Test
     fun testNoticeHandlerReceivesNotice() = runBlocking {
         TestNoticeHandler.lastNotice = null
         
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        props.noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler"
-        
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession { noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
         
         // Generate a notice
-        session.createNativeQuery("DO $$ BEGIN RAISE NOTICE 'test notice from test'; END; $$;").execute()
+        session.createNativeQuery("DO $$ BEGIN RAISE NOTICE 'the augurs report a flight of crows'; END; $$;").execute()
         
         val notice = TestNoticeHandler.lastNotice
         assertNotNull(notice)
-        assertEquals("test notice from test", notice.message)
+        assertEquals("the augurs report a flight of crows", notice.message)
         assertEquals("NOTICE", notice.severity)
 
         // A shared handler tells connections apart by this, so it has to be the backend that raised it
@@ -51,34 +44,29 @@ class NoticeHandlerTest {
     fun testNoticeExposesEveryFieldTheServerSends() = runBlocking {
         TestNoticeHandler.lastNotice = null
 
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        props.noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession { noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
 
         session.createNativeQuery(
             """DO $$ BEGIN
-                 RAISE NOTICE 'rich notice' USING
-                   DETAIL = 'the detail', HINT = 'the hint', ERRCODE = '22000',
-                   COLUMN = 'col_x', CONSTRAINT = 'con_x', DATATYPE = 'dt_x',
-                   TABLE = 'tab_x', SCHEMA = 'sch_x';
+                 RAISE NOTICE 'tribute short' USING
+                   DETAIL = 'Gallia paid half', HINT = 'send a quaestor', ERRCODE = '22000',
+                   COLUMN = 'denarii', CONSTRAINT = 'tribute_paid', DATATYPE = 'numeric',
+                   TABLE = 'tributes', SCHEMA = 'aerarium';
                END; $$;"""
         ).execute()
 
         val notice = TestNoticeHandler.lastNotice
         assertNotNull(notice)
 
-        assertEquals("rich notice", notice.message)
+        assertEquals("tribute short", notice.message)
         assertEquals("22000", notice.code)
-        assertEquals("the detail", notice.detail)
-        assertEquals("the hint", notice.hint)
-        assertEquals("sch_x", notice.schema)
-        assertEquals("tab_x", notice.table)
-        assertEquals("col_x", notice.column)
-        assertEquals("dt_x", notice.datatype)
-        assertEquals("con_x", notice.constraint)
+        assertEquals("Gallia paid half", notice.detail)
+        assertEquals("send a quaestor", notice.hint)
+        assertEquals("aerarium", notice.schema)
+        assertEquals("tributes", notice.table)
+        assertEquals("denarii", notice.column)
+        assertEquals("numeric", notice.datatype)
+        assertEquals("tribute_paid", notice.constraint)
 
         // Sent with every notice, wherever it came from.
         assertNotNull(notice.file)

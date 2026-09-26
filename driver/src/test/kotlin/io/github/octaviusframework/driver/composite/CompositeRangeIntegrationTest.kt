@@ -1,103 +1,61 @@
 package io.github.octaviusframework.driver.composite
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.range.MultiRange
 import io.github.octaviusframework.driver.type.range.Range
 import io.github.octaviusframework.driver.type.range.multiRangeOf
 import io.github.octaviusframework.driver.type.range.rangeOf
-import org.junit.jupiter.api.AfterAll
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class CompositeRangeIntegrationTest {
+/** A range, and a multirange, over a composite: stretches of road measured between milestones. */
+class CompositeRangeIntegrationTest : AbstractIntegrationTest() {
 
-    data class SimpleData(val major: Int, val minor: Int)
+    data class Milestone(val road: Int, val mile: Int)
+
+    override val schema = """
+        CREATE TYPE milestone AS (road int, mile int);
+        CREATE TYPE road_stretch AS RANGE (subtype = milestone);
+    """.trimIndent()
 
     @BeforeAll
-    fun setup() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data_range CASCADE").execute()
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data CASCADE").execute()
-
-            session.createNativeQuery("CREATE TYPE simple_data AS (major int, minor int)").execute()
-
-            session.createNativeQuery("CREATE TYPE simple_data_range AS RANGE (subtype = simple_data)").execute()
-        } catch (e: Exception) {
-            println("Exception during setup: ${e.message}")
-            throw e
-        } finally {
-            session.close()
-        }
-    }
-
-    @AfterAll
-    fun teardown() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data_range CASCADE").execute()
-            session.createNativeQuery("DROP TYPE IF EXISTS simple_data CASCADE").execute()
-        } finally {
-            session.close()
-        }
+    fun register() {
+        openSession().use { it.typeManager.registerAutoComposite<Milestone>("milestone") }
     }
 
     @Test
     fun testCompositeRangeNativeQuery() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<SimpleData>("simple_data")
-
-            val dataRange = rangeOf(
-                lowerBound = SimpleData(10, 10),
-                upperBound = SimpleData(10, 20)
+        openSession().use { session ->
+            val stretch = rangeOf(
+                lowerBound = Milestone(1, 10),
+                upperBound = Milestone(1, 20)
             )
 
-            val query = "SELECT $1 AS data_range"
-            val resultRow = session.createNativeQuery(query).fetchRowStrict(dataRange)
-            val parsedRange = resultRow.get<Range<SimpleData>>("data_range")
+            val row = session.createNativeQuery("SELECT $1 AS stretch").fetchRowStrict(stretch)
+            val parsed = row.get<Range<Milestone>>("stretch")
 
-            assertEquals(10, parsedRange.lowerBound?.minor)
-            assertEquals(20, parsedRange.upperBound?.minor)
-        } finally {
-            session.close()
+            assertEquals(10, parsed.lowerBound?.mile)
+            assertEquals(20, parsed.upperBound?.mile)
         }
     }
 
     @Test
     fun testCompositeMultiRangeNativeQuery() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-        try {
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<SimpleData>("simple_data")
-
-            val dataRange1 = rangeOf(
-                lowerBound = SimpleData(10, 10),
-                upperBound = SimpleData(10, 20)
+        openSession().use { session ->
+            val stretches = multiRangeOf(
+                rangeOf(lowerBound = Milestone(1, 10), upperBound = Milestone(1, 20)),
+                rangeOf(lowerBound = Milestone(1, 30), upperBound = Milestone(1, 40))
             )
 
-            val dataRange2 = rangeOf(
-                lowerBound = SimpleData(10, 30),
-                upperBound = SimpleData(10, 40)
-            )
+            val row = session.createNativeQuery("SELECT $1 AS stretches").fetchRowStrict(stretches)
+            val parsed = row.get<MultiRange<Milestone>>("stretches")
 
-            val multiRange = multiRangeOf(dataRange1, dataRange2)
-
-            val query = "SELECT $1 AS data_range"
-            val resultRow = session.createNativeQuery(query).fetchRowStrict(multiRange)
-            val parsedMultiRange = resultRow.get<MultiRange<SimpleData>>("data_range")
-
-            assertEquals(2, parsedMultiRange.ranges.size)
-            assertEquals(10, parsedMultiRange.ranges[0].lowerBound?.minor)
-            assertEquals(20, parsedMultiRange.ranges[0].upperBound?.minor)
-            assertEquals(30, parsedMultiRange.ranges[1].lowerBound?.minor)
-            assertEquals(40, parsedMultiRange.ranges[1].upperBound?.minor)
-        } finally {
-            session.close()
+            assertEquals(2, parsed.ranges.size)
+            assertEquals(10, parsed.ranges[0].lowerBound?.mile)
+            assertEquals(20, parsed.ranges[0].upperBound?.mile)
+            assertEquals(30, parsed.ranges[1].lowerBound?.mile)
+            assertEquals(40, parsed.ranges[1].upperBound?.mile)
         }
     }
 }

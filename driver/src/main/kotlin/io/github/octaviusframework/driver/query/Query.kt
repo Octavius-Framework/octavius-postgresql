@@ -73,16 +73,19 @@ abstract class Query<T : Query<T>> internal constructor(
      * Everything downstream - the parameter serializer, the result mapper, the `Row`s it produces, the type
      * lookup converters are handed - reads this one catalog, so a registration on another thread cannot land in
      * the middle of a result and leave it mapped against two of them.
+     *
+     * The query's own converters are copied for the same reason: the `Row`s outlive the execution, and the
+     * lists they would otherwise share are the ones a later registration on this query appends to.
      */
     internal fun beginExecution(): Execution {
         val catalog = typeManager.catalog
         val pinned = typeManager.pinnedTo(catalog)
         return Execution(
             catalog = catalog,
-            resultMapper = ResultMapper(catalog, localResultConverters, pinned),
+            resultMapper = ResultMapper(catalog, localResultConverters?.toList(), pinned),
             parameterSerializer = ParameterSerializer(
                 pinned,
-                ParameterMapper(catalog, localParameterConverters, pinned)
+                ParameterMapper(catalog, localParameterConverters?.toList(), pinned)
             )
         )
     }

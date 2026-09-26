@@ -3,7 +3,7 @@ package io.github.octaviusframework.driver.jdbc
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.NetworkException
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
@@ -23,17 +23,11 @@ import kotlin.test.assertTrue
  * healthy connection. From the *same* thread it must not lie: reaching it from inside a streaming
  * block is a caller bug, and the reason enum saying so is worth more than a bare `false`.
  */
-class IsValidConcurrencyTest {
-
-    private fun getSession() =
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-            user = "postgres"
-            password = "1234"
-        })
+class IsValidConcurrencyTest : AbstractIntegrationTest() {
 
     @Test
     fun `isValid must not shorten the deadline of a query running on another thread`() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.networkTimeout = 0 // no limit - the query below must be allowed to take its time
 
             val queryStarted = CountDownLatch(1)
@@ -81,7 +75,7 @@ class IsValidConcurrencyTest {
 
     @Test
     fun `isValid called from inside a streaming block reports the misuse instead of returning false`() {
-        getSession().use { session ->
+        openSession().use { session ->
             var thrown: InvalidOperationException? = null
 
             session.createNativeQuery("SELECT i FROM generate_series(1, 3) i").forEachRow(fetchSize = 2) {

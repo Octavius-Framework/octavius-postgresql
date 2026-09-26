@@ -1,7 +1,5 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.annotation.PgEnumType
 import io.github.octaviusframework.client.dynamic.DynamicDto
 import io.github.octaviusframework.driver.exception.InvalidOperationException
@@ -16,7 +14,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNamingStrategy
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -29,7 +26,7 @@ import kotlin.test.assertTrue
  * Covers `dynamic_dto` end to end: one column holding several unrelated shapes, written from Kotlin and built
  * in SQL, and read back as the classes registered for them.
  */
-class DynamicDtoTest {
+class DynamicDtoTest : AbstractClientIntegrationTest() {
 
     @OptIn(ExperimentalSerializationApi::class)
     private val snakeCase = Json { namingStrategy = JsonNamingStrategy.SnakeCase }
@@ -81,73 +78,48 @@ class DynamicDtoTest {
 
     data class Archived(val id: Int, val record: Benefit)
 
-    companion object {
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
+    override val schema = "CREATE TYPE public.magistrature AS ENUM ('QUAESTOR', 'AEDILE', 'PRAETOR', 'CONSUL')"
 
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            dataSource = HikariDataSource(HikariConfig().apply {
-                jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-                username = "postgres"
-                password = "1234"
-                maximumPoolSize = 2
-            })
-            db = OctaviusClient.fromDataSource(dataSource)
+    @BeforeAll
+    fun setUp() {
+        // Installing after the pool was built is the harder case: the driver read its type catalogue when
+        // it connected, so this only works if install() reloads it.
+        db.dynamicTypes.install()
+        db.dynamicTypes.install() // twice, because the DDL claims to be safe run twice
 
-            db.rawQuery("DROP TYPE IF EXISTS public.magistrature").execute()
-            db.rawQuery("CREATE TYPE public.magistrature AS ENUM ('QUAESTOR', 'AEDILE', 'PRAETOR', 'CONSUL')")
-                .execute()
+        db.dynamicTypes.register<LandGrant>("land_grant")
+        db.dynamicTypes.register<MilitaryPension>("military_pension")
+        db.dynamicTypes.register<Citation>("citation")
+        db.dynamicTypes.register<Stipend>("stipend")
+        db.dynamicTypes.register<TributeAssessment>("tribute_assessment")
+        db.dynamicTypes.register<Appointment>("appointment")
+        db.dynamicTypes.register<Deployment>("deployment")
 
-            // Installing after the pool was built is the harder case: the driver read its type catalogue when
-            // it connected, so this only works if install() reloads it.
-            db.dynamicTypes.install()
-            db.dynamicTypes.install() // twice, because the DDL claims to be safe run twice
+        // After the client was built, which is the only order there is: a client is constructed before
+        // anything is registered on it.
+        db.execute { typeManager.registerEnum<Magistrature>("magistrature") }
 
-            db.dynamicTypes.register<LandGrant>("land_grant")
-            db.dynamicTypes.register<MilitaryPension>("military_pension")
-            db.dynamicTypes.register<Citation>("citation")
-            db.dynamicTypes.register<Stipend>("stipend")
-            db.dynamicTypes.register<TributeAssessment>("tribute_assessment")
-            db.dynamicTypes.register<Appointment>("appointment")
-            db.dynamicTypes.register<Deployment>("deployment")
-
-            // After the client was built, which is the only order there is: a client is constructed before
-            // anything is registered on it.
-            db.execute { typeManager.registerEnum<Magistrature>("magistrature") }
-
-            db.rawQuery(
-                """
-                CREATE TABLE IF NOT EXISTS dyn_veterans (
-                    id       SERIAL PRIMARY KEY,
-                    name     TEXT NOT NULL,
-                    benefit  public.dynamic_dto,
-                    benefits public.dynamic_dto[],
-                    office   public.magistrature
-                );
-                CREATE TABLE IF NOT EXISTS dyn_grants (
-                    veteran_id INT  NOT NULL,
-                    province   TEXT NOT NULL,
-                    iugera     INT  NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS dyn_archives (
-                    id          SERIAL PRIMARY KEY,
-                    record_type TEXT  NOT NULL,
-                    payload     JSONB NOT NULL
-                )
-                """.trimIndent()
-            ).execute()
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS dyn_veterans, dyn_grants, dyn_archives").execute()
-            db.rawQuery("DROP TYPE IF EXISTS public.magistrature").execute()
-            db.close()
-            dataSource.close()
-        }
+        db.rawQuery(
+            """
+            CREATE TABLE dyn_veterans (
+                id       SERIAL PRIMARY KEY,
+                name     TEXT NOT NULL,
+                benefit  public.dynamic_dto,
+                benefits public.dynamic_dto[],
+                office   public.magistrature
+            );
+            CREATE TABLE dyn_grants (
+                veteran_id INT  NOT NULL,
+                province   TEXT NOT NULL,
+                iugera     INT  NOT NULL
+            );
+            CREATE TABLE dyn_archives (
+                id          SERIAL PRIMARY KEY,
+                record_type TEXT  NOT NULL,
+                payload     JSONB NOT NULL
+            )
+            """.trimIndent()
+        ).execute()
     }
 
     @BeforeEach
@@ -340,6 +312,72 @@ class DynamicDtoTest {
             ),
             archived
         )
+    }
+
+    @Test
+    fun `inside an anonymous record, however deep, each one reads as its class`() {
+        // The anonymous record of the driver's ComplexDataIntegrationTest without dynamic_dto, which the driver
+        // does not know: a record read as a map hands every value to the chain as Any, and that is enough for each
+        // discriminator to be resolved where it sits - beside an enum, in a nested record, in an array, in a
+        // record in an array.
+        val grant = "dynamic_dto('land_grant', jsonb_build_object('province', 'Asia', 'iugera', 7))"
+        val pension = "dynamic_dto('military_pension', jsonb_build_object('legion', 'X Fretensis', 'annual', 900))"
+
+        val rec = db.rawQuery(
+            """
+            SELECT ROW(
+                'plain', 'insanity'::text,
+                'office', 'PRAETOR'::magistrature,
+                'benefit', $grant,
+                'nested', ROW(
+                    'appointment', dynamic_dto('appointment', jsonb_build_object('office', 'CONSUL')),
+                    'benefits', ARRAY[$grant, $pension]
+                ),
+                'rows', ARRAY[
+                    ROW('id', 1, 'benefit', $pension),
+                    ROW('id', 2, 'benefit', NULL::public.dynamic_dto)
+                ]::record[]
+            )
+            """
+        ).fetchFieldStrict<Map<String, Any?>>()
+
+        assertEquals("insanity", rec["plain"])
+        assertEquals(Magistrature.Praetor, rec["office"])
+        assertEquals(LandGrant("Asia", 7), rec["benefit"])
+
+        @Suppress("UNCHECKED_CAST")
+        val nested = rec["nested"] as Map<String, Any?>
+        assertEquals(Appointment(Magistrature.Consul), nested["appointment"])
+        assertEquals(listOf(LandGrant("Asia", 7), MilitaryPension("X Fretensis", 900)), nested["benefits"])
+
+        @Suppress("UNCHECKED_CAST")
+        val rows = rec["rows"] as List<Map<String, Any?>>
+        assertEquals(listOf(mapOf("id" to 1, "benefit" to MilitaryPension("X Fretensis", 900)), mapOf("id" to 2, "benefit" to null)), rows)
+    }
+
+    @Test
+    fun `and as the key of that map, it is its class as well`() {
+        // A record read as a map converts its keys through the chain too, against the key type asked for - so
+        // a key can be a dynamic_dto, and what it becomes is an object with equals, which a map can look up.
+        val grant = "dynamic_dto('land_grant', jsonb_build_object('province', 'Asia', 'iugera', 7))"
+        val pension = "dynamic_dto('military_pension', jsonb_build_object('legion', 'X Gemina', 'annual', 300))"
+
+        val byBenefit = db.rawQuery("SELECT ROW($grant, 1, $pension, 2)").fetchFieldStrict<Map<Benefit, Int>>()
+        assertEquals(mapOf(LandGrant("Asia", 7) to 1, MilitaryPension("X Gemina", 300) to 2), byBenefit)
+        assertEquals(1, byBenefit[LandGrant("Asia", 7)])
+
+        val both = db.rawQuery("SELECT ROW($grant, $pension)").fetchFieldStrict<Map<Any, Any?>>()
+        assertEquals(mapOf<Any, Any?>(LandGrant("Asia", 7) to MilitaryPension("X Gemina", 300)), both)
+    }
+
+    @Test
+    fun `and two keys that decode to the same object are one key too many`() {
+        val grant = "dynamic_dto('land_grant', jsonb_build_object('province', 'Asia', 'iugera', 7))"
+
+        val thrown = assertFailsWith<MappingException> {
+            db.rawQuery("SELECT ROW($grant, 1, $grant, 2)").fetchFieldStrict<Map<Benefit, Int>>()
+        }
+        assertTrue(thrown.details.contains("Duplicate key"), thrown.details)
     }
 
     // --- A different Json, for one query --------------------------------------------------------------

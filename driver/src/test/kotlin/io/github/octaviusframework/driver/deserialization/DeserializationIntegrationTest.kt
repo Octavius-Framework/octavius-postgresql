@@ -3,94 +3,80 @@ package io.github.octaviusframework.driver.deserialization
 import io.github.octaviusframework.annotation.PgName
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
+class DeserializationIntegrationTest : AbstractIntegrationTest() {
 
-class DeserializationIntegrationTest {
+    data class Domicile(val street: String, val city: String)
+    data class Patron(val id: Int, val name: String, val domicile: Domicile)
 
-    data class IntegrationAddress(val street: String, val city: String)
-    data class IntegrationUser(val id: Int, val name: String, val address: IntegrationAddress)
+    override val schema = """
+        CREATE TYPE domicile AS (street text, city text);
+        CREATE TYPE patron AS (id int, name text, domicile domicile);
+        CREATE TYPE freedman AS (id int, full_name text, home_address domicile);
+
+        CREATE TYPE allegiance AS ENUM ('LOYAL', 'REBEL', 'UNKNOWN');
+        CREATE TYPE client_king AS (realm text, allegiance allegiance);
+        CREATE TYPE frontier AS (standing allegiance, king client_king);
+
+        CREATE DOMAIN legion_number AS int CHECK (VALUE > 0);
+        CREATE TYPE legion AS (number legion_number, cohorts legion_number);
+    """.trimIndent()
 
     @Test
     fun testRealDatabaseDeserialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        openSession().use { session ->
+            session.typeManager.registerAutoComposite<Domicile>("domicile")
+            session.typeManager.registerAutoComposite<Patron>("patron")
 
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_address AS (street text, city text)").execute()
+            val result = session.createNativeQuery(
+                "SELECT ROW(10, 'Marcus Tullius Cicero', ROW('Clivus Palatinus', 'Roma')::domicile)::patron AS patron"
+            ).fetchRowStrict()
 
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_user CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_user AS (id int, name text, address integ_address)").execute()
-
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<IntegrationAddress>("integ_address")
-            session.typeManager.registerAutoComposite<IntegrationUser>("integ_user")
-
-            val result = session.createNativeQuery("SELECT ROW(10, 'Jan Kowalski', ROW('Marszałkowska', 'Warszawa')::integ_address)::integ_user AS usr").fetchRowStrict()
-            
             // The default deserializer in Row.get should be picked automatically
-            val parsedUser = result.get<IntegrationUser>("usr")
+            val patron = result.get<Patron>("patron")
 
-            assertNotNull(parsedUser)
-            assertEquals(10, parsedUser.id)
-            assertEquals("Jan Kowalski", parsedUser.name)
-            assertEquals("Marszałkowska", parsedUser.address.street)
-            assertEquals("Warszawa", parsedUser.address.city)
-            
-        } finally {
-            try {
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_user CASCADE").execute()
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            } catch (e: Exception) {
-            }
-            session.close()
+            assertNotNull(patron)
+            assertEquals(10, patron.id)
+            assertEquals("Marcus Tullius Cicero", patron.name)
+            assertEquals("Clivus Palatinus", patron.domicile.street)
+            assertEquals("Roma", patron.domicile.city)
         }
     }
 
     @Test
     fun testRealDatabaseArrayDeserialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        openSession().use { session ->
+            session.typeManager.registerAutoComposite<Domicile>("domicile")
 
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_address AS (street text, city text)").execute()
-
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<IntegrationAddress>("integ_address")
-
-            val result = session.createNativeQuery("SELECT ARRAY[ROW('M1', 'W1')::integ_address, ROW('M2', 'W2')::integ_address] AS addresses").fetchRowStrict()
+            val result = session.createNativeQuery(
+                "SELECT ARRAY[ROW('Via Appia', 'Capua')::domicile, ROW('Via Flaminia', 'Ariminum')::domicile] AS stations"
+            ).fetchRowStrict()
 
             // The default deserializer in Row.get should be picked automatically
-            val parsedList = result.get<List<IntegrationAddress>>("addresses")
+            val stations = result.get<List<Domicile>>("stations")
 
-            assertNotNull(parsedList)
-            assertEquals(2, parsedList.size)
-            assertEquals("M1", parsedList[0].street)
-            assertEquals("W2", parsedList[1].city)
-            
-        } finally {
-            try {
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            } catch (e: Exception) {
-            }
-            session.close()
+            assertNotNull(stations)
+            assertEquals(2, stations.size)
+            assertEquals("Via Appia", stations[0].street)
+            assertEquals("Ariminum", stations[1].city)
         }
     }
 
     @Test
     fun testJsonDeserialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-
-        try {
-            val result = session.createNativeQuery("SELECT '{\"key\": \"value1\"}'::json AS js, '{\"key2\": \"value2\"}'::jsonb AS jsb").fetchRowStrict()
+        openSession().use { session ->
+            val result = session.createNativeQuery(
+                "SELECT '{\"legio\": \"X Equestris\"}'::json AS js, '{\"castra\": \"Vetera\"}'::jsonb AS jsb"
+            ).fetchRowStrict()
 
             val js = result.get<JsonElement>("js")
             val jsb = result.get<JsonElement>("jsb")
@@ -100,234 +86,177 @@ class DeserializationIntegrationTest {
             assertNotNull(js)
             assertNotNull(jsb)
 
-            println("jsAny type is: ${jsAny.javaClass.name}")
-            println("jsbAny type is: ${jsbAny.javaClass.name}")
-
             val jsonObjectJs = js as JsonObject
             val jsonObjectJsb = jsb as JsonObject
 
-            assertEquals("value1", jsonObjectJs["key"]?.let { (it as JsonPrimitive).content })
-            assertEquals("value2", jsonObjectJsb["key2"]?.let { (it as JsonPrimitive).content })
-            
+            assertEquals("X Equestris", jsonObjectJs["legio"]?.let { (it as JsonPrimitive).content })
+            assertEquals("Vetera", jsonObjectJsb["castra"]?.let { (it as JsonPrimitive).content })
+
             if (jsAny is JsonObject) {
-                assertEquals("value1", jsAny["key"]?.let { (it as JsonPrimitive).content })
+                assertEquals("X Equestris", jsAny["legio"]?.let { (it as JsonPrimitive).content })
             } else {
-                fail("jsAny is not a JsonObject, it is \${jsAny?.javaClass?.name}")
+                fail("jsAny is not a JsonObject, it is ${jsAny.javaClass.name}")
             }
             if (jsbAny is JsonObject) {
-                assertEquals("value2", jsbAny["key2"]?.let { (it as JsonPrimitive).content })
+                assertEquals("Vetera", jsbAny["castra"]?.let { (it as JsonPrimitive).content })
             } else {
                 fail("jsbAny is not a JsonObject, it is ${jsbAny.javaClass.name}")
             }
-
-        } finally {
-            session.close()
         }
     }
 
-    enum class TestStatus { ACTIVE, INACTIVE, UNKNOWN }
-    data class TestUserData(val code: String, val status: TestStatus)
+    enum class Allegiance { LOYAL, REBEL, UNKNOWN }
+    data class ClientKing(val realm: String, val allegiance: Allegiance)
 
     @Test
     fun testExplicitEnumAndCompositeConverters() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-
-        try {
+        openSession().use { session ->
             // Register explicit converters of our own
-            session.typeManager.registerResultConverter(object : ResultConverter<Any, TestStatus> {
+            session.typeManager.registerResultConverter(object : ResultConverter<Any, Allegiance> {
                 override val supportedSourceClass = Any::class
                 override fun canConvert(sourceClass: kotlin.reflect.KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
-                    return expectedType.classifier == TestStatus::class || sourceType.name == "test_status_enum"
+                    return expectedType.classifier == Allegiance::class || sourceType.name == "allegiance"
                 }
                 override fun convert(
                     source: Any,
                     expectedType: KType,
                     sourceType: PgType,
                     context: DeserializationContext
-                ): TestStatus {
+                ): Allegiance {
                     val str = source.toString()
-                    return TestStatus.entries.find { it.name.equals(str, ignoreCase = true) } ?: TestStatus.UNKNOWN
+                    return Allegiance.entries.find { it.name.equals(str, ignoreCase = true) } ?: Allegiance.UNKNOWN
                 }
             })
-            
-            session.typeManager.registerResultConverter(object : ResultConverter<PgComposite, TestUserData> {
+
+            session.typeManager.registerResultConverter(object : ResultConverter<PgComposite, ClientKing> {
                 override val supportedSourceClass = PgComposite::class
                 override fun canConvert(sourceClass: kotlin.reflect.KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
-                    return expectedType.classifier == TestUserData::class || sourceType.name == "test_user_data"
+                    return expectedType.classifier == ClientKing::class || sourceType.name == "client_king"
                 }
                 override fun convert(
                     source: PgComposite,
                     expectedType: KType,
                     sourceType: PgType,
                     context: DeserializationContext
-                ): TestUserData {
-                    val code = source.get<String>("code")
-                    val statusRaw = source.get<Any?>("status")
-                    val status = if (statusRaw != null) {
-                        context.convert(statusRaw, typeOf<TestStatus>(), source.getAttributeOid("status"))
+                ): ClientKing {
+                    val realm = source.get<String>("realm")
+                    val allegianceRaw = source.get<Any?>("allegiance")
+                    val allegiance = if (allegianceRaw != null) {
+                        context.convert(allegianceRaw, typeOf<Allegiance>(), source.getAttributeOid("allegiance"))
                     } else {
-                        TestStatus.UNKNOWN
+                        Allegiance.UNKNOWN
                     }
-                    return TestUserData(code, status)
+                    return ClientKing(realm, allegiance)
                 }
             })
 
-            // Create the types in the database
-            session.createNativeQuery("DROP TYPE IF EXISTS test_root_composite CASCADE").execute()
-            session.createNativeQuery("DROP TYPE IF EXISTS test_user_data CASCADE").execute()
-            session.createNativeQuery("DROP TYPE IF EXISTS test_status_enum CASCADE").execute()
-
-            session.createNativeQuery("CREATE TYPE test_status_enum AS ENUM ('ACTIVE', 'INACTIVE', 'UNKNOWN')").execute()
-            session.createNativeQuery("CREATE TYPE test_user_data AS (code text, status test_status_enum)").execute()
-            session.createNativeQuery("CREATE TYPE test_root_composite AS (main_status test_status_enum, user_data test_user_data)").execute()
-
-            // Refresh the type registry so the new OIDs are loaded
-            session.reloadTypes()
-
-            // Build a query that constructs the test composite
             val result = session.createNativeQuery(
-                "SELECT ROW('ACTIVE'::test_status_enum, ROW('CD123', 'INACTIVE')::test_user_data)::test_root_composite AS my_map"
+                "SELECT ROW('LOYAL'::allegiance, ROW('Armenia', 'REBEL')::client_king)::frontier AS frontier"
             ).fetchRowStrict()
 
-            // Read the 'my_map' column as Map<String, Any?>
-            val mappedResult = result.get<Map<String, Any?>>("my_map")
+            // Read the 'frontier' column as Map<String, Any?>
+            val frontier = result.get<Map<String, Any?>>("frontier")
 
-            assertNotNull(mappedResult)
-            assertEquals(2, mappedResult.size)
+            assertNotNull(frontier)
+            assertEquals(2, frontier.size)
 
-            val mainStatusVal = mappedResult["main_status"]
-            assertTrue(mainStatusVal is TestStatus)
-            assertEquals(TestStatus.ACTIVE, mainStatusVal)
+            val standing = frontier["standing"]
+            assertTrue(standing is Allegiance)
+            assertEquals(Allegiance.LOYAL, standing)
 
-            val userDataVal = mappedResult["user_data"]
-            assertTrue(userDataVal is TestUserData)
-            val userData = userDataVal as TestUserData
-            assertEquals("CD123", userData.code)
-            assertEquals(TestStatus.INACTIVE, userData.status)
-
-        } finally {
-            try {
-                session.createNativeQuery("DROP TYPE IF EXISTS test_root_composite CASCADE").execute()
-                session.createNativeQuery("DROP TYPE IF EXISTS test_user_data CASCADE").execute()
-                session.createNativeQuery("DROP TYPE IF EXISTS test_status_enum CASCADE").execute()
-            } catch (e: Exception) {}
-            session.close()
+            val kingVal = frontier["king"]
+            assertTrue(kingVal is ClientKing)
+            val king = kingVal as ClientKing
+            assertEquals("Armenia", king.realm)
+            assertEquals(Allegiance.REBEL, king.allegiance)
         }
     }
-    data class DomainUser(val id: Int, val age: Int)
+
+    data class Legion(val number: Int, val cohorts: Int)
 
     @Test
     fun testDomainTypeHandling() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS domain_user CASCADE").execute()
-            session.createNativeQuery("DROP DOMAIN IF EXISTS positive_int CASCADE").execute()
-            session.createNativeQuery("CREATE DOMAIN positive_int AS int CHECK (VALUE > 0)").execute()
-            session.createNativeQuery("CREATE TYPE domain_user AS (id positive_int, age positive_int)").execute()
-
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<DomainUser>("domain_user")
+        openSession().use { session ->
+            session.typeManager.registerAutoComposite<Legion>("legion")
 
             // Test deserialization of pure domain
-            val res1 = session.createNativeQuery("SELECT 42::positive_int AS num").fetchRowStrict()
-            assertEquals(42, res1.get<Int>("num"))
+            val res1 = session.createNativeQuery("SELECT 13::legion_number AS numeral").fetchRowStrict()
+            assertEquals(13, res1.get<Int>("numeral"))
 
             // Test deserialization of array of domains
-            val res2 = session.createNativeQuery("SELECT ARRAY[10, 20]::positive_int[] AS nums").fetchRowStrict()
-            val list = res2.get<List<Int>>("nums")
+            val res2 = session.createNativeQuery("SELECT ARRAY[10, 20]::legion_number[] AS numerals").fetchRowStrict()
+            val list = res2.get<List<Int>>("numerals")
             assertEquals(listOf(10, 20), list)
 
             // Test deserialization of composite with domains
-            val res3 = session.createNativeQuery("SELECT ROW(1, 25)::domain_user AS usr").fetchRowStrict()
-            val usr = res3.get<DomainUser>("usr")
-            assertEquals(1, usr.id)
-            assertEquals(25, usr.age)
+            val res3 = session.createNativeQuery("SELECT ROW(13, 10)::legion AS legion").fetchRowStrict()
+            val legion = res3.get<Legion>("legion")
+            assertEquals(13, legion.number)
+            assertEquals(10, legion.cohorts)
 
             // Test serialization of domains (implicit, mapped as underlying type since JDBC sends parameters with matching format/Oid if we specify it or just sends integer)
             // If we send it via composite
-            val res4 = session.createNativeQuery("SELECT $1 AS usr_back")
-                .fetchRowStrict(DomainUser(100, 30).withPgType("domain_user"))
-            
-            val usrBack = res4.get<DomainUser>("usr_back")
-            assertEquals(100, usrBack.id)
-            assertEquals(30, usrBack.age)
+            val res4 = session.createNativeQuery("SELECT $1 AS legion_back")
+                .fetchRowStrict(Legion(14, 10).withPgType("legion"))
 
-        } finally {
-            try {
-                session.createNativeQuery("DROP TYPE IF EXISTS domain_user CASCADE").execute()
-                session.createNativeQuery("DROP DOMAIN IF EXISTS positive_int CASCADE").execute()
-            } catch (e: Exception) {}
-            session.close()
+            val legionBack = res4.get<Legion>("legion_back")
+            assertEquals(14, legionBack.number)
+            assertEquals(10, legionBack.cohorts)
         }
     }
 
-    data class MapKeyIntegrationUser(
+    data class Freedman(
         val id: Int,
         @PgName("full_name") val name: String,
-        @PgName("home_address") val address: IntegrationAddress
+        @PgName("home_address") val address: Domicile
     )
 
     @Test
     fun testRealDatabaseMapKeyDeserializationAndSerialization() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-
-        try {
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_address AS (street text, city text)").execute()
-
-            session.createNativeQuery("DROP TYPE IF EXISTS integ_user_mapkey CASCADE").execute()
-            session.createNativeQuery("CREATE TYPE integ_user_mapkey AS (id int, full_name text, home_address integ_address)").execute()
-
-            session.reloadTypes()
-            session.typeManager.registerAutoComposite<IntegrationAddress>("integ_address")
-            session.typeManager.registerAutoComposite<MapKeyIntegrationUser>("integ_user_mapkey")
+        openSession().use { session ->
+            session.typeManager.registerAutoComposite<Domicile>("domicile")
+            session.typeManager.registerAutoComposite<Freedman>("freedman")
 
             // Test deserialization
-            val result = session.createNativeQuery("SELECT ROW(15, 'Anna Nowak', ROW('Mickiewicza', 'Kraków')::integ_address)::integ_user_mapkey AS usr").fetchRowStrict()
-            
-            val parsedUser = result.get<MapKeyIntegrationUser>("usr")
+            val result = session.createNativeQuery(
+                "SELECT ROW(15, 'Marcus Tullius Tiro', ROW('Via Sacra', 'Roma')::domicile)::freedman AS freedman"
+            ).fetchRowStrict()
 
-            assertNotNull(parsedUser)
-            assertEquals(15, parsedUser.id)
-            assertEquals("Anna Nowak", parsedUser.name)
-            assertEquals("Mickiewicza", parsedUser.address.street)
-            assertEquals("Kraków", parsedUser.address.city)
+            val tiro = result.get<Freedman>("freedman")
+
+            assertNotNull(tiro)
+            assertEquals(15, tiro.id)
+            assertEquals("Marcus Tullius Tiro", tiro.name)
+            assertEquals("Via Sacra", tiro.address.street)
+            assertEquals("Roma", tiro.address.city)
 
             // Test serialization
-            val resBack = session.createNativeQuery("SELECT $1 AS usr_back")
-                .fetchRowStrict(parsedUser)
+            val resBack = session.createNativeQuery("SELECT $1 AS freedman_back")
+                .fetchRowStrict(tiro)
 
-            val usrBack = resBack.get<MapKeyIntegrationUser>("usr_back")
-            assertEquals(15, usrBack.id)
-            assertEquals("Anna Nowak", usrBack.name)
-            assertEquals("Mickiewicza", usrBack.address.street)
-            
-        } finally {
-            try {
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_user_mapkey CASCADE").execute()
-                session.createNativeQuery("DROP TYPE IF EXISTS integ_address CASCADE").execute()
-            } catch (e: Exception) {
-            }
-            session.close()
+            val back = resBack.get<Freedman>("freedman_back")
+            assertEquals(15, back.id)
+            assertEquals("Marcus Tullius Tiro", back.name)
+            assertEquals("Via Sacra", back.address.street)
         }
     }
 
     @Test
     fun testRecordTypeHandling() {
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234").use { session ->
-            val result =
-                session.createNativeQuery("SELECT ROW('a', ROW('b', 1), 'c', '[\"b\",\"c\"]'::json) AS rec").fetchRowStrict()
+        openSession().use { session ->
+            val result = session.createNativeQuery(
+                "SELECT ROW('legio', ROW('cohortes', 10), 'signa', '[\"aquila\",\"vexillum\"]'::json) AS rec"
+            ).fetchRowStrict()
 
             val map = result.get<Map<String, Any?>>("rec")
             assertNotNull(map)
             assertEquals(2, map.size)
 
-            assertTrue(map["a"] is Map<*, *>)
+            assertTrue(map["legio"] is Map<*, *>)
             @Suppress("UNCHECKED_CAST")
-            val innerMap = map["a"] as Map<String, Any?>
-            assertEquals(1, innerMap["b"])
-            assertEquals(Json.decodeFromString<JsonArray>("[\"b\",\"c\"]"), map["c"])
+            val innerMap = map["legio"] as Map<String, Any?>
+            assertEquals(10, innerMap["cohortes"])
+            assertEquals(Json.decodeFromString<JsonArray>("[\"aquila\",\"vexillum\"]"), map["signa"])
         }
     }
 }

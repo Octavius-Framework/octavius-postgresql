@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.hikari
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.Test
 import kotlin.test.assertFailsWith
@@ -12,9 +13,9 @@ class HikariIntegrationTest {
     @Test
     fun testHikariConnectionAndEviction() {
         val config = HikariConfig()
-        config.jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-        config.username = "postgres"
-        config.password = "1234"
+        config.jdbcUrl = TestDatabase.URL
+        config.username = TestDatabase.USER
+        config.password = TestDatabase.PASSWORD
         config.maximumPoolSize = 1 // A pool of one, so a connection that was not returned shows up immediately
 
         val dataSource = HikariDataSource(config)

@@ -20,7 +20,6 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.serializer
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.reflect.KClass
@@ -35,6 +34,15 @@ private const val DYNAMIC_DTO_SCHEMA = "public"
 /** Its two attributes, as [DYNAMIC_DTO_DDL] declares them. */
 private const val TYPE_NAME_ATTRIBUTE = "type_name"
 private const val DATA_PAYLOAD_ATTRIBUTE = "data_payload"
+
+/**
+ * Held while a registration decides whether its database still needs the converters, and installs them.
+ *
+ * One for the whole JVM rather than one per database, because nothing here can tell databases apart: the
+ * catalog is reached through a session, not named. It is held for a few map operations at startup and never
+ * across a round trip, so sharing it costs nothing.
+ */
+private val installLock = ReentrantLock()
 
 /**
  * The statements that create the `dynamic_dto` type and its constructors, written so that running them twice
@@ -114,9 +122,11 @@ internal fun declaredTypeNameOf(kClass: KClass<*>): String =
  * ```
  *
  * Registration is global to the database the client is connected to, the driver keeping one type catalog per
- * database, so it belongs at startup and not per request.
+ * database, so it belongs at startup and not per request. Every client on that database reads the same names,
+ * and a class registered through this one is written and read on this one's [json] and [strategy] whichever
+ * client the query goes through.
  *
- * @property json How payloads are read and written. The default is
+ * @property json How payloads of the classes registered here are read and written. The default is
  * [octaviusJson][io.github.octaviusframework.serializer.octaviusJson], which is strict - a payload carrying a
  * field the class does not declare is an error rather than something dropped - and carries
  * [octaviusSerializersModule][io.github.octaviusframework.serializer.octaviusSerializersModule], so a
@@ -124,23 +134,13 @@ internal fun declaredTypeNameOf(kClass: KClass<*>): String =
  * built in SQL with `jsonb_build_object`, its keys have to match the Kotlin property names - supply a [Json]
  * with `JsonNamingStrategy.SnakeCase` if the SQL side names them the way SQL usually does, and put that module
  * on it too.
- * @property strategy When an unwrapped instance of a registered class is written as a `dynamic_dto`.
+ * @property strategy When an unwrapped instance of a class registered here is written as a `dynamic_dto`.
  */
 class DynamicTypes internal constructor(
     private val client: OctaviusClient,
     val json: Json = octaviusJson,
     val strategy: DynamicWriteStrategy = DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS
 ) {
-
-    private val registrationLock = ReentrantLock()
-
-    @Volatile
-    private var byName: Map<String, Registration<*>> = emptyMap()
-
-    @Volatile
-    private var registeredClasses: Map<KClass<*>, Registration<*>> = emptyMap()
-
-    private val convertersInstalled = AtomicBoolean(false)
 
     /** [json] with the driver's enum serializers folded in, which is what everything here actually encodes with. */
     private val enumAwareJson = EnumAwareJson(json)
@@ -150,7 +150,7 @@ class DynamicTypes internal constructor(
      *
      * Detached on purpose: it follows the catalog, which is global to the database rather than to a session,
      * and holds no connection - so keeping it past the session that produced it keeps nothing but that.
-     * It is what [toDynamicDto] and [enumSerializers] read the registered enums from, neither having a query
+     * It is what [toDynamicDto] and [enumSerializers] read the registrations from, neither having a query
      * context to read them from.
      */
     @Volatile
@@ -214,39 +214,36 @@ class DynamicTypes internal constructor(
      * @param kClass The class, which has to be `@Serializable`.
      * @param serializer Its serializer.
      * @param typeName The discriminator, as the database stores it.
-     * @throws InvalidOperationException `INVALID_ARGUMENT` where the name is blank, or is already taken by
-     * another class.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` where the name is blank, the name is taken by another
+     * class, the class is registered under another name, or another client registered it on another
+     * [DynamicWriteStrategy].
      */
     fun <T : Any> register(kClass: KClass<T>, serializer: KSerializer<T>, typeName: String) {
-        val name = typeName
-        if (name.isBlank()) {
+        if (typeName.isBlank()) {
             throw InvalidOperationException(
                 InvalidOperationExceptionReason.INVALID_ARGUMENT,
                 details = "${kClass.simpleName} was registered under a blank type name."
             )
         }
 
-        // Under the lock, so that the check and the write are one step: two threads claiming one name for two
-        // classes could otherwise both find it free and the second would silently take it.
-        registrationLock.withLock {
-            val existing = byName[name]
-            if (existing != null && existing.kClass != kClass) {
-                throw InvalidOperationException(
-                    InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                    details = "The dynamic type name '$name' is already registered for " +
-                        "${existing.kClass.simpleName}; ${kClass.simpleName} cannot take it as well."
-                )
+        val registration = Registration(typeName, kClass, serializer, enumAwareJson, strategy)
+        client.execute {
+            // Primed here because a session is open anyway, so nothing later has to open one for it.
+            this@DynamicTypes.typeLookupHandle = typeManager.detached()
+
+            // The converters go in once per database, ahead of the registry they read: until it is there they
+            // treat every class as the unregistered one it still is, so there is no moment at which a name is
+            // registered and nothing answers for it. The lock makes finding no registry and installing them one
+            // step, so two clients registering the first class at once do not leave a second pair in the walk.
+            // It is taken inside the session rather than around it, so nothing holding it waits on a pool.
+            installLock.withLock {
+                if (typeManager.catalog.attachment(DynamicRegistry::class) == null) {
+                    typeManager.registerResultConverter(DynamicDtoResultConverter(null))
+                    typeManager.registerParameterConverter(DynamicDtoParameterConverter(null))
+                }
+                typeManager.attach(DynamicRegistry::class) { (it ?: DynamicRegistry.EMPTY).with(registration) }
             }
-
-            val registration = Registration(name, kClass, serializer)
-            byName = byName + (name to registration)
-            registeredClasses = registeredClasses + (kClass to registration)
         }
-
-        // Outside it: this opens a session, and a lock held across a round trip is a lock held for as long as
-        // the database takes. The registration is already published, so a converter installed here can never
-        // be reached before the class it was installed for.
-        ensureConvertersInstalled()
     }
 
     /**
@@ -287,20 +284,21 @@ class DynamicTypes internal constructor(
      * @throws InvalidOperationException `INVALID_ARGUMENT` where [value]'s class was never registered.
      */
     fun toDynamicDto(value: Any, json: Json = this.json): DynamicDto {
-        val registration = registrationFor(value::class) ?: throw InvalidOperationException(
-            InvalidOperationExceptionReason.INVALID_ARGUMENT,
-            details = "${value::class.simpleName} is not a registered dynamic type; call " +
-                "dynamicTypes.register<${value::class.simpleName}>(\"…\") at startup."
-        )
         val catalog = catalog()
+        val registration = catalog.attachment(DynamicRegistry::class)?.forClass(value::class)
+            ?: throw InvalidOperationException(
+                InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                details = "${value::class.simpleName} is not a registered dynamic type; call " +
+                    "dynamicTypes.register<${value::class.simpleName}>(\"…\") at startup."
+            )
         val effective =
             if (json === this.json) enumAwareJson.resolve(catalog) else EnumAwareJson(json).resolve(catalog)
         return DynamicDto(registration.name, registration.encode(value, effective))
     }
 
     /**
-     * A read converter for these registrations that decodes payloads with [json] rather than with the
-     * client's own.
+     * A read converter for the database's registrations that decodes payloads with [json] rather than with the
+     * one each class was registered with.
      *
      * For the query whose payloads are shaped differently from the rest - built in SQL with
      * `jsonb_build_object` and therefore named the way SQL names things, or written by a service that is not
@@ -318,11 +316,11 @@ class DynamicTypes internal constructor(
      * @param json How to read the payloads.
      * @return The converter, registered nowhere until you register it.
      */
-    fun resultConverter(json: Json): ResultConverter<*, *> = DynamicDtoResultConverter(this, json)
+    fun resultConverter(json: Json): ResultConverter<*, *> = DynamicDtoResultConverter(json)
 
     /**
-     * A write converter for these registrations that encodes payloads with [json] rather than with the
-     * client's own, and the mirror of [resultConverter].
+     * A write converter for the database's registrations that encodes payloads with [json] rather than with the
+     * one each class was registered with, and the mirror of [resultConverter].
      *
      * [toDynamicDto] is the other half of the same question and takes a [Json] of its own, for the value
      * wrapped by hand rather than written straight.
@@ -330,7 +328,7 @@ class DynamicTypes internal constructor(
      * @param json How to write the payloads.
      * @return The converter, registered nowhere until you register it.
      */
-    fun parameterConverter(json: Json): ParameterConverter<*> = DynamicDtoParameterConverter(this, json)
+    fun parameterConverter(json: Json): ParameterConverter<*> = DynamicDtoParameterConverter(json)
 
     /**
      * The contextual serializers writing each registered enum under the label PostgreSQL holds, rather than
@@ -364,62 +362,6 @@ class DynamicTypes internal constructor(
      */
     val enumSerializers: SerializersModule
         get() = enumAwareJson.module(catalog())
-
-    /**
-     * The [Json] a conversion should run on: the query's own where one was given, the client's otherwise, and
-     * either way with the enums registered right now folded in.
-     */
-    internal fun jsonFor(catalog: TypeCatalog, override: EnumAwareJson?): Json =
-        (override ?: enumAwareJson).resolve(catalog)
-
-    internal fun forName(name: String): Registration<*>? = byName[name]
-
-    /** The registration for an exact class, which is how a value being written finds its own. */
-    internal fun registrationFor(kClass: KClass<*>): Registration<*>? = registeredClasses[kClass]
-
-    /** Whether any registered class fits [kClass], which is what makes a supertype read work. */
-    internal fun anyFits(kClass: KClass<*>): Boolean =
-        kClass == Any::class || registeredClasses.keys.any { it.isSubclassOf(kClass) }
-
-    /**
-     * Puts the two converters on the type manager, once however many classes are registered.
-     *
-     * The composite half would not need the guard - registering the same auto-composite twice writes the same
-     * entry to the same map. The converter halves would: registration appends without checking, and converters
-     * are walked on every conversion, so a registry of ten classes would otherwise leave ten identical
-     * converters in front of everything else.
-     *
-     * They read this registry when they run rather than holding a copy, so registering a class after they are
-     * installed still takes effect.
-     *
-     */
-    private fun ensureConvertersInstalled() {
-        if (!convertersInstalled.compareAndSet(false, true)) return
-        client.execute {
-            // Primed here because a session is open anyway, so nothing later has to open one for it.
-            this@DynamicTypes.typeLookupHandle = typeManager.detached()
-            typeManager.registerResultConverter(DynamicDtoResultConverter(this@DynamicTypes, null))
-            typeManager.registerParameterConverter(DynamicDtoParameterConverter(this@DynamicTypes, null))
-        }
-    }
-
-    internal class Registration<T : Any>(
-        val name: String,
-        val kClass: KClass<T>,
-        val serializer: KSerializer<T>
-    ) {
-        /**
-         * The payload as the text a `jsonb` attribute is encoded from.
-         *
-         * `jsonb`'s codec encodes a `String`, so this is already what the wire wants and there is no tree to
-         * build on the way there - which is why [DynamicDto] carries the text too, rather than making the
-         * wrapped path pay for a structure the unwrapped one never builds.
-         */
-        @Suppress("UNCHECKED_CAST")
-        fun encode(value: Any, json: Json): String = json.encodeToString(serializer, value as T)
-
-        fun decode(payload: String, json: Json): Any = json.decodeFromString(serializer, payload)
-    }
 }
 
 /**
@@ -429,10 +371,7 @@ class DynamicTypes internal constructor(
  * path, which would read the two properties back off the object through reflection and allocate a map of them
  * per parameter. Two attributes whose names [DYNAMIC_DTO_DDL] fixes do not need discovering.
  */
-private class DynamicDtoParameterConverter(
-    private val types: DynamicTypes,
-    overrideJson: Json?
-) : ParameterConverter<Any> {
+private class DynamicDtoParameterConverter(overrideJson: Json?) : ParameterConverter<Any> {
 
     /** Set only where this converter was made for one query, which is the whole of what makes it different. */
     private val enumAwareJson = overrideJson?.let { EnumAwareJson(it) }
@@ -452,8 +391,9 @@ private class DynamicDtoParameterConverter(
 
         // Wrapping says which form was meant, so a wrapped value is claimed under every mode.
         if (sourceClass == DynamicDto::class) return true
-        if (types.registrationFor(sourceClass) == null) return false
-        if (types.strategy == DynamicWriteStrategy.PREFER_DYNAMIC_DTO) return true
+        val registration = context.types.catalog.attachment(DynamicRegistry::class)?.forClass(sourceClass)
+            ?: return false
+        if (registration.strategy == DynamicWriteStrategy.PREFER_DYNAMIC_DTO) return true
 
         // The other two both leave a class that is also a registered composite to the composite path, which is
         // a real destination for it. They part company only over a class that has no other destination, and
@@ -470,20 +410,22 @@ private class DynamicDtoParameterConverter(
             typeName = source.typeName
             payload = source.dataPayload
         } else {
-            val registration = types.registrationFor(source::class) ?: throw MappingException(
-                MappingExceptionReason.CONVERSION_ERROR,
-                details = "${source::class.simpleName} is no longer a registered dynamic type."
-            )
-            if (types.strategy == DynamicWriteStrategy.EXPLICIT_ONLY) {
+            val registration = context.types.catalog.attachment(DynamicRegistry::class)?.forClass(source::class)
+                ?: throw MappingException(
+                    MappingExceptionReason.CONVERSION_ERROR,
+                    details = "${source::class.simpleName} is not a registered dynamic type; call " +
+                        "dynamicTypes.register<${source::class.simpleName}>(\"…\") at startup."
+                )
+            if (registration.strategy == DynamicWriteStrategy.EXPLICIT_ONLY) {
                 throw MappingException(
                     MappingExceptionReason.CONVERSION_ERROR,
                     details = "${source::class.simpleName} is registered as the dynamic type " +
-                        "'${registration.name}', and this client writes them on EXPLICIT_ONLY: wrap it in " +
-                        "dynamicTypes.toDynamicDto(…), or build the client on another DynamicWriteStrategy."
+                        "'${registration.name}' on EXPLICIT_ONLY: wrap it in dynamicTypes.toDynamicDto(…), or " +
+                        "register it through a client built on another DynamicWriteStrategy."
                 )
             }
             typeName = registration.name
-            payload = registration.encode(source, types.jsonFor(context.types.catalog, enumAwareJson))
+            payload = registration.encode(source, (enumAwareJson ?: registration.json).resolve(context.types.catalog))
         }
 
         val composite = context.types.containers.createComposite(DYNAMIC_DTO_NAME, DYNAMIC_DTO_SCHEMA)
@@ -501,10 +443,7 @@ private class DynamicDtoParameterConverter(
  * registered under, a payload that does not fit, a class that is not what the caller asked for - is settled in
  * [convert], where the value is in hand and the message can say which name and which class.
  */
-private class DynamicDtoResultConverter(
-    private val types: DynamicTypes,
-    overrideJson: Json?
-) : ResultConverter<PgComposite, Any> {
+private class DynamicDtoResultConverter(overrideJson: Json?) : ResultConverter<PgComposite, Any> {
 
     /** Set only where this converter was made for one query, which is the whole of what makes it different. */
     private val enumAwareJson = overrideJson?.let { EnumAwareJson(it) }
@@ -520,7 +459,7 @@ private class DynamicDtoResultConverter(
         if (sourceType.name != DYNAMIC_DTO_NAME || sourceType.schema != DYNAMIC_DTO_SCHEMA) return false
         val kClass = expectedType.classifier as? KClass<*> ?: return false
         if (kClass == DynamicDto::class) return true
-        return types.anyFits(kClass)
+        return context.types.catalog.attachment(DynamicRegistry::class)?.anyFits(kClass) ?: false
     }
 
     override fun convert(
@@ -536,13 +475,6 @@ private class DynamicDtoResultConverter(
                 path = mutableListOf(TYPE_NAME_ATTRIBUTE)
             )
 
-        val registration = types.forName(typeName) ?: throw MappingException(
-            MappingExceptionReason.CONVERSION_ERROR,
-            details = "No class is registered for the dynamic type '$typeName'. Register it at startup with " +
-                "dynamicTypes.register<YourClass>().",
-            path = mutableListOf(TYPE_NAME_ATTRIBUTE)
-        )
-
         val payload = source.get<Any?>(DATA_PAYLOAD_ATTRIBUTE) as? String
             ?: throw MappingException(
                 MappingExceptionReason.CONVERSION_ERROR,
@@ -553,8 +485,16 @@ private class DynamicDtoResultConverter(
         val expectedClass = expectedType.classifier as? KClass<*>
         if (expectedClass == DynamicDto::class) return DynamicDto(typeName, payload)
 
+        val registration = context.types.catalog.attachment(DynamicRegistry::class)?.forName(typeName)
+            ?: throw MappingException(
+                MappingExceptionReason.CONVERSION_ERROR,
+                details = "No class is registered for the dynamic type '$typeName'. Register it at startup with " +
+                    "dynamicTypes.register<YourClass>().",
+                path = mutableListOf(TYPE_NAME_ATTRIBUTE)
+            )
+
         val decoded = try {
-            registration.decode(payload, types.jsonFor(context.types.catalog, enumAwareJson))
+            registration.decode(payload, (enumAwareJson ?: registration.json).resolve(context.types.catalog))
         } catch (e: Exception) {
             throw MappingException(
                 MappingExceptionReason.CONVERSION_ERROR,

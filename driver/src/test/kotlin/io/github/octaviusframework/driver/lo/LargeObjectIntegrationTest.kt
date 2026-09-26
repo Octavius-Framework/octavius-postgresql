@@ -1,26 +1,20 @@
 package io.github.octaviusframework.driver.lo
 
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.test.assertNotEquals
 
-class LargeObjectIntegrationTest {
+class LargeObjectIntegrationTest : AbstractIntegrationTest() {
 
     private lateinit var session: OctaviusSession
 
     @BeforeEach
     fun setup() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        session = openSession()
     }
 
     @AfterEach
@@ -43,7 +37,7 @@ class LargeObjectIntegrationTest {
 
             // Write to LO
             val obj = loManager.open(oid, LargeObjectMode.READ_WRITE)
-            val data = "Hello, Large Object!".toByteArray(Charsets.UTF_8)
+            val data = "Senatus Populusque Romanus".toByteArray(Charsets.UTF_8)
             obj.write(data, 0, data.size)
 
             // Seek to beginning
@@ -55,7 +49,7 @@ class LargeObjectIntegrationTest {
             assertEquals(data.size, bytesRead)
             
             val readString = String(buffer, 0, bytesRead, Charsets.UTF_8)
-            assertEquals("Hello, Large Object!", readString)
+            assertEquals("Senatus Populusque Romanus", readString)
 
             // Tell position
             val position = obj.tell()
@@ -77,7 +71,7 @@ class LargeObjectIntegrationTest {
 
             val obj = loManager.open(oid, LargeObjectMode.READ_WRITE)
             val outputStream = obj.outputStream()
-            val text = "Streamed Large Object Test Data"
+            val text = "Res Gestae Divi Augusti, streamed a tablet at a time"
             outputStream.write(text.toByteArray(Charsets.UTF_8))
             
             obj.seek(0, SeekWhence.SET)
@@ -98,7 +92,7 @@ class LargeObjectIntegrationTest {
             val oid = loManager.create()
 
             val obj = loManager.open(oid, LargeObjectMode.READ_WRITE)
-            val data = "Hello length only".toByteArray(Charsets.UTF_8)
+            val data = "Carthago delenda est".toByteArray(Charsets.UTF_8)
             obj.write(data)
 
             obj.seek(0, SeekWhence.SET)

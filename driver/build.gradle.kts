@@ -31,6 +31,7 @@ dependencies {
     implementation(libs.kotlin.logging)
     implementation(libs.slf4j.api)
 
+    testImplementation(projects.testSupport)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.logback.classic)

@@ -6,6 +6,7 @@ import io.github.octaviusframework.migrations.execution.MigrationReport
 import io.github.octaviusframework.migrations.execution.MigrationStatus
 import io.github.octaviusframework.migrations.history.MigrationState
 import io.github.octaviusframework.migrations.history.MigrationType
+import io.github.octaviusframework.testsupport.TestDatabase
 import java.nio.file.Path
 import kotlin.io.path.writeText
 import org.junit.jupiter.api.AfterAll
@@ -87,7 +88,7 @@ class OctaviusMigratorIntegrationTest {
         assertEquals(MigrationType.SQL, applied.type)
         assertEquals("V1__create_first.sql", applied.script)
         assertEquals(MigrationState.SUCCESS, applied.state)
-        assertEquals("postgres", applied.installedBy)
+        assertEquals(TestDatabase.USER, applied.installedBy)
     }
 
     @Test

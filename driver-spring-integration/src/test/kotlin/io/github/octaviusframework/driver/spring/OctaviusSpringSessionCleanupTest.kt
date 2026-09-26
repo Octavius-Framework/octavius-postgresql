@@ -1,6 +1,7 @@
 package io.github.octaviusframework.driver.spring
 
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
@@ -27,9 +28,9 @@ import org.springframework.transaction.annotation.Transactional
 @SpringBootTest(
     classes = [CleanupTestApplication::class, OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class],
     properties = [
-        "spring.datasource.url=jdbc:octavius://localhost:5432/octavius_test",
-        "spring.datasource.username=postgres",
-        "spring.datasource.password=1234",
+        "spring.datasource.url=${TestDatabase.URL}",
+        "spring.datasource.username=${TestDatabase.USER}",
+        "spring.datasource.password=${TestDatabase.PASSWORD}",
         "spring.datasource.driver-class-name=io.github.octaviusframework.driver.jdbc.OctaviusDriver",
         "spring.datasource.hikari.maximum-pool-size=1",
         "spring.datasource.hikari.minimum-idle=1"

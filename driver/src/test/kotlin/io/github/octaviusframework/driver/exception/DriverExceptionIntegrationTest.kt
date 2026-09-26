@@ -1,26 +1,22 @@
 package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class DriverExceptionIntegrationTest {
+class DriverExceptionIntegrationTest : AbstractIntegrationTest() {
 
     companion object {
         val logger = KotlinLogging.logger {}
     }
 
-    private fun getSession() = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-        user = "postgres"
-        password = "1234"
-    })
-
     @Test
     fun `should throw InvalidOperationException when calling execute on query that returns rows`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<InvalidOperationException> {
                 session.createNativeQuery("SELECT 1").execute()
             }
@@ -31,7 +27,7 @@ class DriverExceptionIntegrationTest {
 
     @Test
     fun `should discard the rows when execute is told to ignore them`() {
-        getSession().use { session ->
+        openSession().use { session ->
             session.createNativeQuery("SELECT 1").execute(ignoreRows = true)
 
             // The session still works, which is the half worth asserting: the rows were drained on the way
@@ -42,7 +38,7 @@ class DriverExceptionIntegrationTest {
 
     @Test
     fun `should run a whole script past a statement that returns rows`() {
-        getSession().use { session ->
+        openSession().use { session ->
             // What a script written elsewhere looks like: pg_dump puts a SELECT pg_catalog.setval(...) after
             // every sequence, and one of those in the middle used to take the whole call down.
             session.createNativeQuery(
@@ -61,10 +57,7 @@ class DriverExceptionIntegrationTest {
     @Test
     fun `should throw InitializationException for invalid credentials`() {
         val exception = assertFailsWith<InitializationException> {
-            getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", OctaviusProperties().apply {
-                user = "postgres"
-                password = "wrong_password"
-            })
+            openSession { password = "wrong_password" }
         }
         logger.error(exception) { "" }
         assertEquals(InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS, exception.reason)
@@ -74,10 +67,7 @@ class DriverExceptionIntegrationTest {
     @Test
     fun `should throw InitializationException with CONNECTION_ERROR for unreachable host`() {
         val exception = assertFailsWith<InitializationException> {
-            getOctaviusSession("jdbc:octavius://localhost:54321/octavius_test", OctaviusProperties().apply {
-                user = "postgres"
-                password = "1234"
-            })
+            getOctaviusSession("jdbc:octavius://${TestDatabase.HOST}:54321/${TestDatabase.DATABASE}", TestDatabase.properties())
         }
         logger.error(exception) { "" }
         assertEquals(InitializationExceptionReason.CONNECTION_ERROR, exception.reason)
@@ -85,7 +75,7 @@ class DriverExceptionIntegrationTest {
 
     @Test
     fun `should throw InvalidOperationException with INCORRECT_RESULT_SIZE for fetchRowStrict on empty result`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<InvalidOperationException> {
                 session.createNativeQuery("SELECT 1 WHERE false").fetchRowStrict()
             }
@@ -96,7 +86,7 @@ class DriverExceptionIntegrationTest {
     
     @Test
     fun `should throw InvalidOperationException with INCORRECT_RESULT_SIZE for fetchRow on multiple results`() {
-        getSession().use { session ->
+        openSession().use { session ->
             val exception = assertFailsWith<InvalidOperationException> {
                 session.createNativeQuery("SELECT 1 UNION ALL SELECT 2").fetchRow()
             }

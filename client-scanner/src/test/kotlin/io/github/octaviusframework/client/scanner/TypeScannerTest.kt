@@ -1,8 +1,8 @@
 package io.github.octaviusframework.client.scanner
 
-import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.client.OctaviusClient
+import io.github.octaviusframework.client.dynamic.DYNAMIC_DTO_DDL
 import io.github.octaviusframework.client.scanner.fixtures.good.ScanAppointment
 import io.github.octaviusframework.client.scanner.fixtures.good.ScanGrant
 import io.github.octaviusframework.client.scanner.fixtures.good.ScanProvince
@@ -11,6 +11,8 @@ import io.github.octaviusframework.client.scanner.fixtures.good.ScanRank
 import io.github.octaviusframework.client.scanner.fixtures.wrongname.Misnamed
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
@@ -23,7 +25,7 @@ import kotlin.test.assertTrue
  * Covers the scan against a real PostgreSQL: that the three annotations are found and registered, that what
  * they registered actually round-trips, and that a scan which found nothing says so rather than passing.
  */
-class TypeScannerTest {
+class TypeScannerTest : AbstractIntegrationTest() {
 
     data class Senator(val id: Int, val rank: ScanRank, val home: ScanProvince)
 
@@ -32,61 +34,38 @@ class TypeScannerTest {
         private const val BAD = "io.github.octaviusframework.client.scanner.fixtures.bad"
         private const val QUIET = "io.github.octaviusframework.client.scanner.fixtures.quiet"
         private const val WRONG = "io.github.octaviusframework.client.scanner.fixtures.wrongname"
+    }
 
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
-        private lateinit var report: ScanReport
+    // dynamic_dto before the table, which has a column of that type.
+    override val schema = DYNAMIC_DTO_DDL + ";\n" + """
+        CREATE TYPE scan_rank AS ENUM ('QUAESTOR', 'PRAETOR', 'CONSUL');
+        CREATE TYPE scan_province AS (name text, capital text);
+        CREATE TYPE scan_office AS ENUM ('quaestor', 'praetor');
+        CREATE TABLE scan_senators (
+            id      SERIAL PRIMARY KEY,
+            rank    scan_rank NOT NULL,
+            home    scan_province NOT NULL,
+            benefit public.dynamic_dto
+        );
+    """.trimIndent()
 
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            dataSource = HikariDataSource(HikariConfig().apply {
-                jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-                username = "postgres"
-                password = "1234"
-                maximumPoolSize = 2
-            })
-            db = OctaviusClient.fromDataSource(dataSource)
+    private lateinit var dataSource: HikariDataSource
+    private lateinit var db: OctaviusClient
+    private lateinit var report: ScanReport
 
-            // Before the table, which has a column of that type.
-            db.dynamicTypes.install()
+    @BeforeAll
+    fun setUp() {
+        dataSource = TestDatabase.dataSource()
+        db = OctaviusClient.fromDataSource(dataSource)
 
-            db.rawQuery(
-                """
-                DROP TABLE IF EXISTS scan_senators;
-                DROP TYPE IF EXISTS scan_rank;
-                DROP TYPE IF EXISTS scan_province;
-                DROP TYPE IF EXISTS scan_office;
-                CREATE TYPE scan_rank AS ENUM ('QUAESTOR', 'PRAETOR', 'CONSUL');
-                CREATE TYPE scan_province AS (name text, capital text);
-                CREATE TYPE scan_office AS ENUM ('quaestor', 'praetor');
-                CREATE TABLE scan_senators (
-                    id      SERIAL PRIMARY KEY,
-                    rank    scan_rank NOT NULL,
-                    home    scan_province NOT NULL,
-                    benefit public.dynamic_dto
-                )
-                """.trimIndent()
-            ).execute()
+        // Nothing was registered by hand: the scan is what teaches the driver all three.
+        report = db.registerAnnotatedTypes(GOOD)
+    }
 
-            // The types were created after the pool was built, so the catalogue this connection read at
-            // connect time does not have them yet.
-            db.execute { reloadTypes() }
-
-            // Nothing was registered by hand: the scan is what teaches the driver all three.
-            report = db.registerAnnotatedTypes(GOOD)
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery(
-                "DROP TABLE IF EXISTS scan_senators; DROP TYPE IF EXISTS scan_rank; " +
-                    "DROP TYPE IF EXISTS scan_province; DROP TYPE IF EXISTS scan_office"
-            ).execute()
-            db.close()
-            dataSource.close()
-        }
+    @AfterAll
+    fun tearDown() {
+        db.close()
+        dataSource.close()
     }
 
     @BeforeEach

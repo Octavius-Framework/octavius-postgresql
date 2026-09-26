@@ -2,20 +2,16 @@ package io.github.octaviusframework.driver.session
 
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
-import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.ExecutionAbortedExceptionReason
 import io.github.octaviusframework.driver.exception.ExecutionAbortedException
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SessionLifecycleIntegrationTest {
+class SessionLifecycleIntegrationTest : AbstractIntegrationTest() {
 
     companion object {
         private val logger = KotlinLogging.logger {}
@@ -23,11 +19,7 @@ class SessionLifecycleIntegrationTest {
 
     @Test
     fun `should cancel long running query`() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         val executor = Executors.newSingleThreadExecutor()
         executor.submit {
@@ -53,11 +45,7 @@ class SessionLifecycleIntegrationTest {
 
     @Test
     fun `should abort session`() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         val executor = Executors.newSingleThreadExecutor()
         executor.submit {

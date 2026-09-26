@@ -44,7 +44,9 @@ class TypeCatalog internal constructor(
     internal val parameterConverters: List<ParameterConverter<*>>,
     val registeredComposites: Map<KClass<*>, QualifiedName>,
     val compositeClassByName: Map<QualifiedName, KClass<*>>,
-    val registeredEnums: Map<KClass<*>, PgEnumRegistration>
+    val registeredEnums: Map<KClass<*>, PgEnumRegistration>,
+    /** What layers built on the driver keep here, each value under the class it is read back as. */
+    internal val attachments: Map<KClass<*>, Any>
 ) {
     private fun with(
         dictionary: TypeDictionary = this.dictionary,
@@ -54,11 +56,29 @@ class TypeCatalog internal constructor(
         parameterConverters: List<ParameterConverter<*>> = this.parameterConverters,
         registeredComposites: Map<KClass<*>, QualifiedName> = this.registeredComposites,
         compositeClassByName: Map<QualifiedName, KClass<*>> = this.compositeClassByName,
-        registeredEnums: Map<KClass<*>, PgEnumRegistration> = this.registeredEnums
+        registeredEnums: Map<KClass<*>, PgEnumRegistration> = this.registeredEnums,
+        attachments: Map<KClass<*>, Any> = this.attachments
     ) = TypeCatalog(
         dictionary, codecs, resultConverters, anyResultConverters, parameterConverters,
-        registeredComposites, compositeClassByName, registeredEnums
+        registeredComposites, compositeClassByName, registeredEnums, attachments
     )
+
+    /**
+     * What a layer built on the driver keeps about this database under [type], or `null` where it keeps nothing.
+     *
+     * The driver reads none of it. It is here so that it has the scope the driver's own registrations have: one
+     * per database, carried across a reload, dropped by [GlobalCatalogStore.removeCatalog] - and, read through
+     * `context.types.catalog`, pinned for an execution like everything else a converter sees.
+     * [TypeManager.attach] is what puts it here.
+     *
+     * @param type The class the value was attached under.
+     * @return The value, or `null`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> attachment(type: KClass<T>): T? = attachments[type] as T?
+
+    internal fun <T : Any> withAttachment(type: KClass<T>, value: T) =
+        with(attachments = attachments + (type to value))
 
     /**
      * The catalog this one becomes when the database has been re-read: the types as they now are, and the

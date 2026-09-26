@@ -7,6 +7,7 @@ dependencies {
     implementation(projects.driver)
     implementation(hikari.hikaricp)
 
+    testImplementation(projects.testSupport)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
 }

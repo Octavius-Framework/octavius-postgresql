@@ -5,30 +5,25 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.StatementException
-import io.github.octaviusframework.driver.exception.StatementExceptionReason
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.driver.row.Row
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class BasicQueryIntegrationTest {
+class BasicQueryIntegrationTest : AbstractIntegrationTest() {
 
     @Test
     fun test() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
+        val session = openSession()
 
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
-
-        val result = session.createNativeQuery("SELECT 1, 'abc', 4.5::float8").fetchRows()
+        val result = session.createNativeQuery("SELECT 1, 'Roma', 4.5::float8").fetchRows()
         val row = result.first()
         assertEquals(1, row.get(0))
-        assertEquals("abc", row.get(1))
+        assertEquals("Roma", row.get(1))
         assertEquals(4.5, row.get(2))
 
-        val result2 = session.createNativeQuery("SELECT $1 as test_int, $2 as test_float, $1 as test_int2")
+        val result2 = session.createNativeQuery("SELECT $1 as legion, $2 as tribute, $1 as legion_again")
             .fetchRowStrict(1, 2.4f)
         assertEquals(1, result2.get(0))
         assertEquals(2.4f, result2.get(1))
@@ -38,15 +33,12 @@ class BasicQueryIntegrationTest {
 
     @Test
     fun testFetchOneWithMultipleRows() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
-        // Generate 1000 rows. Thanks to maxRows=2 and PortalSuspended, it should fetch exactly 2 rows
-        // and throw StatementException without loading all 1000 rows into memory.
+        // A thousand legionaries. Thanks to maxRows=2 and PortalSuspended, it should fetch exactly 2 rows
+        // and throw InvalidOperationException without loading all 1000 rows into memory.
         val exception = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT generate_series(1, 1000)").fetchRowStrict()
+            session.createNativeQuery("SELECT generate_series(1, 1000) AS legionary").fetchRowStrict()
         }
 
         assertEquals(InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE, exception.reason)
@@ -59,15 +51,12 @@ class BasicQueryIntegrationTest {
 
     @Test
     fun testForEachMethods() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         // NativeQuery forEachRow
         var sum = 0
         var count = 0
-        session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").forEachRow(fetchSize = 3) {
+        session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").forEachRow(fetchSize = 3) {
             sum += it.get<Int>(0)
             count++
         }
@@ -77,7 +66,7 @@ class BasicQueryIntegrationTest {
         // NativeQuery forEachField
         var sumField = 0
         var countField = 0
-        session.createNativeQuery("SELECT i * $1 FROM generate_series(1, 10) as i").forEachField<Int>(2, fetchSize = 4) {
+        session.createNativeQuery("SELECT cohort * $1 FROM generate_series(1, 10) AS cohort").forEachField<Int>(2, fetchSize = 4) {
             sumField += it
             countField++
         }
@@ -87,7 +76,7 @@ class BasicQueryIntegrationTest {
         // NamedParameterQuery forEachField
         var sumNamedField = 0
         var countNamedField = 0
-        session.createNamedQuery("SELECT i * @mult FROM generate_series(1, 10) as i").forEachField<Int>("mult" to 3, fetchSize = 5) {
+        session.createNamedQuery("SELECT cohort * @mult FROM generate_series(1, 10) AS cohort").forEachField<Int>("mult" to 3, fetchSize = 5) {
             sumNamedField += it
             countNamedField++
         }
@@ -98,36 +87,29 @@ class BasicQueryIntegrationTest {
 
     @Test
     fun testForEachRejectsANegativeFetchSizeButNotZero() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props)
+        val session = openSession()
 
         val e = assertFailsWith<InvalidOperationException> {
-            session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").forEachRow(fetchSize = -1) { }
+            session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").forEachRow(fetchSize = -1) { }
         }
         assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, e.reason)
 
         // Zero is not a rejected batch size but Execute's own "no limit": one batch carrying the
         // whole result, which still arrives row by row.
         var seen = 0
-        session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").forEachRow(fetchSize = 0) { seen++ }
+        session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").forEachRow(fetchSize = 0) { seen++ }
         assertEquals(10, seen)
 
         // The refused call never reached the connection, so the session is still usable afterwards.
-        assertEquals(10, session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i").fetchRows().size)
+        assertEquals(10, session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort").fetchRows().size)
         session.close()
     }
 
     @Test
     fun `an exception from a streaming block comes back as BLOCK_FAILED carrying the original`() {
-        val props = OctaviusProperties()
-        props.user = "postgres"
-        props.password = "1234"
-
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", props).use { session ->
+        openSession().use { session ->
             val failure = assertFailsWith<MappingException> {
-                session.createNativeQuery("SELECT i FROM generate_series(1, 10) as i")
+                session.createNativeQuery("SELECT cohort FROM generate_series(1, 10) AS cohort")
                     .forEachRow(fetchSize = 3) { throw IllegalStateException("the aqueduct is dry") }
             }
 
@@ -136,6 +118,34 @@ class BasicQueryIntegrationTest {
             assertEquals(MappingExceptionReason.BLOCK_FAILED, failure.reason)
             assertEquals("the aqueduct is dry", failure.cause?.message)
             assertEquals(IllegalStateException::class, failure.cause!!::class)
+        }
+    }
+
+    @Test
+    fun `a row too large for the cached buffer, between two that fit, leaves every row as it was read`() {
+        // Rows up to maxCachedRowSize are read into one buffer the connection reuses, and a larger one into an
+        // array of its own. The default limit is 64 KiB, so the second branch takes a lower one to reach: at 1 KiB
+        // the second row (8008 bytes) goes over it, and the others (28 bytes) share the buffer, each overwriting
+        // the one before. Every row repeats a letter of its own, so a row read from another's bytes shows it.
+        val sql = """
+            SELECT repeat(chr(64 + i), n) AS roll, convert_to(repeat(chr(64 + i), n), 'UTF8') AS tablet
+            FROM (VALUES (1, 10), (2, 4000), (3, 10), (4, 10)) AS legions(i, n)
+        """.trimIndent()
+        val expected = listOf('A' to 10, 'B' to 4000, 'C' to 10, 'D' to 10)
+
+        openSession { maxCachedRowSize = 1024 }.use { session ->
+            val whole = session.createNativeQuery(sql).fetchRows()
+            val streamed = mutableListOf<Row>()
+            session.createNativeQuery(sql).forEachRow(fetchSize = 1) { streamed += it }
+
+            for (rows in listOf(whole, streamed)) {
+                assertEquals(expected, rows.map { it.get<String>("roll").let { roll -> roll.first() to roll.length } })
+                for ((row, pair) in rows.zip(expected)) {
+                    val (letter, length) = pair
+                    assertEquals(letter.toString().repeat(length), row.get<String>("roll"))
+                    assertEquals(letter.toString().repeat(length), row.get<ByteArray>("tablet").decodeToString())
+                }
+            }
         }
     }
 }

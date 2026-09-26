@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.initialization
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
 import io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
@@ -13,14 +14,13 @@ class UnsupportedVersionTest {
     @Test
     @EnabledIfEnvironmentVariable(named = "TEST_UNSUPPORTED_PG_VERSION", matches = "true")
     fun `should throw UNSUPPORTED_SERVER_VERSION when connecting to older PostgreSQL`() {
-        val url = "jdbc:octavius://localhost:5432/octavius_test"
         val props = Properties().apply {
-            setProperty("user", "postgres")
-            setProperty("password", "1234")
+            setProperty("user", TestDatabase.USER)
+            setProperty("password", TestDatabase.PASSWORD)
         }
 
         val exception = assertThrows(InitializationException::class.java) {
-            OctaviusConnectionFactory.createConnection(url, props)
+            OctaviusConnectionFactory.createConnection(TestDatabase.URL, props)
         }
         
         assertEquals(InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION, exception.reason)

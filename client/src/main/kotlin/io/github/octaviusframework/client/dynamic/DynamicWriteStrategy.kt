@@ -20,10 +20,9 @@ package io.github.octaviusframework.client.dynamic
  * [DynamicTypes.toDynamicDto] overrides whichever mode is in force: a value already wrapped is written as a
  * `dynamic_dto` under all three.
  *
- * A mode is given to a client, but what enforces it is a converter on the driver's type registry, and that
- * registry is global to the database. Two clients on one database therefore do not hold a mode each: the one
- * that registered a dynamic type last is the one whose mode applies to both. Where an application builds a
- * second client against the same database - a read-only pool, a test harness - give it the same mode.
+ * A mode is given to a client and goes with every class registered through it: that class is written on that
+ * mode whichever client a query runs through. A class is registered once per database, so a second client
+ * registering it on another mode is refused rather than overriding the first.
  */
 enum class DynamicWriteStrategy {
     /**

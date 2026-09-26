@@ -1,7 +1,5 @@
 package io.github.octaviusframework.client
 
-import com.zaxxer.hikari.HikariConfig
-import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.client.transaction.TransactionPropagation
 import io.github.octaviusframework.driver.exception.ConstraintViolationException
 import io.github.octaviusframework.driver.exception.InvalidOperationException
@@ -12,8 +10,7 @@ import io.github.octaviusframework.driver.exception.RoutineAssertionExceptionRea
 import io.github.octaviusframework.driver.exception.RoutineRaiseException
 import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.StatementExceptionReason
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
@@ -28,52 +25,17 @@ import kotlin.test.assertTrue
  * Covers the client over a real PostgreSQL: the session seam, the transaction contract, and the line
  * between a failure [dbResult] catches and one it lets through.
  */
-class ClientIntegrationTest {
+class ClientIntegrationTest : AbstractClientIntegrationTest() {
 
     data class Senator(val id: Int, val cognomen: String, val provinceId: Int)
 
-    companion object {
-        private const val URL = "jdbc:octavius://localhost:5432/octavius_test"
-        private const val USER = "postgres"
-        private const val PASS = "1234"
-
-        private lateinit var dataSource: HikariDataSource
-        private lateinit var db: OctaviusClient
-
-        private fun pool(size: Int) = HikariDataSource(HikariConfig().apply {
-            jdbcUrl = URL
-            username = USER
-            password = PASS
-            maximumPoolSize = size
-        })
-
-        @BeforeAll
-        @JvmStatic
-        fun setUp() {
-            // Two, so that REQUIRES_NEW has a second connection to take. The seam is proven on a pool of one,
-            // in the test that needs one connection to be the only one there is.
-            dataSource = pool(2)
-            db = OctaviusClient.fromDataSource(dataSource)
-
-            db.rawQuery(
-                """
-                CREATE TABLE IF NOT EXISTS client_senators (
-                    id          SERIAL PRIMARY KEY,
-                    cognomen    TEXT NOT NULL UNIQUE,
-                    province_id INT  NOT NULL
-                )
-                """.trimIndent()
-            ).execute()
-        }
-
-        @AfterAll
-        @JvmStatic
-        fun tearDown() {
-            db.rawQuery("DROP TABLE IF EXISTS client_senators").execute()
-            db.close()
-            dataSource.close()
-        }
-    }
+    override val schema = """
+        CREATE TABLE client_senators (
+            id          SERIAL PRIMARY KEY,
+            cognomen    TEXT NOT NULL UNIQUE,
+            province_id INT  NOT NULL
+        );
+    """.trimIndent()
 
     @BeforeEach
     fun clearTable() {
@@ -134,7 +96,7 @@ class ClientIntegrationTest {
         // A pool of exactly one. `recordSenator` knows nothing about the transaction around it; if its
         // terminal borrowed a second connection there would be none to borrow, and this would wait forever.
         // Reading its uncommitted row back proves the same thing from the other side.
-        pool(1).use { singleConnectionPool ->
+        TestDatabase.dataSource { maximumPoolSize = 1 }.use { singleConnectionPool ->
             val single = OctaviusClient.fromDataSource(singleConnectionPool)
 
             assertTimeoutPreemptively(Duration.ofSeconds(10)) {

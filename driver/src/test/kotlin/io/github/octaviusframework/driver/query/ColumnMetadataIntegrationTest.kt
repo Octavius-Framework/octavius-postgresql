@@ -1,13 +1,9 @@
 package io.github.octaviusframework.driver.query
 
 import io.github.octaviusframework.driver.exception.TypeException
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
-import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.type.PgType
-import org.junit.jupiter.api.AfterAll
-import org.junit.jupiter.api.BeforeAll
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestInstance
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
@@ -18,63 +14,42 @@ import kotlin.test.assertTrue
  * Pins down what a result says about its own columns: the type it was read as, and - for a column the server
  * tracked back to a relation - the relation and column it came from, named out of the type catalog.
  */
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class ColumnMetadataIntegrationTest {
+class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
 
-    private fun session(): OctaviusSession =
-        getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
-
-    @BeforeAll
-    fun setup() {
-        session().use { s ->
-            s.createNativeQuery("DROP SCHEMA IF EXISTS column_metadata_test CASCADE").execute()
-            s.createNativeQuery("CREATE SCHEMA column_metadata_test").execute()
-            s.createNativeQuery("CREATE DOMAIN column_metadata_test.tribute_amount AS numeric(10,2)").execute()
-            s.createNativeQuery(
-                "CREATE TABLE column_metadata_test.senators (" +
-                        "id int, cognomen text, province text, tribute numeric(10,2), levy column_metadata_test.tribute_amount" +
-                        ")"
-            ).execute()
-            // Takes attribute number 3 out of the sequence for good, so everything declared after it sits
-            // one place behind its own number.
-            s.createNativeQuery("ALTER TABLE column_metadata_test.senators DROP COLUMN province").execute()
-            s.createNativeQuery("CREATE VIEW column_metadata_test.consuls AS SELECT id, cognomen FROM column_metadata_test.senators").execute()
-            s.createNativeQuery("INSERT INTO column_metadata_test.senators VALUES (1, 'Cato', 12.50, 3.00)").execute()
-            // The catalog is read when a connection is opened and not again on its own, so a relation created
-            // since is one the dictionary cannot name until it is asked to look again.
-            s.reloadTypes()
-        }
-    }
-
-    @AfterAll
-    fun teardown() {
-        session().use { s ->
-            s.createNativeQuery("DROP SCHEMA IF EXISTS column_metadata_test CASCADE").execute()
-            s.reloadTypes()
-        }
-    }
+    override val schema = """
+        CREATE SCHEMA res_publica;
+        CREATE DOMAIN res_publica.tribute_amount AS numeric(10,2);
+        CREATE TABLE res_publica.senators (
+            id int, cognomen text, province text, tribute numeric(10,2), levy res_publica.tribute_amount
+        );
+        -- Takes attribute number 3 out of the sequence for good, so everything declared after it sits one place
+        -- behind its own number.
+        ALTER TABLE res_publica.senators DROP COLUMN province;
+        CREATE VIEW res_publica.consuls AS SELECT id, cognomen FROM res_publica.senators;
+        INSERT INTO res_publica.senators VALUES (1, 'Cato', 12.50, 3.00);
+    """.trimIndent()
 
     // ---------------------------------- Where a column came from ----------------------------------
 
     @Test
     fun `an aliased column reports the alias as its name and the column it was read from as its origin`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT cognomen AS name FROM column_metadata_test.senators").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT cognomen AS name FROM res_publica.senators").fetchRowStrict()
             val column = row.metadata.getColumn(0)
 
             assertEquals("name", column.name)
             val origin = column.origin!!
             assertEquals("cognomen", origin.columnName)
             assertEquals("senators", origin.relationName)
-            assertEquals("column_metadata_test", origin.schema)
+            assertEquals("res_publica", origin.schema)
             assertNotEquals(0, origin.relationOid)
         }
     }
 
     @Test
     fun `a column declared after a dropped one is named by its attribute number and not by its position`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT tribute FROM column_metadata_test.senators").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT tribute FROM res_publica.senators").fetchRowStrict()
             val origin = row.metadata.getColumn(0).origin!!
 
             // Third of the three surviving attributes, fourth by number.
@@ -85,20 +60,20 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `a view is a relation like any other`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT cognomen FROM column_metadata_test.consuls").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT cognomen FROM res_publica.consuls").fetchRowStrict()
             val origin = row.metadata.getColumn(0).origin!!
 
             assertEquals("consuls", origin.relationName)
-            assertEquals("column_metadata_test", origin.schema)
+            assertEquals("res_publica", origin.schema)
             assertEquals("cognomen", origin.columnName)
         }
     }
 
     @Test
     fun `anything that is not a column reference has no origin at all`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT 1 + 1, upper(cognomen), now() FROM column_metadata_test.senators").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT 1 + 1, upper(cognomen), now() FROM res_publica.senators").fetchRowStrict()
 
             assertNull(row.metadata.getColumn(0).origin)
             assertNull(row.metadata.getColumn(1).origin)
@@ -108,7 +83,7 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `a column of a relation the catalog does not describe keeps the OIDs and loses the names`() {
-        session().use { s ->
+        openSession().use { s ->
             // Composites in pg_catalog are not loaded, so nothing here can put a name to the relation - while
             // the server still says the value came from one.
             val row = s.createNativeQuery("SELECT relname FROM pg_class LIMIT 1").fetchRowStrict()
@@ -126,8 +101,8 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `the type is resolved out of the catalog, structure and all`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT tribute, ARRAY['a', 'b'] FROM column_metadata_test.senators").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT tribute, ARRAY['a', 'b'] FROM res_publica.senators").fetchRowStrict()
 
             val tribute = row.metadata.getColumn(0).type
             assertTrue(tribute is PgType.Base)
@@ -143,8 +118,8 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `a domain column is described by the type underneath it`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT levy, 1::column_metadata_test.tribute_amount FROM column_metadata_test.senators").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT levy, 1::res_publica.tribute_amount FROM res_publica.senators").fetchRowStrict()
 
             // The server resolves a domain to its base type before describing a column - for a plain reference
             // and for an explicit cast alike - so a result column never arrives as one, however it was written.
@@ -160,8 +135,8 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `the type modifier carries the precision the type alone does not`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT tribute, cognomen FROM column_metadata_test.senators").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT tribute, cognomen FROM res_publica.senators").fetchRowStrict()
 
             assertEquals(((10 shl 16) or 2) + 4, row.metadata.getColumn(0).typeModifier)
             assertEquals(-1, row.metadata.getColumn(1).typeModifier)
@@ -170,8 +145,8 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `the column reports the OID of its own type`() {
-        session().use { s ->
-            val row = s.createNativeQuery("SELECT id FROM column_metadata_test.senators").fetchRowStrict()
+        openSession().use { s ->
+            val row = s.createNativeQuery("SELECT id FROM res_publica.senators").fetchRowStrict()
             val column = row.metadata.getColumn(0)
 
             assertEquals(23, column.oid)
@@ -184,7 +159,7 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `a column of an undescribed type fails on the description and leaves the connection usable`() {
-        session().use { s ->
+        openSession().use { s ->
             // An information_schema view's own row type is a composite the type load skips, and every column of
             // this one is a domain over a type the server can send in binary. A pg_class row cannot be relied on
             // for that: relacl's element type has no binary send function, so a row carrying an ACL fails on the
@@ -199,7 +174,7 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `the same holds while streaming`() {
-        session().use { s ->
+        openSession().use { s ->
             assertFailsWith<TypeException> {
                 s.createNativeQuery("SELECT t FROM information_schema.tables t").forEachRow(fetchSize = 2) { }
             }
@@ -210,7 +185,7 @@ class ColumnMetadataIntegrationTest {
 
     @Test
     fun `it is the description that fails, not a value on its way through a codec`() {
-        session().use { s ->
+        openSession().use { s ->
             // The column's type is the undescribed composite and its value is null in the one row that comes
             // back, so nothing is ever handed to a codec: only a check made when the result is described can
             // fail here. The same shape over a type the catalog does describe returns its null row.

@@ -89,14 +89,14 @@ session.reloadTypes() // re-reads pg_catalog for this database
 
 Worth knowing about a reload:
 
-* It is **global too** — it refreshes the shared registry for the whole database, not just this session.
+* It is **global too** — it refreshes the shared catalog for the whole database, not just this session.
 * `CREATE TABLE` also creates a type (the table's row type), so table DDL counts.
 * Custom **codecs survive**: registered codecs are replayed and re-bound against the new OIDs.
-* Custom **converters and composite registrations are untouched** — they live in the converter registry, which a reload doesn't rebuild.
+* Custom **converters and composite and enum registrations carry over** — a reload replaces the types and the codecs, and nothing else in the catalog.
 * In an application with a static schema, you typically never call it. In tests, migrations, or anything that creates types at runtime, call it once after the DDL.
-* **Call it when nothing else is querying.** A reload is not isolated from statements already in flight — see [Thread safety and cost](#thread-safety-and-cost). Startup, a migration step, or a test fixture is the natural place; midway through serving traffic is not.
+* **It does not reach a query already running.** A statement in flight finishes against the catalog its terminal pinned; the reload reaches the terminals that start after it. See [Concurrency](concurrency.md#what-a-reload-does-not-promise).
 
-### One registry per database, not per URL
+### One catalog per database, not per URL
 
 Catalogs are cached in `GlobalCatalogStore` under a `DatabaseKey` of **host + port + database name** — deliberately *not* the whole connection URL:
 
@@ -106,7 +106,7 @@ internal data class DatabaseKey(val host: String, val port: Int, val database: S
 
 Credentials, SSL settings and timeouts have no effect on the type catalog. Keying on them would fragment the cache (and would keep a password alive as a map key for the lifetime of the JVM). Practical consequences:
 
-* Two HikariCP pools connecting as different users to the same database **share one registry** — and therefore one set of registered converters.
+* Two HikariCP pools connecting as different users to the same database **share one catalog** — and therefore one set of registered converters.
 * Registration performed through *any* pool's session is visible to the others.
 * If your application connects to thousands of *different* databases at runtime (a per-tenant-database setup, say), call `GlobalCatalogStore.removeCatalog(url)` when you close a data source, so the catalog can be collected. With a static set of URLs — the normal case — leave it alone.
 
@@ -121,7 +121,7 @@ Credentials, SSL settings and timeouts have no effect on the type catalog. Keyin
 2. **Converters Layer (`ResultConverter<S, T>` / `ParameterConverter<T>`)**
     * **Role:** a higher level of abstraction, mapping the intermediate structures codecs decode (`PgComposite`, `PgArray`, `PgRecord`, `Row`) onto whatever complex, user-defined structures you actually want.
     * **Operation:** handles reflective mapping onto classes (data classes), transformation into collections (`Collection<*>`), maps (`Map<String, Any?>`), and nested objects.
-    * **Context:** `SerializationContext` and `DeserializationContext` recursively resolve and convert nested types within complex structures, bridging the object layer and the binary layer smoothly in both directions. Both expose a `typeManager` — a `TypeLookup`, the reading half — so a converter can resolve OIDs or build containers mid-conversion, and cannot register anything.
+    * **Context:** `SerializationContext` and `DeserializationContext` recursively resolve and convert nested types within complex structures, bridging the object layer and the binary layer smoothly in both directions. Both expose `types` — a `TypeLookup`, the reading half — so a converter can resolve OIDs or build containers mid-conversion, and cannot register anything.
     * **Errors:** failures surface as a `MappingException` whose `path` accumulates the segment names it passed through — so a bad field five levels down in a nested composite tells you *which* field.
 
 Thanks to this split, adding support for a specific custom PostgreSQL type is usually just writing a small, focused codec — the reflective work of wiring it into data classes and collections is handled automatically by the generic converter layer above it.
@@ -179,23 +179,25 @@ session.typeManager.registerEnum<LegioStatus>()
 | `registerParameterConverter(converter)` | Kotlin object → database parameter mapping.                                                    |
 | `registerEnum<T>(...)`                  | Registers both directions for a Kotlin enum in one call.                                       |
 | `registerAutoComposite<T>(...)`         | Maps a data class to a PostgreSQL composite type reflectively.                                 |
-| `dictionary`                            | The current catalog snapshot — `getPgType(oid)`, `getArrayType(...)`, `forEachType { }`.       |
+| `attach(type) { }`                      | Keeps a layer's own value per database, read back as `catalog.attachment(type)`.               |
+| `dictionary`                            | The types the catalog describes — `getPgType(oid)`, `getArrayType(...)`, `forEachType { }`.    |
 | `codecs`                                | Codec lookups — `getCodecByOid(...)`, `getCodecByClass(...)`.                                  |
-| `catalog`                               | The dictionaries, converters and composite and enum registrations, as one immutable value.     |
+| `catalog`                               | The dictionaries, converters, registrations and attachments, as one immutable value.           |
 | `containers`                            | `ContainerFactory` — builds `PgComposite`, `PgRange`, `PgMultirange` instances by name or OID. |
 | `detached()`                            | A `TypeLookup` with no session behind it, for something outliving the session it came from.    |
 
-Everything but the `register*` rows reads. They are separate types, not a convention: `TypeLookup` carries
-`catalog`, `dictionary`, `codecs`, `containers` and `resolveOid`, and **no `register*` at all**. A conversion
-reaches it as `context.types`, so registering a type, a codec or a converter from inside a converter is
-not something the API allows — it could not have affected the conversion it was made from, the catalog having
-been pinned before the statement went out, and would have reached every other session on the database instead.
+Everything but the `register*` and `attach` rows reads. They are separate types, not a convention: `TypeLookup`
+carries `catalog`, `dictionary`, `codecs`, `containers` and `resolveOid`, and **no `register*` or `attach` at
+all**. A conversion reaches it as `context.types`, so registering a type, a codec or a converter from inside a
+converter is not something the API allows — it could not have affected the conversion it was made from, the
+catalog having been pinned before the statement went out, and would have reached every other session on the
+database instead.
 
 ### Scope: a session handle over global state
 
 This is the part that surprises people, so it's worth stating bluntly:
 
-> **`typeManager` is created per session, but the registry it writes to is shared per database across the whole JVM.**
+> **`typeManager` is created per session, but the catalog behind it is shared per database across the whole JVM.**
 
 `OctaviusSessionImpl` constructs a fresh `TypeManager` for each session, but hands it the `CatalogHolder` that `GlobalCatalogStore` keeps for that database. Nothing is copied. So:
 
@@ -215,7 +217,7 @@ dataSource.getOctaviusSession().use { session ->
 // Every session opened afterwards already knows about all three.
 ```
 
-Doing it per request isn't just wasted work — registries are copy-on-write lists, and re-registering the same converter **prepends another copy** every time. The newest one wins so behavior stays correct, but the list grows without bound and lookups get slower. Register once.
+Doing it per request isn't just wasted work — the catalog's converter lists are copy-on-write, and re-registering the same converter **prepends another copy** every time. The newest one wins so behavior stays correct, but the list grows without bound and lookups get slower. Register once.
 
 ### What *is* per-session: the search path
 
@@ -244,7 +246,7 @@ Resolution order for a name with no explicit schema:
 3. If the name doesn't appear in the search path at all but exists in exactly **one** schema, that one is used.
 4. If it exists in several schemas and none is in the search path: `TypeException` — *"Ambiguous type. Schema must be specified."*
 
-So two sessions with different search paths can resolve the same type name to different OIDs, even though they share one registry. If you have a multi-schema database with colliding type names, pass the schema explicitly at registration time (`registerEnum<LegioStatus>(schema = "imperium")`).
+So two sessions with different search paths can resolve the same type name to different OIDs, even though they share one catalog. If you have a multi-schema database with colliding type names, pass the schema explicitly at registration time (`registerEnum<LegioStatus>(schema = "imperium")`).
 
 ### Query-scoped overrides
 
@@ -267,16 +269,14 @@ They take effect from the next terminal, which is where the catalog for a run is
 
 ### Thread safety and cost
 
-All registries are built for **many readers, rare writers**:
+The catalog is built for **many readers, rare writers**:
 
 * `TypeDictionary` and `CodecDictionary` are immutable, and so is the `TypeCatalog` holding them alongside the converters and the registrations; every update builds a new catalog and publishes it through a single `@Volatile` field under a `ReentrantLock`.
 * Converters live in that catalog in copy-on-write collections; new entries are inserted at the front, so **the most recently registered converter wins**.
-* A terminal reads that field once and maps the whole execution against what it found.
+* A terminal reads that field once and maps the whole execution against what it found — its parameters, its columns, the values nested inside them and the `Row`s it returns. A registration or a `reloadTypes()` landing mid-query reaches the next terminal, not this one; [Concurrency](concurrency.md#what-a-reload-does-not-promise) has the details.
 * Reads — every query, every row, every conversion — take no locks at all.
 
 The flip side is that each registration copies the collection it touches. Cheap a handful of times at startup, wasteful in a hot path.
-
-Be precise about what the immutability buys, though: **each lookup sees one coherent dictionary, not each query.** Readers take no lock and re-read the field every time, and `dictionary` and `codecs` are two fields published one after the other — so a registration or a `reloadTypes()` landing in the middle of a running query can leave part of its result resolved against the state before and part against the state after. Nothing is corrupted, since every read still gets a whole valid object; it is inconsistency rather than a race, and it only arises if the registries are written to while queries are in flight. [Concurrency](concurrency.md#what-a-reload-does-not-promise) has the details.
 
 ## Basic codecs
 
@@ -670,7 +670,7 @@ Naming a schema the catalog does not have is refused at the registration. A relo
 
 Set `isDefaultForKotlinType = true` if the codec should also be chosen when the driver only knows the Kotlin class of a parameter and not its target OID. For a sealed class, that also registers all of its sealed subclasses.
 
-Registered codecs are remembered and re-bound on every catalog reload, so a codec registered before its type exists starts working after the next `reloadTypes()`.
+Registered codecs are remembered and re-bound on every catalog reload, so a codec bound by type name alone can be registered before its type exists and starts working after the next `reloadTypes()`. One that names a schema as well cannot: the type has to be there when it is registered.
 
 ### Overriding a built-in
 
@@ -681,14 +681,14 @@ Registration is last-wins in both layers, so overriding the defaults means regis
 
 ## Practical rules and gotchas
 
-* **Register once, at startup.** Registration is global and permanent for the JVM; doing it per request grows the registries and buys nothing.
+* **Register once, at startup.** Registration is global and permanent for the JVM; doing it per request grows the converter lists and buys nothing.
 * **`reloadTypes()` after runtime DDL** — including `CREATE TABLE`, whose row type is a composite. Without it, new types resolve to nothing.
 * **Register before running the query, not before building it.** A query pins the catalog when a terminal runs, so a `registerCodec(...)` or a converter registration between `createNativeQuery(...)` and the `fetch*` call is picked up. What it will not do is reach a terminal already in flight, or rows a previous terminal returned.
-* **Same database, different credentials, same registry.** The cache key is host + port + database only.
+* **Same database, different credentials, same catalog.** The cache key is host + port + database only.
 * **Ambiguous type names need a schema.** If the same type name exists in several schemas and none is on the search path, resolution throws instead of guessing.
 * **Empty collections need `PgTyped`.** Erasure leaves nothing in an `emptyList()` for the driver to infer an element type from — the same goes for a list of nothing but nulls.
 * **Not every PostgreSQL type has a codec.** `money`, `timetz`, `tsvector`, `tsquery`, `jsonpath` and friends throw `TypeException(MISSING_CODEC)`. Cast them in SQL or write the codec.
 * **`MappingException.path` points at the failure.** For nested composites and arrays, read the path before reading the message.
 * **Thousands of dynamic database URLs?** Call `GlobalCatalogStore.removeCatalog(url)` when tearing down a data source. Otherwise, ignore it.
 
-Centralizing everything in one `TypeCatalog` makes the whole system easy to extend — plugging in PostGIS support or a custom JSON engine is a matter of registering a converter, not rewriting the pipeline.
+Plugging in PostGIS support or a custom JSON engine is a matter of registering a codec or a converter, not rewriting the pipeline.

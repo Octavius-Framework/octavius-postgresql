@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.TransactionState
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -17,9 +18,9 @@ import kotlin.test.assertNotEquals
 class PooledSessionCleanupTest {
 
     private fun pool() = HikariDataSource(HikariConfig().apply {
-        jdbcUrl = "jdbc:octavius://localhost:5432/octavius_test"
-        username = "postgres"
-        password = "1234"
+        jdbcUrl = TestDatabase.URL
+        username = TestDatabase.USER
+        password = TestDatabase.PASSWORD
         maximumPoolSize = 1   // guarantees the same physical connection comes back
         minimumIdle = 1
     })
@@ -112,7 +113,7 @@ class PooledSessionCleanupTest {
 
     @Test
     fun `a hand-written BEGIN does not follow the connection to the next borrower`() {
-        val observer = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val observer = TestDatabase.openSession()
         observer.createNativeQuery("CREATE TABLE IF NOT EXISTS pool_cleanup_test (id INT)").execute()
         observer.createNativeQuery("TRUNCATE pool_cleanup_test").execute()
 
@@ -140,7 +141,7 @@ class PooledSessionCleanupTest {
 
     @Test
     fun `a properly committed manual transaction is left alone`() {
-        val observer = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val observer = TestDatabase.openSession()
         observer.createNativeQuery("CREATE TABLE IF NOT EXISTS pool_cleanup_test_2 (id INT)").execute()
         observer.createNativeQuery("TRUNCATE pool_cleanup_test_2").execute()
 

@@ -27,6 +27,7 @@ dependencies {
     implementation(libs.kotlin.reflect)
     implementation(libs.kotlin.logging)
 
+    testImplementation(projects.testSupport)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
     testImplementation(hikari.hikaricp)

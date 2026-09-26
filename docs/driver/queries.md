@@ -50,6 +50,10 @@ The rewriter understands SQL well enough to leave the rest of your statement alo
 session.createNamedQuery("SELECT * FROM t WHERE data @> @filter AND tsv @@ to_tsquery(@q)")
 ```
 
+What is not safe is an `@` written straight against a name, because that is what a parameter looks like: PostgreSQL
+reads `@x` as the absolute value of `x` and `a <@b` as `a <@ b`, and here both are parameters. Put a space after the
+`@` — `@ x`, `a <@ b` — and PostgreSQL reads them as it would anywhere else.
+
 > [!NOTE]
 > Parameters are sent in binary under a concrete type, which is what makes a bare `null` ambiguous and can make PostgreSQL pick the wrong overload of a function. [Functions and Procedures](functions-procedures.md#argument-types-decide-which-routine-runs) covers that in detail, and `withPgType` is the way out.
 
@@ -92,9 +96,12 @@ Object mapping goes through the internal `ResultMapper`, which is also where [cu
 
 ## Reading a `Row`
 
-`Row` is decoded up front, not a cursor. Every column is decoded when the row is built, so nothing is read off the connection afterwards and a row can be kept, passed to another thread, or read in any order.
+`Row` is decoded up front, not a cursor. Every column is decoded when the row is built, so nothing is read off the
+connection afterwards and a row can be kept, passed to another thread, or read in any order.
 
-What is *not* finished at that point is the conversion: `row.get<T>()` resolves a converter when you call it, through the registries the row's query is attached to. In practice that only matters if those registries change while you are still holding rows — see [Concurrency](concurrency.md#what-can-cross-a-thread-boundary).
+What is *not* finished at that point is the conversion: `row.get<T>()` resolves a converter when you call it, against
+the catalog the row's execution pinned — so it answers the same whenever it is called, whatever has been registered
+since. See [Concurrency](concurrency.md#what-can-cross-a-thread-boundary).
 
 Values come out through `get`, by name or by zero-based index:
 

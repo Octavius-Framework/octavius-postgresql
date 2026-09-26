@@ -4,8 +4,8 @@ import io.github.octaviusframework.driver.converter.result.mapper.Deserializatio
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
-import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.Test
 import kotlin.reflect.KClass
@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
  * against the requested type. Without that, the mismatch would reach the caller as a bare
  * ClassCastException thrown from the caller's own line, with no frame naming the converter.
  */
-class GreedyConverterDiagnosticTest {
+class GreedyConverterDiagnosticTest : AbstractIntegrationTest() {
 
     data class Dossier(val raw: String)
 
@@ -41,24 +41,23 @@ class GreedyConverterDiagnosticTest {
         ): Dossier = Dossier(source)
     }
 
+    override val schema = "CREATE TABLE dossiers (data jsonb)"
+
     @Test
     fun `converter producing the wrong type fails as a MappingException naming it`() {
-        val session = getOctaviusSession("jdbc:octavius://localhost:5432/octavius_test", "postgres", "1234")
+        val session = openSession()
         try {
-            session.createNativeQuery("DROP TABLE IF EXISTS greedy_converter_probe CASCADE").execute()
-            session.createNativeQuery("CREATE TABLE greedy_converter_probe (data jsonb)").execute()
-            session.createNativeQuery("""INSERT INTO greedy_converter_probe VALUES ('{"a":1}')""").execute()
-            session.reloadTypes()
+            session.createNativeQuery("""INSERT INTO dossiers VALUES ('{"legio":10}')""").execute()
 
             // Scoped to this query, so the rest of the suite is unaffected - the same registration
             // made through typeManager would apply to every session on this database.
-            val query = session.createNativeQuery("SELECT data FROM greedy_converter_probe")
+            val query = session.createNativeQuery("SELECT data FROM dossiers")
                 .registerResultConverter(GreedyDossierConverter())
 
             val row = query.fetchRowStrict()
 
             // Asking for what the converter actually produces still works
-            assertEquals(Dossier("""{"a": 1}"""), row.get<Dossier>(0))
+            assertEquals(Dossier("""{"legio": 10}"""), row.get<Dossier>(0))
 
             // Asking for anything else is the driver's error, not a ClassCastException in our frame
             val e = assertFailsWith<MappingException> { row.get<JsonObject>(0) }
@@ -69,7 +68,6 @@ class GreedyConverterDiagnosticTest {
             assertTrue(message.contains("Dossier"), "Should name what came back: $message")
             assertTrue(message.contains("JsonObject"), "Should name what was expected: $message")
         } finally {
-            session.createNativeQuery("DROP TABLE IF EXISTS greedy_converter_probe CASCADE").execute()
             session.close()
         }
     }

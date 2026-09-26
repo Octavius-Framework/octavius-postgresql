@@ -117,14 +117,14 @@ three months later.
 Six artifacts are published, dependencies run one way only, and no module assumes the ones above it exist.
 Each coordinate is separate because taking it costs something that whoever does not need it should not pay:
 
-| Artifact                    | Why it is not folded into the one below it                                                              |
-|:----------------------------|:--------------------------------------------------------------------------------------------------------|
-| `driver`                    | A complete stack on its own — sessions, queries, the type system, transactions, `LISTEN`/`NOTIFY`, `COPY`. Everything else is optional beside it. |
-| `client`                    | Builders, transaction plans, `dynamic_dto`. A data access layer is a set of opinions, and this is where they live rather than in the driver. |
+| Artifact                    | Why it is not folded into the one below it                                                                                                                                               |
+|:----------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `driver`                    | A complete stack on its own — sessions, queries, the type system, transactions, `LISTEN`/`NOTIFY`, `COPY`. Everything else is optional beside it.                                        |
+| `client`                    | Builders, transaction plans, `dynamic_dto`. A data access layer is a set of opinions, and this is where they live rather than in the driver.                                             |
 | `client-scanner`            | Walking a classpath correctly — jars in jars, the module path, a fat jar — needs ClassGraph. Registering types by hand needs no such dependency, and most applications register by hand. |
-| `migrations`                | Beside the client, not under it: a migrator is a thing you may already have.                            |
-| `driver-spring-integration` | Pulls `spring-boot-starter-jdbc` and HikariCP. Nobody outside Spring should inherit that.               |
-| `pg-model`                  | Multiplatform, with no driver behind it — the annotations and serializers a class shared with a Kotlin/JS frontend needs, on a target where there is no JVM to put a driver on. |
+| `migrations`                | Beside the client, not under it: a migrator is a thing you may already have.                                                                                                             |
+| `driver-spring-integration` | Pulls `spring-boot-starter-jdbc` and HikariCP. Nobody outside Spring should inherit that.                                                                                                |
+| `pg-model`                  | Multiplatform, with no driver behind it — the annotations and serializers a class shared with a Kotlin/JS frontend needs, on a target where there is no JVM to put a driver on.          |
 
 So the split is not packaging hygiene, it is a statement about what you are allowed to disagree with. Want the
 driver and your own data access layer? Take the driver and write it. Already have a migrator, or register your
@@ -151,12 +151,12 @@ database. Reading it into two different Kotlin classes depending on which pool t
 flexibility, it is a bug waiting for the day two code paths disagree.
 
 Making it global also makes the cost honest. Registration is a startup step, done once, from one thread, and
-everything after it is lock-free on the read path — dictionaries are immutable and republished whole,
-converter registries are copy-on-write. A per-session registry would have to be built per session, which is a
-cost paid on every connection for a benefit nobody asked for.
+everything after it is lock-free on the read path — the catalog is one immutable value, and a registration
+replaces it whole. A per-session registry would have to be built per session, which is a cost paid on every
+connection for a benefit nobody asked for.
 
-What it means in practice is that registration is *not* a per-request tool, and the scoped alternative is the
-per-query converter registry rather than a second global one. See
+What it means in practice is that registration is *not* a per-request tool, and the scoped alternative is a
+query's own converters rather than a second global registry. See
 [Scope: a session handle over global state](docs/driver/type-system.md#scope-a-session-handle-over-global-state).
 
 ## Why registration order is the override mechanism
@@ -316,8 +316,15 @@ SELECT service_record[:index] FROM legionnaires WHERE name = :name;
 SELECT service_record[@index] FROM legionnaires WHERE name = @name;
 ```
 
-`@` was never PostgreSQL's to begin with. It also means `?` is never a placeholder here, so the `jsonb`
-operators that use it — `?`, `?|`, `?&` — need no escaping rule.
+`@` is PostgreSQL's too — the absolute-value operator, and part of `@>`, `<@`, `@@`, `@?` and a handful more —
+so the two do meet. What matters is that wherever they meet, there is a spelling with one reading. A parameter
+is an `@` with a name straight after it, and nothing else is: `@x` and `a <@b` are parameters here, while `@ x`
+and `a <@ b` are PostgreSQL's absolute value and containment. Everything PostgreSQL says with `@` can be
+written the second way — `@>`, `@@` and `@?` cannot be written any other way to begin with — so none of it is
+out of reach, and no statement is left open to two readings.
+
+It also means `?` is never a placeholder here, so the `jsonb` operators that use it — `?`, `?|`, `?&` — need
+no escaping rule.
 
 ## Dynamic queries are just strings
 

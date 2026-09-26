@@ -6,6 +6,7 @@ import io.github.octaviusframework.migrations.MigrationTestDatabase
 import io.github.octaviusframework.migrations.MigrationVersion
 import io.github.octaviusframework.migrations.OctaviusMigration
 import io.github.octaviusframework.migrations.discovery.DiscoveredMigration
+import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -97,7 +98,7 @@ class MigrationHistoryIntegrationTest {
         assertEquals(MigrationState.SUCCESS, applied.state)
         assertEquals(42L, applied.executionTimeMs)
         assertNull(applied.failedStatement)
-        assertEquals("postgres", applied.installedBy)
+        assertEquals(TestDatabase.USER, applied.installedBy)
         assertNotNull(applied.installedOn)
     }
 
