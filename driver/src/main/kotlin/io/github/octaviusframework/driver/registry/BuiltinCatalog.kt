@@ -7,6 +7,7 @@ import io.github.octaviusframework.driver.converter.parameter.range.MultiRangePa
 import io.github.octaviusframework.driver.converter.parameter.range.RangeParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.standard.JsonElementParameterConverter
 import io.github.octaviusframework.driver.converter.result.array.CollectionArrayConverter
+import io.github.octaviusframework.driver.converter.result.array.ObjectArrayConverter
 import io.github.octaviusframework.driver.converter.result.array.PrimitiveArrayConverter
 import io.github.octaviusframework.driver.converter.result.composite.MapCompositeConverter
 import io.github.octaviusframework.driver.converter.result.composite.ReflectionCompositeConverter
@@ -44,6 +45,7 @@ internal fun builtinCatalog(): TypeCatalog {
 
     for (converter in listOf(
         PrimitiveArrayConverter,
+        ObjectArrayConverter,
         CollectionArrayConverter,
         MapCompositeConverter,
         ReflectionCompositeConverter,

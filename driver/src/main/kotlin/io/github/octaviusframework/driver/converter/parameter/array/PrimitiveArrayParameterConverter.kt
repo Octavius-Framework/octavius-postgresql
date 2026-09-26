@@ -25,19 +25,14 @@ internal object PrimitiveArrayParameterConverter : ParameterConverter<Any> {
         val arrayType = if (expectedOid.isKnownOid) {
             context.types.dictionary.getPgType(expectedOid) as? PgType.Array
         } else {
-            val componentType = source.javaClass.componentType?.kotlin
-            if (componentType != null) {
-                val elementOid = context.types.codecs.getCodecByClass(componentType)?.oid
-                if (elementOid != null) {
-                    context.types.dictionary.getArrayType(elementOid)
-                } else null
-            } else null
+            context.defaultOidForClass(source.javaClass.componentType.kotlin)
+                ?.let { context.types.dictionary.getArrayType(it) }
         }
 
         if (arrayType == null) {
             throw TypeException(
                 TypeExceptionReason.TYPE_NOT_FOUND,
-                details = "Cannot infer array type for the primitive array. The array is empty, or the element type is unknown. Use explicit typing (e.g. .withPgType(...))."
+                details = "Cannot infer array type for the primitive array: ${source.javaClass.componentType} has no default PostgreSQL type. Use explicit typing (e.g. .withPgType(...))."
             )
         }
 

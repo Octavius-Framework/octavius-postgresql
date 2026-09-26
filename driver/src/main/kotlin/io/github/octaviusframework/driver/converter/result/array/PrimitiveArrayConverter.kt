@@ -3,6 +3,8 @@ package io.github.octaviusframework.driver.converter.result.array
 import io.github.octaviusframework.driver.container.PgArray
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
+import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.type.PgType
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
@@ -39,6 +41,12 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
         sourceType: PgType,
         context: DeserializationContext
     ): Any {
+        if (source.dimensions.size > 1) {
+            throw MappingException(
+                MappingExceptionReason.CONVERSION_ERROR,
+                details = "$expectedType holds one dimension, the array has ${source.dimensions.size}"
+            )
+        }
 
         val pgElementType = context.types.dictionary.getPgType(source.elementOid)
         val elements = source.elements
@@ -48,8 +56,7 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             IntArray::class -> {
                 val result = IntArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, intKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), intKType, pgElementType, "[$i]")
                 }
                 result
             }
@@ -57,16 +64,14 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             DoubleArray::class -> {
                 val result = DoubleArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, doubleKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), doubleKType, pgElementType, "[$i]")
                 }
                 result
             }
             FloatArray::class -> {
                 val result = FloatArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, floatKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), floatKType, pgElementType, "[$i]")
                 }
                 result
             }
@@ -74,8 +79,7 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             LongArray::class -> {
                 val result = LongArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, longKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), longKType, pgElementType, "[$i]")
                 }
                 result
             }
@@ -83,8 +87,7 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             ShortArray::class -> {
                 val result = ShortArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, shortKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), shortKType, pgElementType, "[$i]")
                 }
                 result
             }
@@ -92,8 +95,7 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             ByteArray::class -> {
                 val result = ByteArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, byteKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), byteKType, pgElementType, "[$i]")
                 }
                 result
             }
@@ -101,8 +103,7 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             BooleanArray::class -> {
                 val result = BooleanArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, booleanKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), booleanKType, pgElementType, "[$i]")
                 }
                 result
             }
@@ -110,12 +111,18 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             CharArray::class -> {
                 val result = CharArray(size)
                 for (i in 0 until size) {
-                    val value = elements[i]!!
-                    result[i] = context.convert(value, charKType, pgElementType)
+                    result[i] = context.convert(elementAt(elements, i, expectedType), charKType, pgElementType, "[$i]")
                 }
                 result
             }
             else -> error("Unsupported primitive array type")
         }
+    }
+
+    private fun elementAt(elements: List<Any?>, i: Int, expectedType: KType): Any {
+        return elements[i] ?: throw MappingException(
+            MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING,
+            "Null array element for $expectedType, which cannot hold one"
+        ).also { it.path.add("[$i]") }
     }
 }
