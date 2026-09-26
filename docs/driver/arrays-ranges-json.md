@@ -39,8 +39,10 @@ val row = session.createNativeQuery("SELECT ARRAY[1, 2, 3] AS legions").fetchRow
 val legions: List<Int> = row.get("legions")   // [1, 2, 3]
 ```
 
-`List`, `Collection`, `Iterable` and `Set` are all accepted targets — `Set` deduplicates on the way, so an `int[]` of
-`{1,2,2,3}` becomes a three-element set. So are `Array<T>` and the primitive arrays, `IntArray` and the rest.
+Any collection type an `ArrayList` or a `LinkedHashSet` fits is an accepted target: `List`, `Collection`, `Iterable`
+and `ArrayList` get an `ArrayList`, and `Set`, `HashSet` and `LinkedHashSet` a `LinkedHashSet`, which deduplicates on
+the way, so an `int[]` of `{1,2,2,3}` becomes a three-element set. So are `Array<T>` and the primitive arrays,
+`IntArray` and the rest. `LinkedList`, `TreeSet` and anything else that has to be built its own way are not.
 
 Element types follow the same rules as columns, so an array of anything the driver can decode works without extra
 setup — including arrays of your own registered composites and enums, which come back as `List<Senator>` and

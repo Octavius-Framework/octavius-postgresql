@@ -13,13 +13,14 @@ internal object CollectionArrayConverter : ResultConverter<PgArray, Collection<*
     override val supportedSourceClass = PgArray::class
 
     override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
-        val kClass = expectedType.classifier as? KClass<*>
-        return kClass == List::class || kClass == Collection::class || kClass == Iterable::class || kClass == Set::class || kClass == Any::class
+        val jClass = (expectedType.classifier as? KClass<*>)?.java ?: return false
+        return jClass.isAssignableFrom(ArrayList::class.java) || jClass.isAssignableFrom(LinkedHashSet::class.java)
     }
 
     override fun convert(source: PgArray, expectedType: KType, sourceType: PgType, context: DeserializationContext): Collection<*> {
         val elementType = expectedType.arguments.firstOrNull()?.type ?: typeOf<Any?>()
         val elements = convertOutermostDimension(source, elementType, sourceType, context)
-        return if (expectedType.classifier == Set::class) elements.toSet() else elements
+        val jClass = (expectedType.classifier as KClass<*>).java
+        return if (jClass.isAssignableFrom(ArrayList::class.java)) elements else LinkedHashSet(elements)
     }
 }

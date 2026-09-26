@@ -80,6 +80,22 @@ class NestedArrayIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `an array reads as any collection type an ArrayList or a LinkedHashSet fits`() {
+        assertEquals(arrayListOf(1, 2, 2), read<ArrayList<Int>>("SELECT ARRAY[1, 2, 2]"))
+        assertEquals(hashSetOf(1, 2), read<HashSet<Int>>("SELECT ARRAY[1, 2, 2]"))
+        assertEquals(linkedSetOf(1, 2), read<LinkedHashSet<Int>>("SELECT ARRAY[1, 2, 2]"))
+        assertEquals(hashSetOf(1), read<HashSet<Int>>("SELECT ARRAY[1]"))
+        assertEquals(listOf(listOf(1, 2), listOf(3, 4)), read<ArrayList<ArrayList<Int>>>("SELECT ARRAY[[1, 2], [3, 4]]"))
+    }
+
+    @Test
+    fun `a collection type that has to be built its own way is not claimed`() {
+        val ex = assertThrows<MappingException> { read<java.util.LinkedList<Int>>("SELECT ARRAY[1, 2]") }
+
+        assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, ex.reason)
+    }
+
+    @Test
     fun `an Array of lists takes the inner dimension as lists`() {
         val grid: Array<List<Int>> = read("SELECT ARRAY[[1, 2], [3, 4]]")
 

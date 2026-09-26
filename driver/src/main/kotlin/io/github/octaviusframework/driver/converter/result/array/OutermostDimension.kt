@@ -10,7 +10,7 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
 /**
- * The outermost dimension of [source], each entry converted to [elementType].
+ * The outermost dimension of [source], each entry converted to [elementType], as an `ArrayList`.
  *
  * With one dimension the entries are the elements themselves. With more, each entry is the sub-array one dimension
  * down, handed back to [context] like any other value - so what it becomes is decided by [elementType], one level
@@ -21,7 +21,7 @@ internal fun convertOutermostDimension(
     elementType: KType,
     sourceType: PgType,
     context: DeserializationContext
-): List<Any?> {
+): ArrayList<Any?> {
     val dimensions = source.dimensions
 
     if (dimensions.size > 1) {
@@ -29,10 +29,12 @@ internal fun convertOutermostDimension(
         var stride = 1
         for (dimension in inner) stride *= dimension.size
 
-        return List(dimensions[0].size) { i ->
+        val result = ArrayList<Any?>(dimensions[0].size)
+        for (i in 0 until dimensions[0].size) {
             val slice = PgArray(source.arrayOid, source.elementOid, inner, source.elements.subList(i * stride, (i + 1) * stride))
-            context.convert<Any?>(slice, elementType, sourceType, "[$i]")
+            result.add(context.convert<Any?>(slice, elementType, sourceType, "[$i]"))
         }
+        return result
     }
 
     val pgElementType = context.types.dictionary.getPgType(source.elementOid)
@@ -43,9 +45,10 @@ internal fun convertOutermostDimension(
     var converterSearched = false
     val kClassForCast = elementType.classifier as? KClass<*>
 
-    return List(elements.size) { i ->
+    val result = ArrayList<Any?>(elements.size)
+    for (i in elements.indices) {
         val value = elements[i]
-        if (value == null) {
+        result.add(if (value == null) {
             if (!elementType.isMarkedNullable) {
                 val e = MappingException(MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING, "Null array element for non-nullable type $elementType")
                 e.path.add("[$i]")
@@ -74,6 +77,7 @@ internal fun convertOutermostDimension(
                     throw e
                 }
             }
-        }
+        })
     }
+    return result
 }

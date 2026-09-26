@@ -12,6 +12,10 @@
   `arrayOfNulls<LegioStatus>(3)` is `legio_status[]` for a registered enum; a list in the same state still needs
   `withPgType`.
 
+- **An array reads as any collection type an `ArrayList` or a `LinkedHashSet` fits**, `ArrayList`, `HashSet` and
+  `LinkedHashSet` included, where only `List`, `Set` and their supertypes were claimed. `LinkedList`, `TreeSet`
+  and the like still are not.
+
 - **`SerializationContext.defaultOidForClass(kClass)` gives the OID a value of a class would be declared as, from
   the class alone** - what a converter for a container needs when it has no element to ask. The driver's range
   and array converters use it.
