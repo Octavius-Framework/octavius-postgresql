@@ -24,6 +24,10 @@
   `MappingException(NO_CONVERTER_FOUND)` with the index in the path now, and **`IntArray` and the other primitive
   arrays throw `CONVERSION_ERROR` against more than one dimension instead of flattening it.**
 
+- **A `NULL` element read into `IntArray` or another primitive array throws `REQUIRED_ATTRIBUTE_MISSING` with its
+  index in the path, as `List<Int>` does.** It threw `CONVERSION_ERROR` over a `NullPointerException`, with no
+  path.
+
 ## Version 2.2.0 (v2.2.0)
 
 ### Project

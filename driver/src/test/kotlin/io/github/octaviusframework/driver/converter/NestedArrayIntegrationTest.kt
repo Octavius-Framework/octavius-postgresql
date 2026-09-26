@@ -102,6 +102,14 @@ class NestedArrayIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `a NULL element fails a primitive array with its index, as it fails a List of Int`() {
+        val ex = assertThrows<MappingException> { read<IntArray>("SELECT ARRAY[1, NULL, 3]") }
+
+        assertEquals(MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING, ex.reason)
+        assertTrue(ex.path.contains("[1]"), "expected '[1]' in path, got ${ex.path}")
+    }
+
+    @Test
     fun `primitive arrays nested in a list or an Array are written as a dimension`() {
         val pairs = listOf(intArrayOf(1, 2), intArrayOf(3, 4))
         assertEquals("integer[]", declaredType(pairs))

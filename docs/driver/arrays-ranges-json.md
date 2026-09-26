@@ -59,7 +59,8 @@ val bad: List<Int> = row.get("spotty")    // MappingException(REQUIRED_ATTRIBUTE
 ```
 
 The failure is not a surprise on purpose — a `List<Int>` promising no nulls and holding one would push the problem into
-your code and turn up somewhere less obvious. The exception's `path` names the offending index (`[1]`).
+your code and turn up somewhere less obvious. The exception's `path` names the offending index (`[1]`). An `IntArray`
+or any other primitive array has no way to hold a `NULL` and fails the same way.
 
 ### Multidimensional arrays
 
