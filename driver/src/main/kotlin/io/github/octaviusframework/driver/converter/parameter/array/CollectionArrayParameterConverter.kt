@@ -6,6 +6,7 @@ import io.github.octaviusframework.driver.container.PgContainer
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.type.PgType
@@ -100,13 +101,37 @@ internal object CollectionArrayParameterConverter : ParameterConverter<Any> {
 
         val convertedElements = ArrayList<Any?>(expectedSize)
         var globalIndex = 0
+        val position = IntArray(dimensions.size)
 
-        fun flattenAndConvert(item: Any?) {
+        fun describe(item: Any?, level: Collection<Any?>?) = when {
+            level != null -> "${level.size} entries"
+            item == null -> "null"
+            else -> "a value"
+        }
+
+        fun notRectangular(depth: Int, item: Any?, level: Collection<Any?>?): MappingException {
+            val expected = if (depth < dimensions.size) "${dimensions[depth].size} entries" else "a value"
+            val e = MappingException(
+                MappingExceptionReason.CONVERSION_ERROR,
+                details = "Multidimensional arrays must be rectangular, and this is ${describe(item, level)} " +
+                        "where the first at this depth is $expected"
+            )
+            for (d in depth - 1 downTo 0) e.path.add("[${position[d]}]")
+            return e
+        }
+
+        fun flattenAndConvert(item: Any?, depth: Int) {
             val level = levelBelow(item)
-            if (level != null) {
-                for (child in level) flattenAndConvert(child)
+            if (depth < dimensions.size) {
+                if (level == null || level.size != dimensions[depth].size) throw notRectangular(depth, item, level)
+                var i = 0
+                for (child in level) {
+                    position[depth] = i++
+                    flattenAndConvert(child, depth + 1)
+                }
                 return
             }
+            if (level != null) throw notRectangular(depth, item, level)
             if (item != null) {
                 try {
                     convertedElements.add(context.convert(item, elementOid, null))
@@ -120,9 +145,7 @@ internal object CollectionArrayParameterConverter : ParameterConverter<Any> {
             globalIndex++
         }
 
-        flattenAndConvert(source)
-
-        require(dimensions.isEmpty() || dimensions.first().size == 0 || convertedElements.size == expectedSize) { "Multidimensional arrays must be rectangular" }
+        flattenAndConvert(source, 0)
 
         return PgArray(
             arrayOid = arrayType.oid,

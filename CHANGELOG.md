@@ -28,6 +28,10 @@
   index in the path, as `List<Int>` does.** It threw `CONVERSION_ERROR` over a `NullPointerException`, with no
   path.
 
+- **Ragged nesting is refused on the way out, wherever it is.** Only the total count was checked, so
+  `[[1,2],[3,4,5],[6]]` went out as `{{1,2},{3,4},{5,6}}`. Every level is checked against the first at its depth
+  now, and the `MappingException(CONVERSION_ERROR)` names the position of the one out of shape.
+
 ## Version 2.2.0 (v2.2.0)
 
 ### Project

@@ -120,6 +120,21 @@ class NestedArrayIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `ragged nesting is refused with the position of the first level out of shape`() {
+        fun refused(value: Any): MappingException {
+            val ex = assertThrows<MappingException> { declaredType(value) }
+            assertEquals(MappingExceptionReason.CONVERSION_ERROR, ex.reason)
+            return ex
+        }
+
+        // The total matches the 3 x 2 the first entries suggest, so only a check per level catches it
+        assertEquals(listOf("[1]"), refused(listOf(listOf(1, 2), listOf(3, 4, 5), listOf(6))).path.take(1))
+        assertEquals(listOf("[1]"), refused(listOf(intArrayOf(1, 2), null)).path.take(1))
+        assertEquals(listOf("[1]"), refused(listOf(1, listOf(2))).path.take(1))
+        assertEquals(listOf("[1]", "[0]"), refused(listOf(listOf(listOf(1), listOf(2, 3)))).path.take(2))
+    }
+
+    @Test
     fun `a ByteArray inside a list stays a bytea element`() {
         assertEquals("bytea[]", declaredType(listOf(byteArrayOf(1, 2), byteArrayOf(3))))
     }

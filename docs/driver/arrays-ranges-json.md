@@ -85,7 +85,8 @@ A Kotlin type shallower than the array fails rather than flattening it: `List<In
 throws `MappingException(NO_CONVERTER_FOUND)` with path `[0]`, and `IntArray` throws `CONVERSION_ERROR`.
 
 Note PostgreSQL's own rule underneath this: a multidimensional array is rectangular, so the inner lists must all be the
-same length. Ragged nesting is not a shape the type can hold.
+same length. Ragged nesting is not a shape the type can hold, so it is refused on the way out with
+`MappingException(CONVERSION_ERROR)`, the `path` naming the first entry out of shape.
 
 ### Writing
 
