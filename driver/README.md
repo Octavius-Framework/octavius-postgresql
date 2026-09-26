@@ -71,11 +71,11 @@ benchmarks, not from a year of traffic.
 
 ```kotlin
 dependencies {
-    implementation("io.github.octavius-framework:driver:2.2.0")
+    implementation("io.github.octavius-framework:driver:2.3.0")
     implementation("com.zaxxer:HikariCP:7.1.0")
 
     // Or, for Spring Boot - brings the driver in transitively
-    // implementation("io.github.octavius-framework:driver-spring-integration:2.2.0")
+    // implementation("io.github.octavius-framework:driver-spring-integration:2.3.0")
 }
 ```
 

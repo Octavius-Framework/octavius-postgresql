@@ -13,7 +13,7 @@ Add the Octavius driver to your project dependencies.
 **Gradle (Kotlin DSL):**
 ```kotlin
 dependencies {
-    implementation("io.github.octavius-framework:driver:2.2.0")
+    implementation("io.github.octavius-framework:driver:2.3.0")
 
     // Optional, but used by the example below
     implementation("com.zaxxer:HikariCP:7.1.0")
