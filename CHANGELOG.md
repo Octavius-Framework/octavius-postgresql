@@ -1,3 +1,29 @@
+## Version 2.3.0 (v2.3.0)
+
+### Driver
+
+#### Added
+
+- **An array reads as `Array<T>`, and each dimension of a multidimensional one as any shape an array reads as.**
+  `List<IntArray>`, `Array<List<Int>>` and `List<Array<IntArray>>` take the dimensions one level each, and a list
+  or an `Array` of primitive arrays goes out as a multidimensional array.
+
+- **An `Array<T>` with no non-null element goes out as an array of `T`.** `emptyArray<String>()` is `text[]`,
+  `arrayOfNulls<LegioStatus>(3)` is `legio_status[]` for a registered enum; a list in the same state still needs
+  `withPgType`.
+
+- **`SerializationContext.defaultOidForClass(kClass)` gives the OID a value of a class would be declared as, from
+  the class alone** - what a converter for a container needs when it has no element to ask. The driver's range
+  and array converters use it.
+
+#### Fixed
+
+- **A multidimensional array read into a type whose inner levels are not lists no longer comes back as lists.**
+  `List<IntArray>` held `List<Int>`s and failed with a `ClassCastException` at the first element read, and a type
+  shallower than the array, such as `List<Int>` against `int[][]`, held lists of lists. A shallower type throws
+  `MappingException(NO_CONVERTER_FOUND)` with the index in the path now, and **`IntArray` and the other primitive
+  arrays throw `CONVERSION_ERROR` against more than one dimension instead of flattening it.**
+
 ## Version 2.2.0 (v2.2.0)
 
 ### Project

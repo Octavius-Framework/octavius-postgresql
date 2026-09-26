@@ -3,6 +3,8 @@ package io.github.octaviusframework.driver.converter.result.array
 import io.github.octaviusframework.driver.container.PgArray
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
+import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.type.PgType
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
@@ -39,6 +41,12 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
         sourceType: PgType,
         context: DeserializationContext
     ): Any {
+        if (source.dimensions.size > 1) {
+            throw MappingException(
+                MappingExceptionReason.CONVERSION_ERROR,
+                details = "$expectedType holds one dimension, the array has ${source.dimensions.size}"
+            )
+        }
 
         val pgElementType = context.types.dictionary.getPgType(source.elementOid)
         val elements = source.elements

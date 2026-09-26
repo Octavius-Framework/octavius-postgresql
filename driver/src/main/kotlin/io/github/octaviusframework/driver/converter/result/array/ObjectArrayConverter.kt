@@ -8,18 +8,23 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
-internal object CollectionArrayConverter : ResultConverter<PgArray, Collection<*>> {
+internal object ObjectArrayConverter : ResultConverter<PgArray, Array<*>> {
 
     override val supportedSourceClass = PgArray::class
 
     override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
-        val kClass = expectedType.classifier as? KClass<*>
-        return kClass == List::class || kClass == Collection::class || kClass == Iterable::class || kClass == Set::class || kClass == Any::class
+        val jClass = (expectedType.classifier as? KClass<*>)?.java ?: return false
+        return jClass.isArray && !jClass.componentType.isPrimitive
     }
 
-    override fun convert(source: PgArray, expectedType: KType, sourceType: PgType, context: DeserializationContext): Collection<*> {
+    override fun convert(source: PgArray, expectedType: KType, sourceType: PgType, context: DeserializationContext): Array<*> {
+        val componentClass = (expectedType.classifier as KClass<*>).java.componentType
         val elementType = expectedType.arguments.firstOrNull()?.type ?: typeOf<Any?>()
         val elements = convertOutermostDimension(source, elementType, sourceType, context)
-        return if (expectedType.classifier == Set::class) elements.toSet() else elements
+
+        @Suppress("UNCHECKED_CAST")
+        val result = java.lang.reflect.Array.newInstance(componentClass, elements.size) as Array<Any?>
+        for (i in elements.indices) result[i] = elements[i]
+        return result
     }
 }

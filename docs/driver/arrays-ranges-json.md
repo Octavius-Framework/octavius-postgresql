@@ -40,8 +40,7 @@ val legions: List<Int> = row.get("legions")   // [1, 2, 3]
 ```
 
 `List`, `Collection`, `Iterable` and `Set` are all accepted targets — `Set` deduplicates on the way, so an `int[]` of
-`{1,2,2,3}` becomes a three-element set. `IntArray` and the other primitive arrays work too, through a separate
-converter.
+`{1,2,2,3}` becomes a three-element set. So are `Array<T>` and the primitive arrays, `IntArray` and the rest.
 
 Element types follow the same rules as columns, so an array of anything the driver can decode works without extra
 setup — including arrays of your own registered composites and enums, which come back as `List<Senator>` and
@@ -76,6 +75,14 @@ val back: List<List<Int>> = session
     .fetchRowStrict(listOf(listOf(1, 2), listOf(3, 4))).get(0)
 ```
 
+Each level of nesting is one dimension, and each level can be any of the targets above: `List<IntArray>` and
+`Array<List<Int>>` read `ARRAY[[1,2],[3,4]]` as well, and a list of `IntArray`s goes out as a two-dimensional `int4[]`.
+A `ByteArray` is the one that does not nest — it is a `bytea` value, so a `List<ByteArray>` goes out as a
+one-dimensional `bytea[]`.
+
+A Kotlin type shallower than the array fails rather than flattening it: `List<Int>` against a two-dimensional array
+throws `MappingException(NO_CONVERTER_FOUND)` with path `[0]`, and `IntArray` throws `CONVERSION_ERROR`.
+
 Note PostgreSQL's own rule underneath this: a multidimensional array is rectangular, so the inner lists must all be the
 same length. Ragged nesting is not a shape the type can hold.
 
@@ -89,7 +96,9 @@ session.createNativeQuery("INSERT INTO provinces (id, legion_ids) VALUES ($1, $2
 ```
 
 The element type is inferred from the first non-null element — `List<Int>` goes out as `int4[]`, `List<String>` as
-`text[]`. Usually that is the end of it, including when the column is wider than what you sent: a `List<Int>` inserted
+`text[]`. An `Array<T>` with no non-null element takes `T` instead, which the array keeps at runtime:
+`emptyArray<String>()` goes out as `text[]`, and `arrayOfNulls<LegioStatus>(3)` as `legio_status[]` once the enum is
+registered. Usually that is the end of it, including when the column is wider than what you sent: a `List<Int>` inserted
 into a `bigint[]` column is widened by PostgreSQL's own assignment cast, with nothing needed on the Kotlin side.
 
 Where you do have to intervene, there are two mechanisms and they are **not** interchangeable:
@@ -127,7 +136,8 @@ session.createNativeQuery("SELECT * FROM UNNEST($1)").fetchFields<Int>(emptyList
 ```
 
 The `TypeException` is the one naming the problem; it arrives wrapped because the converter layer wraps everything that
-fails under it. A list holding nothing but nulls fails the same way. The fix is to say what it is:
+fails under it. A list holding nothing but nulls fails the same way; an `Array<T>` does neither, since it keeps `T`. The
+fix is to say what it is:
 
 ```kotlin
 import io.github.octaviusframework.driver.type.PgStandardType

@@ -6,7 +6,6 @@ import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.type.range.Range
-import io.github.octaviusframework.driver.type.UNRESOLVED_OID
 import io.github.octaviusframework.driver.type.isKnownOid
 import kotlin.reflect.KClass
 
@@ -15,15 +14,10 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
     override val supportedClass: KClass<Range<*>> = Range::class
 
     override fun convert(source: Range<*>, expectedOid: Int, context: SerializationContext): Any {
-        val types = context.types
-
         val pgType = if (expectedOid.isKnownOid) {
             context.types.dictionary.getPgType(expectedOid) as? PgType.Range
         } else {
-            val elementOid = context.findConverterByClass(source.elementClass, UNRESOLVED_OID)?.getDefaultTypeName(source.elementClass, context)
-                ?.let { context.types.resolveOid(it.name, it.schema, it.isArray) }
-                ?.takeIf { it.isKnownOid }
-                ?: types.codecs.getCodecByClass(source.elementClass)?.let { types.codecs.getOidForCodec(it) ?: types.resolveOid(it.pgTypeName, it.pgSchema) }
+            val elementOid = context.defaultOidForClass(source.elementClass)
 
             if (elementOid != null && elementOid.isKnownOid) {
                 context.types.dictionary.getRangeType(elementOid)
