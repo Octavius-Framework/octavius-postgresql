@@ -4,41 +4,32 @@
 
 #### Added
 
-- **An array reads as `Array<T>`, and each dimension of a multidimensional one as any shape an array reads as.**
-  `List<IntArray>`, `Array<List<Int>>` and `List<Array<IntArray>>` take the dimensions one level each, and a list
-  or an `Array` of primitive arrays goes out as a multidimensional array.
+- **An array reads as `Array<T>`, and each dimension of a multidimensional one as any shape an array reads as** -
+  `List<IntArray>`, `Array<List<Int>>`, `List<Array<IntArray>>`. A list or an `Array` of primitive arrays goes out
+  as a multidimensional array.
 
-- **An `Array<T>` with no non-null element goes out as an array of `T`.** `emptyArray<String>()` is `text[]`,
-  `arrayOfNulls<LegioStatus>(3)` is `legio_status[]` for a registered enum; a list in the same state still needs
-  `withPgType`.
+- **An `Array<T>` with no non-null element goes out as an array of `T`.** `emptyArray<String>()` is `text[]`; a
+  list in the same state still needs `withPgType`.
 
-- **An array reads as any collection type an `ArrayList` or a `LinkedHashSet` fits**, `ArrayList`, `HashSet` and
-  `LinkedHashSet` included, where only `List`, `Set` and their supertypes were claimed. `LinkedList`, `TreeSet`
-  and the like still are not.
+- **An array reads as any collection type an `ArrayList` or a `LinkedHashSet` fits**, `HashSet` included.
 
 - **`SerializationContext.defaultOidForClass(kClass)` gives the OID a value of a class would be declared as, from
-  the class alone** - what a converter for a container needs when it has no element to ask. The driver's range
-  and array converters use it.
+  the class alone** - for a converter of a container with no element to ask.
 
 #### Fixed
 
 - **A multidimensional array read into a type whose inner levels are not lists no longer comes back as lists.**
-  `List<IntArray>` held `List<Int>`s and failed with a `ClassCastException` at the first element read, and a type
-  shallower than the array, such as `List<Int>` against `int[][]`, held lists of lists. A shallower type throws
-  `MappingException(NO_CONVERTER_FOUND)` with the index in the path now, and **`IntArray` and the other primitive
-  arrays throw `CONVERSION_ERROR` against more than one dimension instead of flattening it.**
+  `List<IntArray>` failed with a `ClassCastException` at the first element read. A type shallower than the array
+  throws `NO_CONVERTER_FOUND`, and **`IntArray` and the other primitive arrays throw `CONVERSION_ERROR` against
+  more than one dimension instead of flattening it.**
 
 - **A `NULL` element read into `IntArray` or another primitive array throws `REQUIRED_ATTRIBUTE_MISSING` with its
-  index in the path, as `List<Int>` does.** It threw `CONVERSION_ERROR` over a `NullPointerException`, with no
-  path.
+  index in the path, as `List<Int>` does.**
 
-- **A list of values whose codec is registered by type name goes out as an array of that type.** The element
-  type was read from the OID the codec declares, which such a codec leaves `null`, so the list failed with
-  `TYPE_NOT_FOUND` where a single value went through.
+- **A list of values whose codec is registered by type name goes out as an array of that type** instead of failing
+  with `TYPE_NOT_FOUND`.
 
-- **Ragged nesting is refused on the way out, wherever it is.** Only the total count was checked, so
-  `[[1,2],[3,4,5],[6]]` went out as `{{1,2},{3,4},{5,6}}`. Every level is checked against the first at its depth
-  now, and the `MappingException(CONVERSION_ERROR)` names the position of the one out of shape.
+- **Ragged nesting is refused on the way out.** `[[1,2],[3,4,5],[6]]` went out as `{{1,2},{3,4},{5,6}}`.
 
 ## Version 2.2.0 (v2.2.0)
 
