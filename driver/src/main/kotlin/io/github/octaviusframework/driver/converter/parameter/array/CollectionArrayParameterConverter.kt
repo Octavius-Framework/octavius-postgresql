@@ -73,7 +73,8 @@ internal object CollectionArrayParameterConverter : ParameterConverter<Any> {
             is PgTyped -> context.types.resolveOid(converted.pgType.name, converted.pgType.schema, converted.pgType.isArray)
             is PgContainer -> converted.containerOid
             null -> null
-            else -> context.types.codecs.getCodecByClass(converted::class)?.oid
+            else -> context.types.codecs.getCodecByClass(converted::class)
+                ?.let { context.types.codecs.getOidForCodec(it) ?: context.types.resolveOid(it.pgTypeName, it.pgSchema) }
         }
     }
 

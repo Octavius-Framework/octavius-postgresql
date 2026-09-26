@@ -32,6 +32,10 @@
   index in the path, as `List<Int>` does.** It threw `CONVERSION_ERROR` over a `NullPointerException`, with no
   path.
 
+- **A list of values whose codec is registered by type name goes out as an array of that type.** The element
+  type was read from the OID the codec declares, which such a codec leaves `null`, so the list failed with
+  `TYPE_NOT_FOUND` where a single value went through.
+
 - **Ragged nesting is refused on the way out, wherever it is.** Only the total count was checked, so
   `[[1,2],[3,4,5],[6]]` went out as `{{1,2},{3,4},{5,6}}`. Every level is checked against the first at its depth
   now, and the `MappingException(CONVERSION_ERROR)` names the position of the one out of shape.

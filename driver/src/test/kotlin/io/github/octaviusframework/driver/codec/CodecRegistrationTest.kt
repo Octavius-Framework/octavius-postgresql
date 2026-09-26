@@ -14,13 +14,17 @@ class ClipeusCodec : TypeCodec<Clipeus> {
     override val pgTypeName: String = "circle"
     override val oid: Int? = null // Explicitly null
     override val kotlinClass: KClass<Clipeus> = Clipeus::class
+    override val isDefaultForKotlinType: Boolean = true
 
     override val fromBinary: (ByteArray, Int, Int) -> Clipeus = { _, _, _ ->
         Clipeus("umbo")
     }
-    
-    override val toBinary: (Clipeus, PgByteWriter) -> Unit = { _, _ ->
-        // never written: the test only reads one
+
+    // Every shield goes out as the unit circle: what the tests write one for is the type it is declared as
+    override val toBinary: (Clipeus, PgByteWriter) -> Unit = { _, writer ->
+        writer.writeDouble(0.0)
+        writer.writeDouble(0.0)
+        writer.writeDouble(1.0)
     }
 }
 
@@ -46,7 +50,20 @@ class CodecRegistrationTest : AbstractIntegrationTest() {
         
         assertNotNull(result)
         assertEquals("umbo", result.info)
-        
+
         session.close()
+    }
+
+    @Test
+    fun `a value of a codec registered by type name is declared as that type, in a list too`() {
+        openSession().use { session ->
+            session.typeManager.registerCodec(ClipeusCodec())
+
+            fun declared(value: Any): String =
+                session.createNativeQuery("SELECT pg_typeof($1)::text").fetchRowStrict(value).get(0)
+
+            assertEquals("circle", declared(Clipeus("umbo")))
+            assertEquals("circle[]", declared(listOf(Clipeus("umbo"), Clipeus("umbo"))))
+        }
     }
 }
