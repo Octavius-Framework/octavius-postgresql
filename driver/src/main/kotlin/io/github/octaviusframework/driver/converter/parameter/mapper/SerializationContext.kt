@@ -1,6 +1,8 @@
 package io.github.octaviusframework.driver.converter.parameter.mapper
 
 import io.github.octaviusframework.driver.registry.TypeLookup
+import io.github.octaviusframework.driver.type.UNRESOLVED_OID
+import io.github.octaviusframework.driver.type.isKnownOid
 import kotlin.reflect.KClass
 
 /**
@@ -48,5 +50,25 @@ interface SerializationContext {
      * @return The converter that would be used, or `null` if none claims it.
      */
     fun findConverterByClass(sourceClass: KClass<*>, expectedOid: Int): ParameterConverter<Any>?
+
+    /**
+     * The OID a value of [kClass] would be declared as, worked out from the class alone - for a container whose
+     * elements are not there to ask, such as an empty range or array.
+     *
+     * The converter that would claim the class names its type first, so a registered enum or composite answers
+     * with its own; failing that, the codec registered as the default for the class does.
+     *
+     * @param kClass The class of the elements.
+     * @return The OID, or `null` where neither knows the class.
+     */
+    fun defaultOidForClass(kClass: KClass<*>): Int? {
+        findConverterByClass(kClass, UNRESOLVED_OID)?.getDefaultTypeName(kClass, this)
+            ?.let { types.resolveOid(it.name, it.schema, it.isArray) }
+            ?.takeIf { it.isKnownOid }
+            ?.let { return it }
+
+        val codec = types.codecs.getCodecByClass(kClass) ?: return null
+        return types.codecs.getOidForCodec(codec) ?: types.resolveOid(codec.pgTypeName, codec.pgSchema)
+    }
 }
 
