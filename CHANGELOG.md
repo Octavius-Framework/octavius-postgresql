@@ -1,3 +1,13 @@
+## Version 2.3.1 (v2.3.1)
+
+### Driver
+
+#### Changed
+
+- **`SQLExceptionWrapper` no longer records a stack trace.** The exception it wraps keeps its own, and that is
+  the one the session rethrows. HikariCP's warning about evicting a connection, which every `session.abort()`
+  under the pool raises, prints the wrapper without frames.
+
 ## Version 2.3.0 (v2.3.0)
 
 ### Driver
