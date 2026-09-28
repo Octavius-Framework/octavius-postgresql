@@ -12,8 +12,8 @@ Octavius under Spring's transaction manager, reporting failure in Spring's vocab
 class SenateService(private val octavius: OctaviusTemplate) {
 
     @Transactional
-    fun enrol(cognomen: String): Int = octavius.execute { session ->
-        session.createNamedQuery("INSERT INTO senate (cognomen) VALUES (@cognomen) RETURNING id")
+    fun enrol(cognomen: String): Int = octavius.execute {
+        createNamedQuery("INSERT INTO senate (cognomen) VALUES (@cognomen) RETURNING id")
             .fetchFieldStrict<Int>("cognomen" to cognomen)
     }
 }

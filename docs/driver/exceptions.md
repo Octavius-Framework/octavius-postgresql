@@ -691,8 +691,8 @@ See [Spring Integration](spring-integration.md) for the surrounding configuratio
 
 ### Digging it out yourself
 
-The translator above only runs where Spring is holding the exception. The one place nothing does it for you is *
-*building the pool** — `HikariDataSource(config)` opens a connection to check the configuration works, and a driver
+The translator above only runs where Spring is holding the exception. The one place nothing does it for you is
+**building the pool** — `HikariDataSource(config)` opens a connection to check the configuration works, and a driver
 failure there comes back as Hikari's `PoolInitializationException`, thrown from a Hikari constructor you called
 directly. That is correct layering rather than a gap: you called their API, you get their exception, and no amount of
 driver code changes that.
