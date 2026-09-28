@@ -11,6 +11,8 @@
  */
 package io.github.octaviusframework.driver.spring
 
+import io.github.octaviusframework.driver.exception.OctaviusException
+import io.github.octaviusframework.driver.exception.SQLExceptionWrapper
 import io.github.octaviusframework.driver.exception.findOctaviusCause
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSession
@@ -47,12 +49,18 @@ class OctaviusTemplate(private val dataSource: DataSource, val exceptionTranslat
      * @throws org.springframework.dao.DataAccessException if a database access error occurs or an exception is translated
      */
     fun <T> execute(action: OctaviusSessionOperations.() -> T): T {
-        // Acquisition is translated too, so a pool timeout or a refused connection still arrives
-        // as an OctaviusDataAccessException rather than a raw SQLException.
+        // Acquisition is translated too, and restated as the driver's exception first, so a pool
+        // timeout or a refused connection arrives as an OctaviusDataAccessException rather than as
+        // the pool's own exception.
         val con = try {
             DataSourceUtils.doGetConnection(dataSource)
         } catch (ex: SQLException) {
-            throw translate("OctaviusTemplate connection acquisition", ex)
+            throw unobtainable(connectionRefusal(ex, dataSource))
+        } catch (ex: RuntimeException) {
+            // A HikariDataSource made with its no-argument constructor, as Spring Boot makes it,
+            // starts its pool on the first borrow. When that fails with the driver's exception -
+            // unchecked, not a SQLException - Hikari throws its own PoolInitializationException.
+            throw unobtainable(ex.findOctaviusCause() ?: throw ex)
         }
 
         var session: OctaviusSession? = null
@@ -98,6 +106,16 @@ class OctaviusTemplate(private val dataSource: DataSource, val exceptionTranslat
         TransactionSynchronizationManager.registerSynchronization(OctaviusSessionSynchronization(holder, sessionKey))
         return true
     }
+
+    /**
+     * Hands a failure to obtain a connection to the [exceptionTranslator] in the shape every other
+     * driver failure reaches it in, so a translator of your own still sees it.
+     *
+     * @param failure the driver's exception, found in the cause chain or restated from the data source's refusal
+     * @return the translated exception, ready to be thrown
+     */
+    private fun unobtainable(failure: OctaviusException): DataAccessException =
+        translate("OctaviusTemplate connection acquisition", SQLExceptionWrapper(failure))
 
     /**
      * Runs [ex] through the configured [exceptionTranslator], falling back to [UncategorizedSQLException]

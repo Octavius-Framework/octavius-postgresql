@@ -41,8 +41,9 @@ open class OctaviusSpringAutoConfiguration {
      * committing or rolling back arrives in Spring's `DataAccessException` hierarchy rather than as a
      * raw `SQLException`, and it has nested transactions enabled, which is what makes
      * `@Transactional(propagation = NESTED)` resolve to a savepoint instead of being rejected. What it
-     * adds over `JdbcTransactionManager` is an answer for a transaction whose connection has already
-     * left - see the class for which way each of commit and rollback goes, and why they differ.
+     * adds over `JdbcTransactionManager` is the driver's exception for a transaction that never got a
+     * connection, and an answer for one whose connection has already left - see the class for which
+     * way each of commit and rollback goes, and why they differ.
      *
      * @param dataSource the underlying data source to use
      * @return a new instance of [PlatformTransactionManager]

@@ -13,6 +13,7 @@ import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertInstanceOf
+import org.springframework.transaction.support.TransactionTemplate
 import java.net.ServerSocket
 import java.sql.SQLException
 import java.sql.SQLTransientConnectionException
@@ -46,6 +47,83 @@ class OctaviusExceptionTranslationTest {
 
             val octavius = assertInstanceOf<InitializationException>(ex.octaviusException)
             assertEquals(InitializationExceptionReason.CONNECTION_ERROR, octavius.reason)
+        }
+    }
+
+    @Test
+    fun `should translate a failure to start the pool on its first borrow`() {
+        // Made with the no-argument constructor, as Spring Boot makes it: the pool starts on the first
+        // borrow, and the driver's exception there leaves Hikari as its own PoolInitializationException.
+        HikariDataSource().apply {
+            jdbcUrl = "jdbc:octavius://${TestDatabase.HOST}:${closedPort()}/${TestDatabase.DATABASE}"
+            username = TestDatabase.USER
+            password = TestDatabase.PASSWORD
+            driverClassName = "io.github.octaviusframework.driver.jdbc.OctaviusDriver"
+            connectionTimeout = 500
+        }.use {
+            val ex = assertThrows(OctaviusDataAccessException::class.java) {
+                OctaviusTemplate(it).execute { createNativeQuery("SELECT 1").execute() }
+            }
+
+            val octavius = assertInstanceOf<InitializationException>(ex.octaviusException)
+            assertEquals(InitializationExceptionReason.CONNECTION_ERROR, octavius.reason)
+        }
+    }
+
+    @Test
+    fun `should report a pool with none free as CONNECTION_UNAVAILABLE`() {
+        TestDatabase.dataSource {
+            maximumPoolSize = 1
+            connectionTimeout = 250
+        }.use { dataSource ->
+            dataSource.connection.use {
+                val ex = assertThrows(OctaviusDataAccessException::class.java) {
+                    OctaviusTemplate(dataSource).execute { createNativeQuery("SELECT 1").execute() }
+                }
+
+                val octavius = assertInstanceOf<InitializationException>(ex.octaviusException)
+                assertEquals(InitializationExceptionReason.CONNECTION_UNAVAILABLE, octavius.reason)
+                assertInstanceOf<SQLTransientConnectionException>(octavius.cause)
+            }
+        }
+    }
+
+    @Test
+    fun `should report a transaction whose pool could not start as the driver's exception`() {
+        HikariDataSource().apply {
+            jdbcUrl = "jdbc:octavius://${TestDatabase.HOST}:${closedPort()}/${TestDatabase.DATABASE}"
+            username = TestDatabase.USER
+            password = TestDatabase.PASSWORD
+            driverClassName = "io.github.octaviusframework.driver.jdbc.OctaviusDriver"
+            connectionTimeout = 500
+        }.use {
+            val transaction = TransactionTemplate(OctaviusJdbcTransactionManager(it))
+
+            val ex = assertThrows(OctaviusDataAccessException::class.java) {
+                transaction.executeWithoutResult { }
+            }
+
+            val octavius = assertInstanceOf<InitializationException>(ex.octaviusException)
+            assertEquals(InitializationExceptionReason.CONNECTION_ERROR, octavius.reason)
+        }
+    }
+
+    @Test
+    fun `should report a transaction on a pool with none free as CONNECTION_UNAVAILABLE`() {
+        TestDatabase.dataSource {
+            maximumPoolSize = 1
+            connectionTimeout = 250
+        }.use { dataSource ->
+            dataSource.connection.use {
+                val transaction = TransactionTemplate(OctaviusJdbcTransactionManager(dataSource))
+
+                val ex = assertThrows(OctaviusDataAccessException::class.java) {
+                    transaction.executeWithoutResult { }
+                }
+
+                val octavius = assertInstanceOf<InitializationException>(ex.octaviusException)
+                assertEquals(InitializationExceptionReason.CONNECTION_UNAVAILABLE, octavius.reason)
+            }
         }
     }
 

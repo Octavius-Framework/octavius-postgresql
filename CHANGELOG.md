@@ -8,6 +8,16 @@
   the one the session rethrows. HikariCP's warning about evicting a connection, which every `session.abort()`
   under the pool raises, prints the wrapper without frames.
 
+#### Fixed
+
+- **A connection that could not be obtained leaves as `OctaviusDataAccessException` over an
+  `InitializationException`, from `OctaviusTemplate` under Spring Boot's pool and from a `@Transactional` method
+  alike.** Boot creates `HikariDataSource` without starting its pool, so the pool starts on the first borrow, and
+  until it did, every `execute` left as Hikari's own `PoolInitializationException`. A pool with none free left as
+  `UncategorizedSQLException`, and is `CONNECTION_UNAVAILABLE` now, as `DataSource.getOctaviusSession()` already
+  reported it. A transaction that could not get its connection left as `CannotCreateTransactionException`, which
+  `OctaviusJdbcTransactionManager` now restates the same way.
+
 ## Version 2.3.0 (v2.3.0)
 
 ### Driver

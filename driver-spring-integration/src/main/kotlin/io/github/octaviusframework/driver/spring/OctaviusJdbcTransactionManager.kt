@@ -2,11 +2,15 @@ package io.github.octaviusframework.driver.spring
 
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
+import io.github.octaviusframework.driver.exception.SQLExceptionWrapper
+import io.github.octaviusframework.driver.exception.findOctaviusCause
 import io.github.octaviusframework.driver.spring.exception.OctaviusDataAccessException
 import io.github.octaviusframework.driver.spring.exception.OctaviusExceptionTranslator
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.jdbc.datasource.JdbcTransactionObjectSupport
 import org.springframework.jdbc.support.JdbcTransactionManager
+import org.springframework.transaction.CannotCreateTransactionException
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.DefaultTransactionStatus
 import java.sql.Connection
 import java.sql.SQLException
@@ -37,6 +41,9 @@ private val logger = KotlinLogging.logger {}
  *   with the connection - so raising over the top of it buries the real exception to report a
  *   cleanup step that had nothing left to do.
  *
+ * A transaction that never got a connection is reported as the driver's exception too - see
+ * [doBegin].
+ *
  * Register it in place of [JdbcTransactionManager]; [OctaviusSpringAutoConfiguration] does when the
  * application declares no transaction manager of its own.
  */
@@ -48,6 +55,34 @@ open class OctaviusJdbcTransactionManager(dataSource: DataSource) : JdbcTransact
         exceptionTranslator = OctaviusExceptionTranslator()
         // What makes @Transactional(propagation = NESTED) resolve to a savepoint.
         isNestedTransactionAllowed = true
+    }
+
+    /**
+     * Reports a transaction that could not get its connection the way [OctaviusTemplate] reports a
+     * block that could not: as the driver's exception, through the exception translator - by default
+     * an [OctaviusDataAccessException] over an `InitializationException`, `CONNECTION_UNAVAILABLE` where
+     * the pool had none free.
+     *
+     * Spring's own `doBegin` wraps every failure in `CannotCreateTransactionException`, which an
+     * `@ExceptionHandler` for `OctaviusDataAccessException` does not catch. Nothing in Spring's
+     * transaction handling keys off that type - a failure to begin is handled as any runtime exception
+     * - so it is not kept.
+     *
+     * Everything `doBegin` does after taking the connection goes through the driver, so a
+     * `SQLException` with nothing of the driver's in it is the data source refusing one. A failure
+     * that is neither leaves as Spring raised it.
+     */
+    override fun doBegin(transaction: Any, definition: TransactionDefinition) {
+        try {
+            super.doBegin(transaction, definition)
+        } catch (ex: CannotCreateTransactionException) {
+            val failure = when (val cause = ex.cause) {
+                is SQLException -> connectionRefusal(cause, obtainDataSource())
+                // Hikari's PoolInitializationException, when this borrow was the one that started the pool.
+                else -> cause?.findOctaviusCause() ?: throw ex
+            }
+            throw translateException("JDBC begin", SQLExceptionWrapper(failure))
+        }
     }
 
     override fun doCommit(status: DefaultTransactionStatus) {

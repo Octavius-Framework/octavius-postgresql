@@ -226,6 +226,8 @@ Without it each statement commits on its own and the descriptor is dead by the f
 
 Database failures leave `execute` as Spring `DataAccessException`s, and the Octavius-shaped ones keep the original available as `octaviusException` — including failures to obtain the connection in the first place, which are translated on the same path. Exceptions of your own thrown inside the block travel out unchanged; the template only rewrites what it recognizes.
 
+Under `@Transactional` the transaction manager takes the connection before the block runs, and the auto-configured one reports a failure to obtain it the same way — where Spring's own `JdbcTransactionManager` raises `CannotCreateTransactionException`.
+
 ```kotlin
 @ExceptionHandler(OctaviusDataAccessException::class)
 fun handle(ex: OctaviusDataAccessException): ResponseEntity<*> {
