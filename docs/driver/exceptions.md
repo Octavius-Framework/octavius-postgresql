@@ -640,17 +640,8 @@ class SQLExceptionWrapper(val wrappedException: OctaviusException)
     : SQLException(wrappedException.message, wrappedException.sqlState)
 ```
 
-The wrapper carries the message and SQLSTATE, but **not** the cause chain — `wrapper.cause` is `null`. Reach for
-`wrapper.wrappedException` to get back the typed exception with its context and stack trace intact:
-
-```kotlin
-try {
-    dataSource.connection.use { /* raw JDBC */ }
-} catch (e: SQLExceptionWrapper) {
-    val octavius = e.wrappedException
-    logger.error(octavius) { "..." }
-}
-```
+The wrapper carries the message and SQLSTATE and nothing else: `wrapper.cause` is `null`, and it has no stack trace
+of its own. The typed exception, with its context and stack trace, is `wrapper.wrappedException`.
 
 Going the other way, `OctaviusSessionImpl` unwraps automatically: session-level operations that delegate to the JDBC
 connection (`autoCommit`, `commit()`, `rollback()`, `transactionIsolationLevel`, `networkTimeout`, …) catch
