@@ -19,9 +19,9 @@ class SenateService(private val octavius: OctaviusTemplate) {
 }
 ```
 
-`OctaviusSpringAutoConfiguration` runs after Boot's `DataSourceAutoConfiguration` and contributes two beans —
-the `OctaviusTemplate` above and an `OctaviusJdbcTransactionManager`. Both are `@ConditionalOnMissingBean`, so
-declaring your own replaces them.
+`OctaviusSpringAutoConfiguration` runs after Boot's `DataSourceAutoConfiguration`, before its
+`DataSourceTransactionManagerAutoConfiguration`, and contributes two beans — the `OctaviusTemplate` above and an
+`OctaviusJdbcTransactionManager`. Both are `@ConditionalOnMissingBean`, so declaring your own replaces them.
 
 ## What it does
 

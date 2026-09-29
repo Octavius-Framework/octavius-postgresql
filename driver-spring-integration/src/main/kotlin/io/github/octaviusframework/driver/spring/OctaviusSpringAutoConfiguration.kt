@@ -6,6 +6,8 @@ import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+import org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration
+import org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.transaction.PlatformTransactionManager
 import javax.sql.DataSource
@@ -13,11 +15,15 @@ import javax.sql.DataSource
 /**
  * Spring Boot auto-configuration for the Octavius driver.
  *
- * Runs after Spring's own `DataSourceAutoConfiguration` and contributes an [OctaviusTemplate] and a
+ * Runs after Spring's own `DataSourceAutoConfiguration` and before Boot's `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`
+ * Contributes an [OctaviusTemplate] and a
  * [PlatformTransactionManager], each only when the application context does not already declare one
  * of its own. Declaring either bean yourself takes precedence over everything here.
  */
-@AutoConfiguration(after = [DataSourceAutoConfiguration::class])
+@AutoConfiguration(
+    after = [DataSourceAutoConfiguration::class],
+    before = [DataSourceTransactionManagerAutoConfiguration::class, TransactionAutoConfiguration::class]
+)
 @ConditionalOnClass(OctaviusSession::class, DataSource::class)
 open class OctaviusSpringAutoConfiguration {
 

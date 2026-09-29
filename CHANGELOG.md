@@ -18,6 +18,13 @@
   reported it. A transaction that could not get its connection left as `CannotCreateTransactionException`, which
   `OctaviusJdbcTransactionManager` now restates the same way.
 
+- **`OctaviusJdbcTransactionManager` is registered ahead of Boot's own by declaration, no longer by the alphabet.**
+  `OctaviusSpringAutoConfiguration` said only that it runs after `DataSourceAutoConfiguration`, and it came before
+  `DataSourceTransactionManagerAutoConfiguration` because Boot sorts auto-configurations by class name first and
+  `io.github` sorts ahead of `org.springframework`. An auto-configuration ordered earlier that runs after Boot's
+  transaction ones pulled Boot's `JdbcTransactionManager` in first, and the Octavius one backed off. It now runs
+  before `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`.
+
 ## Version 2.3.0 (v2.3.0)
 
 ### Driver
