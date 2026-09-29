@@ -207,7 +207,7 @@ Nothing is set by name and nothing is coerced, so every accessor is usable at it
 
 Closing a session obtained from a pool returns its connection to the pool rather than shutting it down.
 
-Leave the pool's own auto-commit setting at its default (`true`). Configuring a pool with `auto-commit=false` makes every connection in it sit `idle in transaction` while waiting to be borrowed — see [Transactions](transactions.md#manual-control) for why, and what it collides with.
+There is no reason to change the pool's own auto-commit setting from its default (`true`): switching auto-commit costs this driver no round trip, so a pool that turns it off saves nothing. It only means every session borrowed from it is inside a transaction, and one closed without committing has its work rolled back — see [Transactions](transactions.md#manual-control).
 
 ## What survives a return to the pool
 
@@ -218,7 +218,7 @@ A pooled connection outlives the session you borrowed it through, so whatever is
 | `autoCommit`, `readOnly`, `transactionIsolationLevel`  | Yes — HikariCP tracks these through its own proxy and restores its defaults. |
 | A `COPY` the caller never finished                     | Yes — by evicting the connection instead of handing it back.                 |
 | `LISTEN` registrations made via `notifications.listen` | Yes — the session issues `UNLISTEN *` if it subscribed to anything.          |
-| A transaction left open by a hand-written `BEGIN`      | Yes — rolled back, since the driver cannot know what that work was for.      |
+| A transaction left open — never committed, or opened by a hand-written `BEGIN` | Yes — rolled back, since the driver cannot know what that work was for. |
 | **Anything else you set by running the SQL yourself**  | **No.**                                                                      |
 
 That last row is the one to internalize, because it is not a gap anyone can close: neither the pool nor the driver parses the statements you send, so neither can know that a `SET search_path`, a `SET statement_timeout`, a `SET SESSION CHARACTERISTICS AS TRANSACTION ...`, a hand-written `LISTEN`, or a temporary table ever happened. All of it stays on the connection until the connection itself dies, and the next borrower inherits it.

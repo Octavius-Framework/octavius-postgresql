@@ -122,8 +122,8 @@ spring:
 
 `spring.datasource.hikari.*` configures the pool exactly as it would for any other driver, with one setting to leave alone:
 
-> [!WARNING]
-> Do not set `spring.datasource.hikari.auto-commit: false`. Pools apply that while *preparing* a connection, not while you use it, so every connection in the pool reports `idle in transaction` for as long as it sits there waiting to be borrowed. See [Transactions](transactions.md#manual-control) for the full picture.
+> [!NOTE]
+> There is no reason to set `spring.datasource.hikari.auto-commit: false`. Switching auto-commit costs nothing here — turning it off sends nothing, and turning it back on after a commit sends nothing either — so `@Transactional` gains nothing from it. What it does change is work outside `@Transactional`: every session from the pool is then inside a transaction nobody commits, and writes made through `OctaviusTemplate` there are rolled back when the session closes. See [Transactions](transactions.md#manual-control).
 
 ## Using `OctaviusTemplate`
 
@@ -163,7 +163,7 @@ class UserService(private val template: OctaviusTemplate) {
 
 **Inside a transaction, one session is bound to it** and every `execute` in that transaction works through the same one — so the notification, copy and type managers are built once rather than per call, and there is a single point at which the session's state is undone. That point is after the commit or rollback and before Spring releases the connection. It has to be after, because a transaction that failed on the server is still failed until the rollback goes through, and PostgreSQL ignores every statement sent in the meantime (`25P02`). Cleaning up any earlier would raise on exactly those transactions, and a session that cannot reset its connection gives the connection up — so every failed transaction would cost one. **Outside a transaction, the session ends with the `execute` call that opened it.**
 
-Either way, what the session left is undone before the connection goes back to the pool — `LISTEN` registrations, and a transaction opened by a hand-written `BEGIN`, which is rolled back rather than committed. A `COPY` you start and never finish is the exception, because it cannot be reset away: ending a `COPY OUT` means reading the whole export first. The connection is evicted instead and the pool opens a fresh one, and a `COPY IN` that never reached `endCopy()` lands nothing either way.
+Either way, what the session left is undone before the connection goes back to the pool — `LISTEN` registrations, and a transaction left open — never committed, or opened by a hand-written `BEGIN` — which is rolled back rather than committed. A `COPY` you start and never finish is the exception, because it cannot be reset away: ending a `COPY OUT` means reading the whole export first. The connection is evicted instead and the pool opens a fresh one, and a `COPY IN` that never reached `endCopy()` lands nothing either way.
 
 What still does not belong in a template block is anything that outlives the call: a listener loop holds Spring's connection for as long as it runs, so give it a session of its own through [`getOctaviusSession`](initialization.md#getting-a-session). And the wider rule is unchanged — state you set by running the SQL yourself is invisible to both the pool and the driver, so nothing undoes it. See [What survives a return to the pool](initialization.md#what-survives-a-return-to-the-pool).
 

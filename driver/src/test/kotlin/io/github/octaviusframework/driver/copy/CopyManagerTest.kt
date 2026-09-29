@@ -142,6 +142,19 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun testACopyCanBeWhatBeginsATransaction() {
+        // Nothing has run since auto-commit went off, so the BEGIN is still waiting - and a COPY starts on the
+        // stream rather than through an ordinary statement. It has to send that BEGIN itself, or the rows would
+        // land in a transaction of their own and survive the rollback.
+        session.autoCommit = false
+        session.copy.copyIn("COPY census FROM STDIN WITH (FORMAT CSV)", "1,Primus\n".byteInputStream())
+
+        session.rollback()
+        session.autoCommit = true
+        assertEquals(0L, session.createNativeQuery("SELECT count(*) FROM census").fetchFieldStrict<Long>())
+    }
+
+    @Test
     fun testCancellingACopyInATransactionLeavesTheTransactionStateFailed() {
         session.autoCommit = false
         session.createNativeQuery("INSERT INTO census VALUES (9, 'Sextus')").update()

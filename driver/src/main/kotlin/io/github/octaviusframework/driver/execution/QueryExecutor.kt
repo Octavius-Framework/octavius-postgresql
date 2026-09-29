@@ -58,6 +58,24 @@ internal class QueryExecutor(
     private val pid: String get() = "[PID: ${stream.processId}]"
 
     /**
+     * Whether a statement that finds no transaction on the server opens one first.
+     *
+     * On for as long as auto-commit is off. Turning it off sends nothing, and neither `COMMIT` nor `ROLLBACK`
+     * begins the next transaction, so the `BEGIN` has to come from somewhere: from here, ahead of the first
+     * statement that finds the server idle. A transaction that never runs a statement is never sent at all.
+     */
+    var beginsTransactions: Boolean = false
+
+    /**
+     * What the next `BEGIN` carries after it - `SET TRANSACTION`, `SET LOCAL` - or `null` for nothing.
+     *
+     * Terms belong to one transaction, so they go with the `BEGIN` that opens it, in the same message and at no
+     * round trip of their own, and are dropped once it has gone. Whoever ends that transaction without a
+     * statement having begun it drops them too.
+     */
+    var deferredTerms: String? = null
+
+    /**
      * Notes a statement on its way out and returns the clock reading [traceDone] measures against.
      *
      * The clock is only read once the level is known to be on, so a statement running with tracing
@@ -122,15 +140,44 @@ internal class QueryExecutor(
      *
      * The busy mark is what makes a reentrant call fail cleanly instead of interleaving its
      * messages into an exchange already in flight - the lock alone cannot, being reentrant.
+     *
+     * [beginFirst] is off only for the statements that manage the connection or its transaction
+     * themselves - see [control].
      */
-    private inline fun <T> exchange(block: () -> T): T = stream.lock.withLock {
+    private inline fun <T> exchange(beginFirst: Boolean = true, block: () -> T): T = stream.lock.withLock {
         stream.beginExchange()
         try {
+            if (beginFirst) beginWaitingTransaction()
             block()
         } finally {
             stream.endExchange()
         }
     }
+
+    /**
+     * Sends the `BEGIN` a transaction is waiting on, if one is: auto-commit is off and the server's last
+     * `ReadyForQuery` said idle.
+     *
+     * One round trip of its own, ahead of the statement that needed it, so a failure here - a term the server
+     * refuses - raises before that statement is ever sent. A refused term leaves the transaction begun and failed,
+     * which is where the terms stop mattering; only a `BEGIN` that did not take at all keeps them for the next try.
+     */
+    private fun beginWaitingTransaction() {
+        if (!beginsTransactions || stream.transactionStatus != 'I') return
+        val terms = deferredTerms
+        try {
+            simpleQuery(if (terms == null) "BEGIN" else "BEGIN; $terms", ignoreRows = false)
+            logger.debug { "$pid Transaction begun ahead of its first statement" }
+        } finally {
+            if (stream.transactionStatus != 'I') deferredTerms = null
+        }
+    }
+
+    /**
+     * Opens the transaction a `BEGIN` is waiting on, for the one caller that talks to the server without an
+     * exchange of this class: a `COPY`, whose transfer outlives any single exchange.
+     */
+    fun beginWaitingTransactionNow() = exchange { }
 
     /**
      * Sends the opening of an Extended Query exchange: `Parse`, `Bind` and a `Describe` of the portal.
@@ -166,7 +213,21 @@ internal class QueryExecutor(
      * [ReadyForQueryMessage] before this connection is usable again, and that means draining whatever the
      * server sent. What [ignoreRows] governs is only whether their arrival is reported as a mistake.
      */
-    fun execute(sql: String, ignoreRows: Boolean = false) = exchange {
+    fun execute(sql: String, ignoreRows: Boolean = false) = exchange { simpleQuery(sql, ignoreRows) }
+
+    /**
+     * Runs a statement that manages the connection or its transaction itself: `COMMIT`, `ROLLBACK`, a savepoint
+     * being rolled back to or released, a session setting, the validation probe.
+     *
+     * The one difference from [execute] is that no waiting `BEGIN` goes out first. Each of these either ends
+     * the transaction, only makes sense inside one already running, or is about the session rather than any
+     * transaction - so opening one for it would be at best a wasted round trip, and for a session setting
+     * would take the setting out of the transaction it was meant to reach.
+     */
+    fun control(sql: String) = exchange(beginFirst = false) { simpleQuery(sql, ignoreRows = false) }
+
+    /** The body of [execute] and [control], run inside an exchange one of them has taken. */
+    private fun simpleQuery(sql: String, ignoreRows: Boolean) {
         val startedAt = traceStart(sql, emptyArray())
 
         stream.sendMessage(SimpleQueryMessage(sql))

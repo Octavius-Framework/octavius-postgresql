@@ -20,7 +20,33 @@
   the one the session rethrows. HikariCP's warning about evicting a connection, which every `session.abort()`
   under the pool raises, prints the wrapper without frames.
 
+- **A transaction's `BEGIN` goes out with its first statement, not when auto-commit is turned off.**
+  `autoCommit = false` sends nothing, and `commit()` and `rollback()` send `COMMIT` and `ROLLBACK` alone rather
+  than chaining the next `BEGIN` onto them: the first statement that finds no transaction on the server sends one
+  ahead of itself, and a `COPY` or a savepoint does the same. The session is `IN_TRANSACTION` from the moment
+  auto-commit goes off, as before. A `required { }` block around one statement costs three round trips instead of
+  four, and three instead of five with terms, which travel in the `BEGIN`'s own message; a block that runs no
+  statement sends nothing. Between transactions the backend is `idle` rather than `idle in transaction`, as is
+  every connection waiting in a pool configured with `auto-commit=false`, so `idle_in_transaction_session_timeout`
+  has nothing to drop.
+
 #### Fixed
+
+- **`now()` in a transaction that follows a `commit()` or `rollback()` is the time of its first statement.** The
+  `BEGIN` chained onto the commit opened the next transaction there and then, and PostgreSQL fixes `now()` when a
+  transaction begins, so a session that waited between transactions read a `now()` as old as the wait.
+
+- **A term the server refuses no longer leaves auto-commit off.** `required` sent the terms before entering the
+  part of it that rolls back and restores auto-commit, so a refused one - a `statementTimeout` past what
+  PostgreSQL accepts - left the session in an aborted transaction with auto-commit off. The terms go out with the
+  block's first statement now, and a refusal rolls the block back like any other failure.
+
+- **A manual transaction closed unfinished no longer follows its connection to the next borrower.** A session
+  closed with auto-commit off and a transaction still open on the server left it to the pool, and HikariCP rolls
+  back only work that went through its own statement proxies, which the driver's queries do not. Under a pool
+  configured with `auto-commit=false` the next borrower carried on inside that transaction, and its commit made
+  the earlier session's work permanent. The session rolls back whatever the server still has open as it closes,
+  as it already did for a transaction opened by a hand-written `BEGIN`.
 
 - **A connection that could not be obtained leaves as `OctaviusDataAccessException` over an
   `InitializationException`, from `OctaviusTemplate` under Spring Boot's pool and from a `@Transactional` method

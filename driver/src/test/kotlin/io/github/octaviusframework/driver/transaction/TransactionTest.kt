@@ -15,6 +15,8 @@ import io.github.octaviusframework.driver.session.TransactionIsolationLevel
 import org.junit.jupiter.api.assertThrows
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
 
 class TransactionTest : AbstractIntegrationTest() {
@@ -124,6 +126,123 @@ class TransactionTest : AbstractIntegrationTest() {
 
         session.rollback()
         assertEquals(TransactionState.IN_TRANSACTION, session.transactionState)
+    }
+
+    // ------------------------------------------- the BEGIN goes out with the first statement
+
+    private fun backendPid(): Int = session.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict()
+
+    /** What `pg_stat_activity` says the backend [pid] is doing, and the last statement it ran - asked from elsewhere. */
+    private fun backend(pid: Int): Pair<String, String> = openSession().use { observer ->
+        observer.createNativeQuery("SELECT state, query FROM pg_stat_activity WHERE pid = $1")
+            .fetchRows(pid).single().let { it.get<String>(0) to it.get<String>(1) }
+    }
+
+    @Test
+    fun `leaving auto-commit sends nothing until the first statement`() {
+        val pid = backendPid()
+
+        session.autoCommit = false
+
+        assertEquals(TransactionState.IN_TRANSACTION, session.transactionState, "open from the caller's side")
+        assertEquals("idle" to "SELECT pg_backend_pid()", backend(pid), "and not yet on the server's")
+
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
+        assertEquals("idle in transaction", backend(pid).first)
+
+        session.rollback()
+        assertEquals(0L, countRows())
+    }
+
+    @Test
+    fun `a transaction that runs no statement is never sent`() {
+        val pid = backendPid()
+
+        session.autoCommit = false
+        session.commit()
+        session.rollback()
+        session.autoCommit = true
+        session.transaction.required(readOnly = true, statementTimeout = 5.seconds) { }
+        session.transaction.nested(isolation = TransactionIsolationLevel.SERIALIZABLE) { }
+
+        assertEquals("idle" to "SELECT pg_backend_pid()", backend(pid))
+    }
+
+    @Test
+    fun `commit and rollback leave nothing open on the server`() {
+        val pid = backendPid()
+        session.autoCommit = false
+
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
+        session.commit()
+        assertEquals("idle" to "COMMIT", backend(pid))
+        assertEquals(TransactionState.IN_TRANSACTION, session.transactionState)
+
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (2, 'Hispania')").execute()
+        session.rollback()
+        assertEquals("idle" to "ROLLBACK", backend(pid))
+
+        session.autoCommit = true
+        assertEquals("idle" to "ROLLBACK", backend(pid), "nothing was open, so nothing to commit")
+        assertEquals(1L, countRows())
+    }
+
+    @Test
+    fun `now() after a commit is the time of the next transaction, not of the commit`() {
+        session.autoCommit = false
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
+        session.commit()
+
+        // Taken on the server's own clock, after the commit and before anything else reaches this session.
+        val afterCommit = openSession().use { it.createNativeQuery("SELECT clock_timestamp()::text").fetchFieldStrict<String>() }
+
+        val nowIsLater = session.createNativeQuery("SELECT now() >= $1::text::timestamptz").fetchFieldStrict<Boolean>(afterCommit)
+        assertTrue(nowIsLater, "now() belongs to a transaction the commit had already opened")
+        session.rollback()
+    }
+
+    @Test
+    fun `a savepoint can be what begins the transaction`() {
+        session.autoCommit = false
+        val savepoint = session.setSavepoint()
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
+        session.releaseSavepoint(savepoint)
+
+        session.rollback()
+        assertEquals(0L, countRows())
+    }
+
+    @Test
+    fun `an isolation level set while the BEGIN waits reaches the transaction`() {
+        session.autoCommit = false
+        session.transactionIsolationLevel = TransactionIsolationLevel.SERIALIZABLE
+
+        assertEquals("serializable", setting("transaction_isolation"))
+        session.rollback()
+    }
+
+    @Test
+    fun `a validation probe does not begin the waiting transaction`() {
+        val pid = backendPid()
+        session.autoCommit = false
+
+        assertTrue(session.isValid(1))
+
+        assertEquals("idle", backend(pid).first)
+    }
+
+    @Test
+    fun `a term the server refuses fails the first statement and leaves auto-commit on`() {
+        // Past the int milliseconds statement_timeout is kept in, so the SET LOCAL after the BEGIN is refused.
+        assertThrows<OctaviusException> {
+            session.transaction.required(statementTimeout = 30.days) {
+                createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
+            }
+        }
+
+        assertTrue(session.autoCommit)
+        assertEquals(TransactionState.IDLE, session.transactionState)
+        assertEquals(0L, countRows())
     }
 
     @Test

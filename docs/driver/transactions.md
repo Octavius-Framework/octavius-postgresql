@@ -82,41 +82,31 @@ val newSenatorId: Long = session.transaction.required {
 
 For integrating with an existing transaction manager, or when commit and rollback are decided elsewhere, drive the boundaries through `OctaviusSession` directly. A few behaviours here are easy to be surprised by, so they are worth stating plainly.
 
-**Leaving auto-commit opens a transaction immediately.** `session.autoCommit = false` sends a `BEGIN` right away — the session is `IN_TRANSACTION` from that line on, not from the first query.
+**Leaving auto-commit opens a transaction, and its `BEGIN` goes out with the first statement.** `session.autoCommit = false` sends nothing. The session is `IN_TRANSACTION` from that line on, but the server hears of the transaction only when a statement arrives: the driver sends the `BEGIN` ahead of that statement, as a round trip of its own. A transaction that never runs a statement never reaches the server, and ending it sends nothing either.
 
-**`commit()` and `rollback()` start the next transaction.** Both end the current transaction and immediately open a fresh one, so the session stays `IN_TRANSACTION` until you turn auto-commit back on. There is no gap where the session is idle, and no need to "begin" anything before the next statement.
+**`commit()` and `rollback()` end the transaction, and the next statement begins another.** The session stays `IN_TRANSACTION` until you turn auto-commit back on, so there is no need to "begin" anything before the next statement — and nothing is left open on the server in between.
 
-**The server sees an open transaction the whole time.** Since the `BEGIN` is eager rather than deferred to the first statement, the backend reports `idle in transaction` from the moment you leave auto-commit until you return to it — including right after a `commit()`, where the chained `BEGIN` has already opened the next one. Drivers that defer the `BEGIN` until the first statement never show this, so a connection that looked inert under another driver does not look inert here.
+**As far as the server is concerned, a transaction starts at its first statement.** PostgreSQL fixes the transaction's `now()` at that moment, and a `transactionTimeout` starts counting from it. Before it — between `autoCommit = false` and the first statement, or between a `commit()` and the next one — the backend reports plain `idle`, not `idle in transaction`, so `idle_in_transaction_session_timeout` has nothing to act on. Nothing is lost by waiting: PostgreSQL takes no snapshot, no lock and no transaction id until a statement runs, however early the `BEGIN` arrives.
 
-**That open transaction holds almost nothing.** `idle in transaction` reads alarming in a monitoring dashboard, so it is worth being precise about what it is costing you before the first statement runs:
+Once statements start running, the ordinary rules apply — a write consumes a transaction id, and under `REPEATABLE READ` or `SERIALIZABLE` the snapshot lasts the whole transaction, which holds back cleanup.
 
-| Worry                        | Before the first statement                                                                                                                                |
-|:-----------------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Is anything locked?          | No table, no row. The one entry in `pg_locks` is the transaction's lock on its own *virtual* id — a marker every transaction holds, and nothing waits on. |
-| Is `VACUUM` held back?       | No. That needs a snapshot, and none is taken until a statement runs — `backend_xmin` stays empty.                                                         |
-| Is a transaction id used up? | No. A real transaction id (`xid`) is assigned on the first *write*, so `backend_xid` is empty too.                                                        |
-
-So the eager `BEGIN` costs one extra round trip and a backend that looks busier than it is. Only one consequence has teeth: **`idle_in_transaction_session_timeout`** drops a session left sitting in that window, and it reaches you as `ExecutionAbortedException(TRANSACTION_TIMEOUT)`.
-
-Once statements start running, the ordinary rules apply again — a write consumes a transaction id, and under `REPEATABLE READ` or `SERIALIZABLE` the snapshot lasts the whole transaction, which *does* hold back cleanup.
-
-> [!WARNING]
-> **A pool configured with `auto-commit=false` parks its idle connections inside a transaction.** Pools apply the auto-commit setting while preparing a connection, not while you use it, so with HikariCP's `isAutoCommit = false` every connection in the pool reports `idle in transaction` for as long as it sits there — measured on a pool of three with a single borrow, all three did, including the two nobody had touched. Where the server sets `idle_in_transaction_session_timeout`, it will drop those connections while they are doing nothing and the pool will keep replacing them. Leave the pool on the default `auto-commit=true` and open transactions where you actually need them, or make sure that timeout is not set aggressively.
+> [!NOTE]
+> **A pool configured with `auto-commit=false` saves nothing, and commits nothing you do not commit yourself.** Switching auto-commit costs no round trip — turning it off sends nothing, and turning it back on after a commit sends nothing either — so there is nothing for a pool to save by leaving it off. What it does do: with HikariCP's `isAutoCommit = false`, every session borrowed from the pool is inside a transaction from its first statement, and one closed without a `commit()` has that transaction rolled back as it closes. Whatever it wrote is gone, and nothing of it reaches the next borrower.
 
 > [!WARNING]
 > **Setting `autoCommit = true` commits whatever is open — it does not discard it.** Returning to auto-commit mode issues a `COMMIT`, so work you never explicitly committed is made permanent rather than thrown away. If you meant to abandon it, call `rollback()` *before* flipping the flag. This is the JDBC contract for `setAutoCommit` rather than an Octavius decision, but it catches people out often enough to be worth spelling out.
 
 ```kotlin
-session.autoCommit = false      // BEGIN
+session.autoCommit = false      // nothing sent yet
 try {
-    session.createNativeQuery("UPDATE aerarium SET balance = balance - 100 WHERE province_id = $1").update(1)
+    session.createNativeQuery("UPDATE aerarium SET balance = balance - 100 WHERE province_id = $1").update(1) // BEGIN goes first
     session.createNativeQuery("UPDATE aerarium SET balance = balance + 100 WHERE province_id = $1").update(2)
-    session.commit()            // COMMIT, and a new transaction begins
+    session.commit()            // COMMIT; the next statement would begin another transaction
 } catch (e: Exception) {
-    session.rollback()          // ROLLBACK, and a new transaction begins
+    session.rollback()          // ROLLBACK, likewise
     throw e
 } finally {
-    session.autoCommit = true   // commits the (empty) transaction still open here
+    session.autoCommit = true   // nothing is open by now, so nothing is sent
 }
 ```
 
@@ -155,7 +145,7 @@ An unnamed savepoint answers `getSavepointId()` and throws on `getSavepointName(
 
 ## Transaction state
 
-`session.transactionState` reports what the *server* thinks, taken from the status flag PostgreSQL attaches to every completed exchange — not from a client-side guess:
+`session.transactionState` reports what the *server* thinks, taken from the status flag PostgreSQL attaches to every completed exchange — not from a client-side guess. The one addition is the `BEGIN` still waiting for a statement: with auto-commit off, the session answers `IN_TRANSACTION` from the moment it was turned off, not from the first statement.
 
 | State            | Meaning                                                                       |
 |:-----------------|:------------------------------------------------------------------------------|
@@ -180,7 +170,7 @@ session.rollback()
 session.transactionState                                  // IN_TRANSACTION again, and usable
 ```
 
-Two ways out: `rollback()`, which discards the whole transaction and opens a fresh one, or — if you saw it coming — a `nested { }` block around the risky part, whose savepoint rollback clears the failure while keeping everything before it. That is the practical reason to reach for `nested` rather than `required`.
+Two ways out: `rollback()`, which discards the whole transaction and leaves the next statement to begin a fresh one, or — if you saw it coming — a `nested { }` block around the risky part, whose savepoint rollback clears the failure while keeping everything before it. That is the practical reason to reach for `nested` rather than `required`.
 
 **`commit()` is not a third.** PostgreSQL answers a `COMMIT` in an aborted transaction with a `ROLLBACK` and no error, so sent, it would report a commit that never happened — the work before the failure gone, and nobody told. The driver does not send it: `commit()` raises `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)`, and so does switching `autoCommit` back on, which commits. It knows the state from the last `ReadyForQuery`, so the refusal costs no round trip. A `required { }` block that caught a failure and carried on meets the same refusal at its own commit, and rolls back as it would for any other throw.
 
@@ -201,9 +191,14 @@ session.transaction.required(
 }
 ```
 
-Whatever of the four is asked for travels as **one statement, in one round trip**, sent immediately after the
-`BEGIN`: `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts. Ask
-for none of them — the default — and nothing is sent at all.
+Whatever of the four is asked for travels **in the `BEGIN`'s own message**, so it costs no round trip of its
+own: `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts. Ask for
+none of them — the default — and the `BEGIN` goes alone.
+
+The `BEGIN` goes out with the block's first statement, and so do the terms. A term the server refuses — a
+`statementTimeout` longer than PostgreSQL accepts, `SERIALIZABLE` on a hot standby — fails that statement, and
+the block rolls back as it would for any other failure. A block that runs no statement sends no terms, and
+nothing else.
 
 All four end when the transaction ends. That is the difference from the session properties in the next
 section, and it is the reason to prefer this form: nothing is left on the connection, so there is nothing for
@@ -232,11 +227,11 @@ session.readOnly = true
 > [!NOTE]
 > These two are the **session** door, and are what you reach for when the setting should outlive one
 > transaction. For a single transaction, prefer the parameters on `required` in
-> [Terms for one transaction](#terms-for-one-transaction) — they are one round trip rather than two and leave
+> [Terms for one transaction](#terms-for-one-transaction) — they cost no round trip of their own and leave
 > nothing behind.
 
 > [!NOTE]
-> Both settings change the **session default**, not just the current transaction: each issues a `SET SESSION CHARACTERISTICS AS TRANSACTION ...`, plus a `SET TRANSACTION ...` when a transaction is already open. They therefore apply to every later transaction on that connection — but on a pooled connection the pool cleans up after you. HikariCP tracks `transactionIsolation` and `readOnly` and restores its own defaults when the connection returns, so a change made through these properties does not follow the connection to its next borrower.
+> Both settings change the **session default**, not just the current transaction: each issues a `SET SESSION CHARACTERISTICS AS TRANSACTION ...`, plus a `SET TRANSACTION ...` when a transaction has already begun on the server. One whose `BEGIN` is still waiting for its first statement needs no more than the session setting, which that `BEGIN` picks up. They therefore apply to every later transaction on that connection — but on a pooled connection the pool cleans up after you. HikariCP tracks `transactionIsolation` and `readOnly` and restores its own defaults when the connection returns, so a change made through these properties does not follow the connection to its next borrower.
 
 > [!WARNING]
 > Setting the same thing by running the SQL yourself — `session.createNativeQuery("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute()` — escapes that tracking completely, and the next borrower inherits it. That is a general rule about connection state rather than anything specific to isolation levels — see [What survives a return to the pool](initialization.md#what-survives-a-return-to-the-pool).

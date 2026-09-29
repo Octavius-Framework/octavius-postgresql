@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.transaction
 
+import io.github.octaviusframework.driver.jdbc.OctaviusConnection
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.driver.session.TransactionIsolationLevel
@@ -21,7 +22,10 @@ private val logger = KotlinLogging.logger {}
  * `rollback()`, `autoCommit` manipulation, or manual savepoints), use the methods 
  * provided directly on the parent [OctaviusSession].
  */
-class TransactionManager internal constructor(@PublishedApi internal val session: OctaviusSession) {
+class TransactionManager internal constructor(
+    @PublishedApi internal val session: OctaviusSession,
+    private val connection: OctaviusConnection
+) {
 
     /**
      * Executes the given [block] within a transaction scope.
@@ -37,8 +41,10 @@ class TransactionManager internal constructor(@PublishedApi internal val session
      * done, which is the same decision the restricted receiver is there to keep out of the block.
      *
      * Whatever of [isolation], [readOnly], [statementTimeout] and [transactionTimeout] is asked for goes out
-     * as one statement after the `BEGIN`, in a single round trip; asking for none of them sends nothing at
-     * all. All four end with the transaction, which is what separates them from
+     * in the same message as the `BEGIN`, which the block's first statement sends ahead of itself - at no
+     * round trip of their own, and not at all where the block runs no statement. A term the server refuses
+     * fails that first statement, inside the block, so it rolls back like any other failure. All four end
+     * with the transaction, which is what separates them from
      * [OctaviusSessionOperations.transactionIsolationLevel] and [OctaviusSessionOperations.readOnly] - those
      * are session-wide, and are not what this sets.
      *
@@ -135,12 +141,14 @@ class TransactionManager internal constructor(@PublishedApi internal val session
     }
 
     /**
-     * Sends the terms this transaction was opened with, as one statement.
+     * Hands the terms this transaction was opened with to its `BEGIN`, as one statement.
      *
      * `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts: both
      * end with the transaction, so nothing here has to be undone before the connection goes back to a pool.
-     * The first of them has to precede the first query of the transaction, which is why this runs where it
-     * does, and one `execute` carries all four - a script is one round trip, and there is nothing to bind.
+     * The first of them has to precede the first query of the transaction, and nothing precedes it more
+     * closely than the `BEGIN`'s own message - a script, so one round trip carries it all, with nothing to bind.
+     *
+     * Sent now only where the server already has a transaction running that no `BEGIN` of the driver's opened.
      */
     @PublishedApi
     internal fun applySettings(
@@ -165,7 +173,7 @@ class TransactionManager internal constructor(@PublishedApi internal val session
             transactionTimeout?.let { add("SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}") }
         }
 
-        session.createNativeQuery(statements.joinToString("; ")).execute()
+        connection.deferTransactionTerms(statements.joinToString("; "))
     }
 
     /**
