@@ -61,8 +61,8 @@ requirement that belongs to `driver-spring-integration` rather than to the drive
 
 ## Project status
 
-1.0.0 is released, and every module in this repository carries that version. What the number does and does not
-promise, and how each push is tested, is in the [repository README](../README.md#project-status).
+Every module in this repository carries one version and is released with the others. What the number does and does
+not promise, and how each push is tested, is in the [repository README](../README.md#project-status).
 
 The driver has not seen long production use: the figures under [Performance](#performance) come from
 benchmarks, not from a year of traffic.
