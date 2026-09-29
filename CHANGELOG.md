@@ -1,8 +1,20 @@
-## Version 2.3.1 (v2.3.1)
+## Version 2.4.0 (v2.4.0)
 
 ### Driver
 
+#### Added
+
+- **PostgreSQL 18 behind a pooler that speaks protocol 3.0 is accepted.** The driver still asks for 3.2 and takes
+  3.0 when that is the answer, since nothing it does depends on 3.2 but the length of the cancel key.
+
 #### Changed
+
+- **PostgreSQL 17 and older are refused after login rather than at the handshake**, still with
+  `UNSUPPORTED_SERVER_VERSION`, and `details` names the version the server reports instead of the protocol it
+  offered.
+
+- **A login that does not report `search_path` is refused with `MISSING_PROTOCOL_PARAMETER`.** PostgreSQL 18 always
+  reports it, so this is a pooler or a proxy in between that does not pass it on.
 
 - **`SQLExceptionWrapper` no longer records a stack trace.** The exception it wraps keeps its own, and that is
   the one the session rethrows. HikariCP's warning about evicting a connection, which every `session.abort()`

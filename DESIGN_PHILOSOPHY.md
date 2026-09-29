@@ -84,7 +84,7 @@ Every one of those is a consequence of the same thing: the layer that knows the 
 reach. Wrapping a driver means inheriting its model of what a value is, and then building the model you wanted
 on top of a lossy version of it.
 
-Speaking wire protocol v3.2 directly removes the intermediary rather than working around it. Values arrive in
+Speaking the wire protocol directly removes the intermediary rather than working around it. Values arrive in
 binary with their OIDs in the row description, so a decoded value knows what it is without anything being
 declared twice. Named parameters are rewritten to `$1` on the way out, so there is no second escaping rule to
 remember. And the pieces that used to be workarounds are simply gone — see
@@ -92,25 +92,31 @@ remember. And the pieces that used to be workarounds are simply gone — see
 
 ## One standard, no fallback
 
-The driver asks for wire protocol v3.2 and refuses to continue if the server offers less, so PostgreSQL 17
-fails the handshake rather than half-working.
+The driver requires PostgreSQL 18 and refuses anything older at login, so PostgreSQL 17 fails to connect
+rather than half-working.
 
-It is worth being straight about which way that dependency runs, because the protocol version is the
-*enforcement* and not the reason. Nothing here needs v3.2 as such — its headline change is a longer cancel
-key, and it is backwards compatible. What is needed is **PostgreSQL 18**, because that is where `search_path`
-became a reported parameter: the server announces it in `ParameterStatus` and re-announces it when it moves, so
-the driver knows the live search path at all times without asking, including after a hand-written
-`SET search_path` mid-session. Unqualified type names resolve against that. On 17 the driver would have to
-query for it and would still not know when it changed underneath.
+What is needed from 18 is one thing: `search_path` became a reported parameter there. The server announces it
+in `ParameterStatus` and re-announces it when it moves, so the driver knows the live search path at all times
+without asking, including after a hand-written `SET search_path` mid-session. Unqualified type names resolve
+against that. On 17 the driver would have to query for it and would still not know when it changed underneath.
+So what is checked, once the login is through, is what the server says about itself: a `server_version` of 18
+or above, and a `search_path` reported at all.
 
-Since v3.2 arrived in 18, demanding the protocol is a cheap and exact way of demanding the server — one check,
-at the handshake, before anything else can go wrong.
+The wire protocol is a separate question, and it is worth being straight about how it was answered, because it
+was answered the other way first. The driver asks for v3.2, which arrived in 18, and for a while it refused any
+server that offered less — demanding the protocol looked like a cheap and exact way of demanding the server, one
+check at the handshake. It was cheap, but it was not exact. Nothing here needs v3.2 as such — its headline change
+is a longer cancel key, kept at whatever length it arrives — while what sits between an application and its
+database often speaks v3.0 and nothing newer. Most poolers do, because libpq still asks for v3.0 by default and
+nothing has made them move. Refusing v3.0 refused PostgreSQL 18 behind every one of them. So a v3.0 answer is
+taken, and the server behind it is judged by what it reports.
 
-The alternative — negotiate down and keep a path for older servers — means resolving the search path a second
-way, and carrying that way forever, because a compatibility shim is the hardest thing there is to remove. It
-would also be the path nobody develops against, which is where the bugs would live. Refusing at the handshake
-makes the failure immediate, total and legible, rather than a feature that quietly does not work in production
-three months later.
+The alternative that stays rejected is the one the heading is about — keeping a path for older *servers*. That
+means resolving the search path a second way, and carrying that way forever, because a compatibility shim is
+the hardest thing there is to remove. It would also be the path nobody develops against, which is where the
+bugs would live. Refusing at login makes the failure immediate, total and legible, rather than a feature that
+quietly does not work in production three months later. Taking v3.0 adds no such path: the driver does the same
+thing over either version.
 
 ## One coordinate per decision
 
@@ -367,4 +373,4 @@ happen here:
   derived from classes — that is a coherent way to work, and it is the opposite of this one.
 * **Your team wants to write no SQL.** That is a legitimate position and this library will make it worse, not
   better.
-* **You are on PostgreSQL 17 or older.** The handshake refuses it, on purpose.
+* **You are on PostgreSQL 17 or older.** The connection refuses it at login, on purpose.

@@ -232,18 +232,26 @@ Queries themselves leave nothing behind: the driver executes through unnamed sta
 
 ## What happens when a session opens
 
-The sequence is worth knowing, because two of its steps are where connections fail and one is why the *first* connection is slower than the rest:
+The sequence is worth knowing, because two of its steps are where connections fail and one is why the *first* connection
+is slower than the rest:
 
 1. **The socket is opened**, with `loginTimeout` as its connect timeout.
-2. **SSL is negotiated** — unless `sslmode=disable`, the driver asks the server for TLS before anything else is sent. See the defaults below: by default it *tries*.
-3. **The startup message goes out**, carrying `user`, `database`, `client_encoding=UTF8` and every [additional property](#startup-parameters) you set.
-4. **Authentication runs** with the password supplied — [SCRAM-SHA-256, or a password inside TLS](#authentication-is-scram-sha-256-or-a-password-inside-tls).
+2. **SSL is negotiated** — unless `sslmode=disable`, the driver asks the server for TLS before anything else is sent.
+   See the defaults below: by default it *tries*.
+3. **The startup message goes out**, carrying `user`, `database`, `client_encoding=UTF8` and
+   every [additional property](#startup-parameters) you set.
+4. **Authentication runs** with the password
+   supplied — [SCRAM-SHA-256, or a password inside TLS](#authentication-is-scram-sha-256-or-a-password-inside-tls).
 5. **Timeouts are applied** — `socketTimeout` becomes the socket read timeout, `maxCachedRowSize` the row buffer cap.
-6. **The server version is checked.** Anything below PostgreSQL 18 gets the connection closed and an `InitializationException(UNSUPPORTED_SERVER_VERSION)`, naming the version received.
+6. **The server is checked.** Anything below PostgreSQL 18 gets the connection closed and an
+   `InitializationException(UNSUPPORTED_SERVER_VERSION)`, naming the version received. So does a login that did not
+   report `search_path`, with `MISSING_PROTOCOL_PARAMETER` — PostgreSQL 18 always reports it, so it is missing only when
+   a pooler or a proxy in between did not pass it on.
 7. **The type catalog is loaded**, once per database — see below.
 
 > [!IMPORTANT]
-> **PostgreSQL 18 or newer is required.** Octavius speaks Wire Protocol v3.2 exclusively. Against an older server the failure shows up in step 6 as an `InitializationException`, or earlier at the protocol level during the handshake.
+> **PostgreSQL 18 or newer is required.** Against an older server the failure shows up in step 6 as an
+`InitializationException(UNSUPPORTED_SERVER_VERSION)`.
 
 ### Authentication is SCRAM-SHA-256, or a password inside TLS
 

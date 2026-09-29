@@ -185,8 +185,9 @@ for a problem the first time they appear:
 * **The catalog query.** The statement that loads the type catalog is a statement like any other, so it is traced like
   any other — a fifteen-line `pg_catalog` join, once per database, immediately before the `info` line that summarizes
   it.
-* **The startup handshake.** Five lines per connection: the TLS outcome with its protocol and cipher, the SCRAM
-  mechanism, the backend process id, and the whole set of session parameters the server sent — `server_version`,
+* **The startup handshake.** Five lines per connection, and a sixth through a pooler that answers with an older
+  protocol version: the TLS outcome with its protocol and cipher, the SCRAM mechanism, the protocol version where
+  one was negotiated, the backend process id, and the whole set of session parameters the server sent — `server_version`,
   `TimeZone`, `search_path`, `DateStyle` and a dozen more — as a single line rather than one each, since the set arrives
   in a burst and is identical on every connection to the same server.
 

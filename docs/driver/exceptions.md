@@ -338,10 +338,10 @@ Every reason here is about the statement itself, and `position` is the evidence 
 | `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                      |
 | `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                            |
 | `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                       |
-| `PROTOCOL_VIOLATION`                     | Unexpected message received during the authentication exchange.                                                                                    |
-| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from the server's authentication challenge.                                                                           |
+| `PROTOCOL_VIOLATION`                     | Unexpected message received during login, a protocol other than 3.0–3.2 offered in its place among them.                                           |
+| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from what the server sent at login — its authentication challenge, or a `search_path` a pooler did not pass on.       |
 | `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                         |
-| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18 — Octavius speaks Wire Protocol v3.2 exclusively.                                                                         |
+| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18, by the `server_version` it reports at login.                                                                             |
 | `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one.                       |
 | `CONNECTION_UNAVAILABLE`                 | The data source had none to give rather than failing to open one — a pool that ran out of time waiting for a free one. Nothing reached the server. |
 

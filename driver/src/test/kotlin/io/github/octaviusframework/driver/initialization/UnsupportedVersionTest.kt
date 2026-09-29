@@ -23,7 +23,9 @@ class UnsupportedVersionTest {
             OctaviusConnectionFactory.createConnection(TestDatabase.URL, props)
         }
         
+        // PostgreSQL 17 answers the request for 3.2 with 3.0, which is taken - a pooler in front of 18 answers
+        // the same way - so the refusal comes after login, from the version the server reports.
         assertEquals(InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION, exception.reason)
-        assertTrue(exception.details!!.contains("does not support the requested protocol version 3.2"), "Unexpected detail message: ${exception.details}")
+        assertTrue(exception.details!!.contains("Received version: 17"), "Unexpected detail message: ${exception.details}")
     }
 }

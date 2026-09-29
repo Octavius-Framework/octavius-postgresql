@@ -293,25 +293,23 @@ internal class OctaviusConnection(
     }
 
     /**
-     * Retrieves the current search path. Since we enforce PostgreSQL 18+, this value
-     * is always kept up-to-date automatically via ParameterStatus messages from the server.
+     * Retrieves the current search path, as the server last reported it in a ParameterStatus message.
+     *
+     * Always there: the connection factory refuses a server that did not report it at login, and PostgreSQL
+     * 18 reports it again whenever it changes.
      *
      * @return A list of schema names representing the current search path.
      */
     fun getSearchPath(): List<String> {
         checkClosed()
-        val paramSearchPath = stream.parameters["search_path"]
-        if (paramSearchPath != null) {
-            if (paramSearchPath == lastSearchPathString && cachedSearchPath != null) {
-                return cachedSearchPath!!
-            }
-            val parsed = parseSearchPath(paramSearchPath)
-            lastSearchPathString = paramSearchPath
-            cachedSearchPath = parsed
-            return parsed
+        val paramSearchPath = stream.parameters.getValue("search_path")
+        if (paramSearchPath == lastSearchPathString && cachedSearchPath != null) {
+            return cachedSearchPath!!
         }
-        // Fallback in rare cases (e.g., mocked test server)
-        return listOf("public")
+        val parsed = parseSearchPath(paramSearchPath)
+        lastSearchPathString = paramSearchPath
+        cachedSearchPath = parsed
+        return parsed
     }
 
     //--------------------------------------------READ ONLY-------------------------------------------------------------

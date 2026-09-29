@@ -353,13 +353,13 @@ internal class PgStream(
                     'R' -> return parseAuthentication(payloadLength)
                     'E' -> return parseErrorOrNotice()
                     'v' -> {
-                        val newestMinorVersion = inputStream.readInt()
+                        val newestVersion = inputStream.readInt()
                         val numUnrecognizedOptions = inputStream.readInt()
                         val unrecognizedOptions = mutableListOf<String>()
                         for (i in 0 until numUnrecognizedOptions) {
                             unrecognizedOptions.add(inputStream.readCString())
                         }
-                        return NegotiateProtocolVersionMessage(newestMinorVersion, unrecognizedOptions)
+                        return NegotiateProtocolVersionMessage(newestVersion, unrecognizedOptions)
                     }
                     'K' -> {
                         val pid = inputStream.readInt()
