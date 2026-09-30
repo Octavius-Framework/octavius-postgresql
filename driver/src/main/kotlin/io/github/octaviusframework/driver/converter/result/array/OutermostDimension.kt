@@ -75,6 +75,16 @@ internal fun convertOutermostDimension(
                 } catch (e: MappingException) {
                     e.path.add("[$i]")
                     throw e
+                } catch (e: Exception) {
+                    // The converter is called here rather than through the context, so this is where its failure
+                    // is wrapped - one level up, it would be wrapped without the index.
+                    val ex = MappingException(
+                        MappingExceptionReason.CONVERSION_ERROR,
+                        details = "Error during result deserialization: ${e.message}",
+                        cause = e
+                    )
+                    ex.path.add("[$i]")
+                    throw ex
                 }
             }
         })

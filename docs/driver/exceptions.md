@@ -38,15 +38,15 @@ abstract class OctaviusException(
 ) : RuntimeException(message, cause)
 ```
 
-| Member                 | Type                  | What it holds                                                                                                                          |
-|:-----------------------|:----------------------|:---------------------------------------------------------------------------------------------------------------------------------------|
-| `message`              | `String`              | The machine-readable identifier, `EXCEPTION_NAME[:REASON_ENUM]` — never prose.                                                         |
-| `sqlState`             | `String?`             | The five-character SQLSTATE. `null` for purely client-side failures that never reached the server.                                     |
-| `serverErrorMessage`   | `ServerErrorMessage?` | The complete parsed `ErrorResponse` from PostgreSQL. `null` when the error originated in the driver.                                   |
-| `queryContext`         | `QueryContext?`       | What *your application* executed — SQL, parameters, and their database-level forms. Attached on the way out.                           |
-| `path`                 | `MutableList<String>` | Where the failure happened, innermost first — an attribute five levels down a composite, a step of a plan. Appended to on the way out. |
-| `cause`                | `Throwable?`          | The underlying exception, where one exists (an `IOException` under a `NetworkException`, for example).                                 |
-| `getDetailedMessage()` | `String?`             | The human-readable explanation, assembled per subclass. This is what the log block renders.                                            |
+| Member                 | Type                  | What it holds                                                                                                                                                                                                                        |
+|:-----------------------|:----------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `message`              | `String`              | The machine-readable identifier, `EXCEPTION_NAME[:REASON_ENUM]` — never prose.                                                                                                                                                       |
+| `sqlState`             | `String?`             | The five-character SQLSTATE. `null` for purely client-side failures that never reached the server.                                                                                                                                   |
+| `serverErrorMessage`   | `ServerErrorMessage?` | The complete parsed `ErrorResponse` from PostgreSQL. `null` when the error originated in the driver.                                                                                                                                 |
+| `queryContext`         | `QueryContext?`       | What *your application* executed — SQL, parameters, and their database-level forms. Attached on the way out.                                                                                                                         |
+| `path`                 | `MutableList<String>` | Where the failure happened, innermost first — an attribute five levels down a composite, the column it was read from, the parameter it was bound to as the `$n` of the statement sent, a step of a plan. Appended to on the way out. |
+| `cause`                | `Throwable?`          | The underlying exception, where one exists (an `IOException` under a `NetworkException`, for example).                                                                                                                               |
+| `getDetailedMessage()` | `String?`             | The human-readable explanation, assembled per subclass. This is what the log block renders.                                                                                                                                          |
 
 `path` and `queryContext` are the two things a frame can add to an exception **without replacing it**, which is why both live on the base class rather than on the subclass that happens to need them. Replacing an exception costs the type the caller catches on — a `ConstraintViolationException` restated as a mapping failure stops being the thing a retry loop matches — so a layer that knows *where* it was appends a segment and rethrows the exception it was given. Both are rendered into `toString()`: `path` reversed, outermost first, on a `PATH:` line.
 

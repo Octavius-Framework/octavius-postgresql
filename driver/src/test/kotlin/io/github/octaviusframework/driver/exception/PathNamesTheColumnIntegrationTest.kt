@@ -38,4 +38,16 @@ class PathNamesTheColumnIntegrationTest : AbstractIntegrationTest() {
             assertEquals(throughFetchField.path, throughRowGet.path, "the two routes should read alike")
         }
     }
+
+    @Test
+    fun `a column that cannot be decoded is named too`() {
+        // A row is decoded as it arrives, before anything asks for a column - and `BigDecimal` has no NaN.
+        openSession().use { s ->
+            val thrown = assertFailsWith<CodecException> {
+                s.createNativeQuery("SELECT 1::numeric AS tribute, 'NaN'::numeric AS arrears").fetchRowStrict()
+            }
+
+            assertEquals(listOf("arrears"), thrown.path)
+        }
+    }
 }

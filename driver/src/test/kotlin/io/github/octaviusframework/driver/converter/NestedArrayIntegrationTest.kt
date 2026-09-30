@@ -23,11 +23,15 @@ class NestedArrayIntegrationTest : AbstractIntegrationTest() {
     enum class Allegiance { Loyal, Rebel }
     data class Domicile(val street: String, val city: String)
 
+    /** The database's `rank` has a `TRIBUNUS` this does not, which the enum converter refuses. */
+    enum class Rank { Legatus }
+
     private lateinit var session: OctaviusSession
 
     override val schema = """
         CREATE TYPE allegiance AS ENUM ('LOYAL', 'REBEL');
         CREATE TYPE domicile AS (street text, city text);
+        CREATE TYPE rank AS ENUM ('LEGATUS', 'TRIBUNUS');
     """.trimIndent()
 
     @BeforeAll
@@ -35,6 +39,7 @@ class NestedArrayIntegrationTest : AbstractIntegrationTest() {
         session = openSession()
         session.typeManager.registerEnum<Allegiance>("allegiance")
         session.typeManager.registerAutoComposite<Domicile>("domicile")
+        session.typeManager.registerEnum<Rank>("rank")
     }
 
     @AfterAll
@@ -123,6 +128,24 @@ class NestedArrayIntegrationTest : AbstractIntegrationTest() {
 
         assertEquals(MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING, ex.reason)
         assertTrue(ex.path.contains("[1]"), "expected '[1]' in path, got ${ex.path}")
+    }
+
+    @Test
+    fun `an element its converter fails on is named by its index, whatever the converter threw`() {
+        fun refused(sql: String, read: (String) -> Unit): MappingException {
+            val ex = assertThrows<MappingException> { read(sql) }
+            assertEquals(MappingExceptionReason.CONVERSION_ERROR, ex.reason)
+            return ex
+        }
+
+        val list = refused("SELECT ARRAY['LEGATUS', 'TRIBUNUS']::rank[] AS ranks") { read<List<Rank>>(it) }
+        val array = refused("SELECT ARRAY['LEGATUS', 'TRIBUNUS']::rank[] AS ranks") { read<Array<Rank>>(it) }
+        val nested = refused("SELECT ARRAY[['LEGATUS'], ['TRIBUNUS']]::rank[] AS ranks") { read<List<List<Rank>>>(it) }
+
+        assertEquals(listOf("ranks", "[1]"), list.path.asReversed())
+        assertEquals(listOf("ranks", "[1]"), array.path.asReversed())
+        assertEquals(listOf("ranks", "[1]", "[0]"), nested.path.asReversed())
+        assertTrue(list.cause is IllegalArgumentException, "the converter's own exception is the cause, got ${list.cause}")
     }
 
     @Test

@@ -32,10 +32,16 @@ class Row internal constructor(
         if (colLength == -1) null
         else {
             val offset = columnOffsets[index]
-            val oid = metadata.columns[index].oid
-            val codec = catalog.codecs.getCodecByOid<Any>(oid)
-                ?: throw TypeException(TypeExceptionReason.MISSING_CODEC, oid = oid, details = "Row")
-            codec.decodeSafely(rawData, offset, colLength)
+            val column = metadata.columns[index]
+            try {
+                val codec = catalog.codecs.getCodecByOid<Any>(column.oid)
+                    ?: throw TypeException(TypeExceptionReason.MISSING_CODEC, oid = column.oid, details = "Row")
+                codec.decodeSafely(rawData, offset, colLength)
+            } catch (e: OctaviusException) {
+                // Decoded here, ahead of any `get`, so the column is named here as well as there.
+                e.path.add(column.name)
+                throw e
+            }
         }
     }
 

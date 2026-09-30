@@ -30,6 +30,14 @@
   every connection waiting in a pool configured with `auto-commit=false`, so `idle_in_transaction_session_timeout`
   has nothing to drop.
 
+- **A value that cannot be sent names its parameter on the `path`**, as the `$n` of the statement sent - in a
+  named query, the position its name was rewritten to. The query context lists every value and cannot say which of
+  them failed, so two parameters of the same composite type read alike without it: `PATH: $2 -> tribute`.
+
+- **A column that cannot be decoded is named on the `path`**, as one that cannot be mapped already was. A row is
+  decoded as it arrives, before anything asks for a column, so `'NaN'::numeric` failed as a `CodecException` that
+  did not say which column held it.
+
 #### Fixed
 
 - **`now()` in a transaction that follows a `commit()` or `rollback()` is the time of its first statement.** The
@@ -62,6 +70,11 @@
   `io.github` sorts ahead of `org.springframework`. An auto-configuration ordered earlier that runs after Boot's
   transaction ones pulled Boot's `JdbcTransactionManager` in first, and the Octavius one backed off. It now runs
   before `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`.
+
+- **An array element whose converter fails is named by its index, whatever the converter threw.** Read into a
+  collection or an `Array<T>`, an element of a one-dimensional array - or of the innermost dimension of any other -
+  got its index only on a `MappingException`; anything else, such as an enum's `IllegalArgumentException` for a
+  label its Kotlin class does not have, was wrapped a level up without it.
 
 ## Version 2.3.0 (v2.3.0)
 
