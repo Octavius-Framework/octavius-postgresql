@@ -47,7 +47,8 @@
 - **A term the server refuses no longer leaves auto-commit off.** `required` sent the terms before entering the
   part of it that rolls back and restores auto-commit, so a refused one - a `statementTimeout` past what
   PostgreSQL accepts - left the session in an aborted transaction with auto-commit off. The terms go out with the
-  block's first statement now, and a refusal rolls the block back like any other failure.
+  block's first statement now, and a refusal rolls the block back like any other failure. So does one sent as the
+  block is entered, which is where they still go on a transaction a hand-written `BEGIN` had already opened.
 
 - **A manual transaction closed unfinished no longer follows its connection to the next borrower.** A session
   closed with auto-commit off and a transaction still open on the server left it to the pool, and HikariCP rolls

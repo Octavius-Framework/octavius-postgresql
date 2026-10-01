@@ -43,7 +43,8 @@ class TransactionManager internal constructor(
      * Whatever of [isolation], [readOnly], [statementTimeout] and [transactionTimeout] is asked for goes out
      * in the same message as the `BEGIN`, which the block's first statement sends ahead of itself - at no
      * round trip of their own, and not at all where the block runs no statement. A term the server refuses
-     * fails that first statement, inside the block, so it rolls back like any other failure. All four end
+     * fails that first statement, inside the block, so it rolls back like any other failure - and so does
+     * one sent at once because a hand-written `BEGIN` had already opened the transaction. All four end
      * with the transaction, which is what separates them from
      * [OctaviusSessionOperations.transactionIsolationLevel] and [OctaviusSessionOperations.readOnly] - those
      * are session-wide, and are not what this sets.
@@ -71,9 +72,11 @@ class TransactionManager internal constructor(
         }
 
         session.autoCommit = false
-        applySettings(isolation, readOnly, statementTimeout, transactionTimeout)
         var failure: Throwable? = null
         try {
+            // Inside the try, because the terms do not always wait for the first statement: on a transaction a
+            // hand-written BEGIN already opened they go out here, and a refusal has to be rolled back like the rest.
+            applySettings(isolation, readOnly, statementTimeout, transactionTimeout)
             val result = session.block()
             session.commit()
             return result
@@ -205,10 +208,10 @@ class TransactionManager internal constructor(
      *
      * A failure here is only rethrown when the scope was already failing, and then as a suppressed
      * exception on [failure] rather than in its place. Out of a scope that **committed** it is logged
-     * and goes no further. What it commits there is the empty transaction the successful `commit()`
-     * left open behind it, which the server has no reason to refuse - so what fails is the socket,
-     * and a broken socket is already on the record: `checkClosed` raises `NetworkException` the next
-     * time anything touches this session, logged or not. Raising it here would only report a failed
+     * and goes no further. The commit left nothing open, so switching back sends nothing, and what can
+     * still fail is only the check that the connection is there - which means it went away after the
+     * commit, and that is already on the record: `checkClosed` raises `NetworkException` the next time
+     * anything touches this session, logged or not. Raising it here would only report a failed
      * transaction for one whose work is in the database, and invite a retry that writes it twice.
      */
     @PublishedApi

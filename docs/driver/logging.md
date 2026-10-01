@@ -309,7 +309,7 @@ array or map is walked element by element until the budget runs out — `[0, 1, 
 Every line the driver writes about a connection is prefixed with the backend process id:
 
 ```
-[PID: 41288] Transaction committed; new transaction started
+[PID: 41288] COMMIT sent; the next statement begins the next transaction
 ```
 
 That number is `pg_stat_activity.pid`, and it is what PostgreSQL's own log prefixes its lines with under

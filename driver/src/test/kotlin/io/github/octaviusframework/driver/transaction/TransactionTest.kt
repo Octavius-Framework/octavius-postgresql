@@ -246,6 +246,23 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `a term refused on a transaction a hand-written BEGIN opened leaves auto-commit on as well`() {
+        // No BEGIN of the driver's is coming here, so the terms go out as the scope is entered rather than with
+        // the first statement - and the refusal has to be rolled back all the same.
+        session.createNativeQuery("BEGIN").execute()
+
+        assertThrows<OctaviusException> {
+            session.transaction.required(statementTimeout = 30.days) {
+                createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
+            }
+        }
+
+        assertTrue(session.autoCommit)
+        assertEquals(TransactionState.IDLE, session.transactionState)
+        assertEquals(0L, countRows())
+    }
+
+    @Test
     fun `commit refuses a transaction an earlier error aborted`() {
         session.autoCommit = false
         session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
