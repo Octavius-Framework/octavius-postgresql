@@ -1,9 +1,12 @@
 name: Deploy Dokka to GitHub Pages
 
+# Both halves of the site are rebuilt from the tips of their branches on every run, whichever branch
+# triggered it - so a push to either one leaves the whole site current.
 on:
   push:
     branches:
       - master
+      - dev
   workflow_dispatch:
 
 permissions:
@@ -22,25 +25,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout snapshot (master)
+      - name: Checkout release (master)
         uses: actions/checkout@v7
         with:
           ref: master
-          path: snapshot-src
+          path: master-src
 
-      - name: Get latest release tag
-        id: latest_release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout release (${{ steps.latest_release.outputs.tag }})
+      - name: Checkout snapshot (dev)
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.latest_release.outputs.tag }}
-          path: release-src
+          ref: dev
+          path: dev-src
 
       - name: Set up JDK
         uses: actions/setup-java@v5
@@ -52,29 +47,33 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Generate snapshot docs
-        working-directory: snapshot-src
-        run: ./gradlew dokkaGenerateHtml
-
       - name: Generate release docs
-        working-directory: release-src
+        working-directory: master-src
         run: ./gradlew dokkaGenerateHtml
 
-      - name: Extract version numbers
+      - name: Generate snapshot docs
+        working-directory: dev-src
+        run: ./gradlew dokkaGenerateHtml
+
+      # The version is bumped on master as the last step of a release, so dev carries the number of
+      # the release it is ahead of. The snapshot is labelled by its commit instead.
+      - name: Extract version labels
         id: versions
         run: |
-          SNAPSHOT_VERSION=$(grep -oP 'version = "\K[^"]+' snapshot-src/build.gradle.kts | head -1)
-          echo "snapshot=$SNAPSHOT_VERSION" >> "$GITHUB_OUTPUT"
+          RELEASE_VERSION=$(grep -oP 'version = "\K[^"]+' master-src/build.gradle.kts | head -1)
+          SNAPSHOT_COMMIT=$(git -C dev-src rev-parse --short HEAD)
+          echo "release=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "snapshot=dev @ $SNAPSHOT_COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Assemble site
         run: |
           mkdir -p site/snapshot site/release
-          cp -r snapshot-src/build/dokka/html/. site/snapshot/
-          cp -r release-src/build/dokka/html/. site/release/
+          cp -r dev-src/build/dokka/html/. site/snapshot/
+          cp -r master-src/build/dokka/html/. site/release/
           sed \
             -e "s/{{SNAPSHOT_VERSION}}/${{ steps.versions.outputs.snapshot }}/g" \
-            -e "s/{{RELEASE_VERSION}}/${{ steps.latest_release.outputs.tag }}/g" \
-            snapshot-src/.github/pages/index.html > site/index.html
+            -e "s/{{RELEASE_VERSION}}/${{ steps.versions.outputs.release }}/g" \
+            dev-src/.github/pages/index.html > site/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
