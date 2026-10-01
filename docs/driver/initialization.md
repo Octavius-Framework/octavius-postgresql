@@ -207,7 +207,7 @@ Nothing is set by name and nothing is coerced, so every accessor is usable at it
 
 Closing a session obtained from a pool returns its connection to the pool rather than shutting it down.
 
-Leave the pool's own auto-commit setting at its default (`true`). Configuring a pool with `auto-commit=false` makes every connection in it sit `idle in transaction` while waiting to be borrowed — see [Transactions](transactions.md#manual-control) for why, and what it collides with.
+There is no reason to change the pool's own auto-commit setting from its default (`true`): switching auto-commit costs this driver no round trip, so a pool that turns it off saves nothing. It only means every session borrowed from it is inside a transaction, and one closed without committing has its work rolled back — see [Transactions](transactions.md#manual-control).
 
 ## What survives a return to the pool
 
@@ -218,7 +218,7 @@ A pooled connection outlives the session you borrowed it through, so whatever is
 | `autoCommit`, `readOnly`, `transactionIsolationLevel`  | Yes — HikariCP tracks these through its own proxy and restores its defaults. |
 | A `COPY` the caller never finished                     | Yes — by evicting the connection instead of handing it back.                 |
 | `LISTEN` registrations made via `notifications.listen` | Yes — the session issues `UNLISTEN *` if it subscribed to anything.          |
-| A transaction left open by a hand-written `BEGIN`      | Yes — rolled back, since the driver cannot know what that work was for.      |
+| A transaction left open — never committed, or opened by a hand-written `BEGIN` | Yes — rolled back, since the driver cannot know what that work was for. |
 | **Anything else you set by running the SQL yourself**  | **No.**                                                                      |
 
 That last row is the one to internalize, because it is not a gap anyone can close: neither the pool nor the driver parses the statements you send, so neither can know that a `SET search_path`, a `SET statement_timeout`, a `SET SESSION CHARACTERISTICS AS TRANSACTION ...`, a hand-written `LISTEN`, or a temporary table ever happened. All of it stays on the connection until the connection itself dies, and the next borrower inherits it.
@@ -232,18 +232,26 @@ Queries themselves leave nothing behind: the driver executes through unnamed sta
 
 ## What happens when a session opens
 
-The sequence is worth knowing, because two of its steps are where connections fail and one is why the *first* connection is slower than the rest:
+The sequence is worth knowing, because two of its steps are where connections fail and one is why the *first* connection
+is slower than the rest:
 
 1. **The socket is opened**, with `loginTimeout` as its connect timeout.
-2. **SSL is negotiated** — unless `sslmode=disable`, the driver asks the server for TLS before anything else is sent. See the defaults below: by default it *tries*.
-3. **The startup message goes out**, carrying `user`, `database`, `client_encoding=UTF8` and every [additional property](#startup-parameters) you set.
-4. **Authentication runs** with the password supplied — [SCRAM-SHA-256, or a password inside TLS](#authentication-is-scram-sha-256-or-a-password-inside-tls).
+2. **SSL is negotiated** — unless `sslmode=disable`, the driver asks the server for TLS before anything else is sent.
+   See the defaults below: by default it *tries*.
+3. **The startup message goes out**, carrying `user`, `database`, `client_encoding=UTF8` and
+   every [additional property](#startup-parameters) you set.
+4. **Authentication runs** with the password
+   supplied — [SCRAM-SHA-256, or a password inside TLS](#authentication-is-scram-sha-256-or-a-password-inside-tls).
 5. **Timeouts are applied** — `socketTimeout` becomes the socket read timeout, `maxCachedRowSize` the row buffer cap.
-6. **The server version is checked.** Anything below PostgreSQL 18 gets the connection closed and an `InitializationException(UNSUPPORTED_SERVER_VERSION)`, naming the version received.
+6. **The server is checked.** Anything below PostgreSQL 18 gets the connection closed and an
+   `InitializationException(UNSUPPORTED_SERVER_VERSION)`, naming the version received. So does a login that did not
+   report `search_path`, with `MISSING_PROTOCOL_PARAMETER` — PostgreSQL 18 always reports it, so it is missing only when
+   a pooler or a proxy in between did not pass it on.
 7. **The type catalog is loaded**, once per database — see below.
 
 > [!IMPORTANT]
-> **PostgreSQL 18 or newer is required.** Octavius speaks Wire Protocol v3.2 exclusively. Against an older server the failure shows up in step 6 as an `InitializationException`, or earlier at the protocol level during the handshake.
+> **PostgreSQL 18 or newer is required.** Against an older server the failure shows up in step 6 as an
+`InitializationException(UNSUPPORTED_SERVER_VERSION)`.
 
 ### Authentication is SCRAM-SHA-256, or a password inside TLS
 

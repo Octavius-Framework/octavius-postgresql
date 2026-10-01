@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.copy
 import io.github.octaviusframework.driver.message.translator.ExceptionTranslator
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.execution.QueryExecutor
 import io.github.octaviusframework.driver.io.PgStream
 import io.github.octaviusframework.driver.message.backend.*
 import io.github.octaviusframework.driver.message.frontend.FrontendCopyDataMessage
@@ -18,8 +19,15 @@ private val logger = KotlinLogging.logger {}
 
 /**
  * Manages COPY IN and COPY OUT operations for a specific connection stream.
+ *
+ * A `COPY` starts on the stream directly rather than through an exchange of [queryExecutor], so it is the one
+ * place that has to ask for a waiting `BEGIN` itself: with auto-commit off, a `COPY` can be what begins the
+ * transaction.
  */
-class CopyManager internal constructor(private val stream: PgStream) {
+class CopyManager internal constructor(
+    private val stream: PgStream,
+    private val queryExecutor: QueryExecutor
+) {
 
     companion object {
         /** Chunk size used by the [InputStream] overload of [copyIn] when none is given. */
@@ -41,6 +49,7 @@ class CopyManager internal constructor(private val stream: PgStream) {
         stream.lock.lock()
         try {
             stream.checkAvailable()
+            queryExecutor.beginWaitingTransactionNow()
             stream.sendMessage(SimpleQueryMessage(sql))
             stream.flush()
 
@@ -84,6 +93,7 @@ class CopyManager internal constructor(private val stream: PgStream) {
         stream.lock.lock()
         try {
             stream.checkAvailable()
+            queryExecutor.beginWaitingTransactionNow()
             stream.sendMessage(SimpleQueryMessage(sql))
             stream.flush()
 

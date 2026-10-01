@@ -96,9 +96,9 @@ class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvid
     /**
      * Opens a transaction on [session] and runs [block] inside it.
      *
-     * Every term of the definition goes to `required`, which sends the whole lot as one statement after the
-     * `BEGIN` - `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the
-     * timeouts. All four end with the transaction, so a pooled connection goes back carrying none of them
+     * Every term of the definition goes to `required`, which sends the whole lot as one statement in the
+     * `BEGIN`'s own message - `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for
+     * the timeouts. All four end with the transaction, so a pooled connection goes back carrying none of them
      * and there is nothing here to undo.
      */
     private fun <T> open(session: OctaviusSession, definition: TransactionDefinition, block: () -> T): T =

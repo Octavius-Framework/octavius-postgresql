@@ -62,13 +62,13 @@ internal class OctaviusSessionImpl(
     override val notifications: NotificationManager = NotificationManager(this)
         get() { checkOpen(); return field }
 
-    override val copy: CopyManager = CopyManager(octaviusConnection.stream)
+    override val copy: CopyManager = CopyManager(octaviusConnection.stream, octaviusConnection.queryExecutor)
         get() { checkOpen(); return field }
 
     override val largeObjects: LargeObjectManager = LargeObjectManager(this)
         get() { checkOpen(); return field }
 
-    override val transaction: TransactionManager = TransactionManager(this)
+    override val transaction: TransactionManager = TransactionManager(this, octaviusConnection)
         get() { checkOpen(); return field }
 
     override val transactionState: TransactionState
@@ -206,33 +206,38 @@ internal class OctaviusSessionImpl(
     /**
      * Undoes the per-session state this session left on its connection, so the next borrower of
      * a pooled connection finds it as it was: any `LISTEN` registrations, and a transaction
-     * opened by a hand-written `BEGIN`.
+     * left unfinished.
      *
      * Only reachable from [close]. Code that hands the connection back some other way - Spring's
      * `DataSourceUtils`, for instance - never closes the session and so never runs this.
      */
     private fun resetConnectionState() {
+        // The rollback first: an UNLISTEN sent inside a transaction still open would wait for its commit, and one
+        // sent inside a failed transaction would be refused.
+        rollbackUnfinishedTransaction()
         notifications.releaseSubscriptions()
-        rollbackTransactionTheDriverNeverOpened()
     }
 
     /**
-     * Undoes a transaction the driver did not open, which in practice means one started by a
-     * hand-written `BEGIN`.
+     * Rolls back a transaction the server still has open, whoever opened it: a hand-written `BEGIN`
+     * under auto-commit, or a manual transaction closed without a `commit()` or `rollback()`.
      *
-     * With auto-commit on, neither this driver nor the pool believes a transaction exists, so
-     * nothing else would clean it up and the connection would go back carrying somebody's
-     * uncommitted work - which the next borrower could then commit without ever knowing. The
-     * transaction status comes from the server's own `ReadyForQuery`, so noticing this costs
-     * nothing; only actually finding one costs a round trip.
+     * Nothing else would. With auto-commit on, neither this driver nor the pool believes a
+     * transaction exists. With it off, a pool is no help either: HikariCP rolls back on return only
+     * work that went through its own statement proxies, and this driver's queries do not. Left
+     * alone, the connection would go back carrying somebody's uncommitted work - which the next
+     * borrower would carry on inside, and commit without ever knowing. The status comes from the
+     * server's own `ReadyForQuery`, so noticing costs nothing; only finding one costs a round trip.
      *
-     * It is rolled back rather than committed on purpose: the driver has no idea what that
-     * work was, and discarding it is the recoverable mistake.
+     * A transaction whose `BEGIN` is still waiting for its first statement never reached the server,
+     * and needs nothing.
+     *
+     * It is rolled back rather than committed on purpose: the driver has no idea whether that work
+     * was meant to stand, and discarding it is the recoverable mistake.
      */
-    private fun rollbackTransactionTheDriverNeverOpened() {
-        if (!autoCommit) return // a real manual transaction; the pool resets those itself
-        if (transactionState == TransactionState.IDLE) return
-        octaviusConnection.queryExecutor.execute("ROLLBACK")
+    private fun rollbackUnfinishedTransaction() {
+        if (octaviusConnection.serverTransactionState == TransactionState.IDLE) return
+        octaviusConnection.queryExecutor.control("ROLLBACK")
     }
 
     override fun abort() {
@@ -276,7 +281,7 @@ internal class OctaviusSessionImpl(
             } else {
                 // These outlive the session on a pooled connection, so they are undone here
                 // instead of being left for whoever borrows it next: any LISTEN registrations
-                // this session made, and a transaction opened by hand-written SQL.
+                // this session made, and a transaction it left unfinished.
                 try {
                     resetConnectionState()
                 } catch (e: Exception) {

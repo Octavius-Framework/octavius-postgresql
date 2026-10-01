@@ -179,15 +179,17 @@ one `[PID: …]` is the whole run with nothing else in the application mixed int
 [PID: 41288] Connected to localhost:5432/curia as 'octavius' (PostgreSQL 18.1, TLS, sslmode=verify-full)
 Found 3 migrations in db/migration
 Applying 1 create castra (classpath:db/migration/V1__create_castra.sql)
-[PID: 41288] Auto-commit disabled; transaction started
-[PID: 41288] Transaction committed; new transaction started
-[PID: 41288] Auto-commit enabled; open transaction committed
+[PID: 41288] Auto-commit disabled; the first statement begins the transaction
+[PID: 41288] Transaction begun ahead of its first statement
+[PID: 41288] COMMIT sent; the next statement begins the next transaction
+[PID: 41288] Auto-commit enabled; no statement had begun a transaction, so none to commit
 Applying 2 add nomen index (classpath:db/migration/V2__add_nomen_index.sql)
 ```
 
-Three driver lines per migration, because a transaction here is a scope rather than a statement: the session
-leaves auto-commit, commits, and is put back. That is the driver's ordinary
-[`transaction.required`](../driver/transactions.md) sequence and not something the migrator does differently.
+Four driver lines per migration, because a transaction here is a scope rather than a statement: the session
+leaves auto-commit, begins the transaction with the migration's first statement, commits, and is put back. That
+is the driver's ordinary [`transaction.required`](../driver/transactions.md) sequence and not something the
+migrator does differently.
 
 The migrator's own lines carry no such prefix and do not need one — there is only ever one session in a run, so
 there is nothing to tell apart. Reading the two together is positional: the driver's lines following an

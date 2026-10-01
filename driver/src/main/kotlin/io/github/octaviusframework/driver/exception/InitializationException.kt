@@ -12,7 +12,10 @@ enum class InitializationExceptionReason {
     UNSUPPORTED_MECHANISM,
     /** The server sent an unexpected message sequence violating the connection protocol. */
     PROTOCOL_VIOLATION,
-    /** A required parameter was missing in the server's authentication challenge. */
+    /**
+     * A required parameter was missing from what the server sent at login - its authentication challenge, or
+     * the session parameters it reports once logged in, `search_path` among them.
+     */
     MISSING_PROTOCOL_PARAMETER,
     /** The database server rejected the provided username or password. */
     SERVER_REJECTED_CREDENTIALS,
@@ -66,7 +69,7 @@ private fun generateDeveloperMessage(reason: InitializationExceptionReason): Str
     when (reason) {
         InitializationExceptionReason.UNSUPPORTED_MECHANISM -> "Server does not support the required authentication mechanism (e.g., SCRAM-SHA-256)."
         InitializationExceptionReason.PROTOCOL_VIOLATION -> "Unexpected message received during authentication protocol."
-        InitializationExceptionReason.MISSING_PROTOCOL_PARAMETER -> "Missing expected parameter in the server's authentication message."
+        InitializationExceptionReason.MISSING_PROTOCOL_PARAMETER -> "Missing expected parameter in what the server sent at login."
         InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS -> "Authentication failed: Invalid username or password."
         InitializationExceptionReason.UNSUPPORTED_PASSWORD_ENCRYPTION -> "Server requested an unsupported password encryption method (like Cleartext or MD5)."
         InitializationExceptionReason.SSL_ERROR -> "SSL negotiation failed or is not supported by the server."

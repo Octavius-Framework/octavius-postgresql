@@ -141,7 +141,8 @@ internal class OctaviusConnection(
 
             try {
                 if (tightens) stream.networkTimeout = requested
-                queryExecutor.execute("")
+                // A probe, so it opens nothing: a health check must not begin the transaction a BEGIN is waiting for.
+                queryExecutor.control("")
                 true
             } catch (e: InvalidOperationException) {
                 // Misuse, not ill health: this very thread already owns an exchange or a COPY on
@@ -293,25 +294,23 @@ internal class OctaviusConnection(
     }
 
     /**
-     * Retrieves the current search path. Since we enforce PostgreSQL 18+, this value
-     * is always kept up-to-date automatically via ParameterStatus messages from the server.
+     * Retrieves the current search path, as the server last reported it in a ParameterStatus message.
+     *
+     * Always there: the connection factory refuses a server that did not report it at login, and PostgreSQL
+     * 18 reports it again whenever it changes.
      *
      * @return A list of schema names representing the current search path.
      */
     fun getSearchPath(): List<String> {
         checkClosed()
-        val paramSearchPath = stream.parameters["search_path"]
-        if (paramSearchPath != null) {
-            if (paramSearchPath == lastSearchPathString && cachedSearchPath != null) {
-                return cachedSearchPath!!
-            }
-            val parsed = parseSearchPath(paramSearchPath)
-            lastSearchPathString = paramSearchPath
-            cachedSearchPath = parsed
-            return parsed
+        val paramSearchPath = stream.parameters.getValue("search_path")
+        if (paramSearchPath == lastSearchPathString && cachedSearchPath != null) {
+            return cachedSearchPath!!
         }
-        // Fallback in rare cases (e.g., mocked test server)
-        return listOf("public")
+        val parsed = parseSearchPath(paramSearchPath)
+        lastSearchPathString = paramSearchPath
+        cachedSearchPath = parsed
+        return parsed
     }
 
     //--------------------------------------------READ ONLY-------------------------------------------------------------
@@ -323,11 +322,13 @@ internal class OctaviusConnection(
             val modeStr = if (readOnly) "READ ONLY" else "READ WRITE"
             val query = buildString {
                 append("SET SESSION CHARACTERISTICS AS TRANSACTION $modeStr")
-                if (transactionState == TransactionState.IN_TRANSACTION) {
+                // Only a transaction the server has begun. One whose BEGIN is still waiting picks the session
+                // characteristic up when that BEGIN goes out.
+                if (serverTransactionState == TransactionState.IN_TRANSACTION) {
                     append("; SET TRANSACTION $modeStr")
                 }
             }
-            queryExecutor.execute(query)
+            queryExecutor.control(query)
             this.readOnlyFlag = readOnly
             logger.debug { "$pid Session characteristics set to $modeStr" }
         }
@@ -344,22 +345,60 @@ internal class OctaviusConnection(
 
     private var transactionIsolationLevel: Int = Connection.TRANSACTION_READ_COMMITTED
 
+    /**
+     * The transaction state as the session reports it: the server's, with the `BEGIN` still waiting counted in.
+     *
+     * With auto-commit off this is `IN_TRANSACTION` before the first statement too. The transaction is open
+     * from the caller's side from the moment auto-commit goes off; that the server hears of it only when a
+     * statement arrives is how it is opened, not a state of its own.
+     */
     val transactionState: TransactionState
+        get() {
+            val reported = serverTransactionState
+            return if (reported == TransactionState.IDLE && !autoCommitFlag) TransactionState.IN_TRANSACTION else reported
+        }
+
+    /** The transaction state as the server reported it on its last `ReadyForQuery`, a waiting `BEGIN` not counted. */
+    internal val serverTransactionState: TransactionState
         get() = TransactionState.fromChar(stream.transactionStatus)
 
-
+    /**
+     * Switches auto-commit, sending nothing that is not needed.
+     *
+     * Turning it off sends nothing: the `BEGIN` goes out ahead of the first statement, so a transaction that
+     * never runs one never reaches the server. Turning it back on commits only a transaction that did.
+     */
     override fun setAutoCommit(autoCommit: Boolean) = wrapSqlException { // required by Hikari
         checkClosed()
         if (this.autoCommitFlag != autoCommit) {
             if (autoCommit) refuseCommitOfFailedTransaction()
             this.autoCommitFlag = autoCommit
-            if (autoCommit) {
-                queryExecutor.execute("COMMIT")
-                logger.debug { "$pid Auto-commit enabled; open transaction committed" }
+            queryExecutor.beginsTransactions = !autoCommit
+            queryExecutor.deferredTerms = null
+            if (!autoCommit) {
+                logger.debug { "$pid Auto-commit disabled; the first statement begins the transaction" }
+            } else if (serverTransactionState == TransactionState.IDLE) {
+                logger.debug { "$pid Auto-commit enabled; no statement had begun a transaction, so none to commit" }
             } else {
-                queryExecutor.execute("BEGIN")
-                logger.debug { "$pid Auto-commit disabled; transaction started" }
+                queryExecutor.control("COMMIT")
+                logger.debug { "$pid Auto-commit enabled; open transaction committed" }
             }
+        }
+    }
+
+    /**
+     * Hands [terms] - `SET TRANSACTION`, `SET LOCAL` - to the transaction auto-commit was just turned off for,
+     * to go out in the same message as its `BEGIN`.
+     *
+     * Where the server already has a transaction running - one a hand-written `BEGIN` opened - no `BEGIN` is
+     * coming for them to travel with, and they go out now instead.
+     */
+    internal fun deferTransactionTerms(terms: String) {
+        checkClosed()
+        if (!autoCommitFlag && serverTransactionState == TransactionState.IDLE) {
+            queryExecutor.deferredTerms = terms
+        } else {
+            queryExecutor.execute(terms)
         }
     }
 
@@ -368,12 +407,18 @@ internal class OctaviusConnection(
         return@wrapSqlException autoCommitFlag
     }
 
+    /**
+     * Commits, and leaves the next transaction to the next statement.
+     *
+     * Nothing chains a `BEGIN` onto the `COMMIT`: the one that opened now would fix its `now()` at this
+     * moment, however long the session waited before using it. A transaction no statement began is ended
+     * without anything being sent.
+     */
     override fun commit() = wrapSqlException {
         checkClosed()
         if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION)
         refuseCommitOfFailedTransaction()
-        queryExecutor.execute("COMMIT; BEGIN")
-        logger.debug { "$pid Transaction committed; new transaction started" }
+        endTransaction("COMMIT")
     }
 
     /** Raises `COMMIT_OF_FAILED_TRANSACTION` where an earlier error aborted the transaction. */
@@ -383,11 +428,25 @@ internal class OctaviusConnection(
         }
     }
 
+    /** Rolls back, on the same terms as [commit]. */
     override fun rollback() = wrapSqlException { // required by Hikari
         checkClosed()
         if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION)
-        queryExecutor.execute("ROLLBACK; BEGIN")
-        logger.debug { "$pid Transaction rolled back; new transaction started" }
+        endTransaction("ROLLBACK")
+    }
+
+    /**
+     * Sends [command] - `COMMIT` or `ROLLBACK` - where a statement began a transaction on the server, and
+     * nothing where none did. Either way the terms waiting for this transaction's `BEGIN` go with it.
+     */
+    private fun endTransaction(command: String) {
+        queryExecutor.deferredTerms = null
+        if (serverTransactionState == TransactionState.IDLE) {
+            logger.debug { "$pid $command with no statement since the last; nothing had begun, so nothing sent" }
+            return
+        }
+        queryExecutor.control(command)
+        logger.debug { "$pid $command sent; the next statement begins the next transaction" }
     }
 
     override fun setTransactionIsolation(level: Int) = wrapSqlException { // required by Hikari
@@ -404,11 +463,12 @@ internal class OctaviusConnection(
         }
         val query = buildString {
             append("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL $levelStr")
-            if (transactionState == TransactionState.IN_TRANSACTION) {
+            // As in setReadOnly: a waiting BEGIN picks the session characteristic up by itself.
+            if (serverTransactionState == TransactionState.IN_TRANSACTION) {
                 append("; SET TRANSACTION ISOLATION LEVEL $levelStr")
             }
         }
-        queryExecutor.execute(query)
+        queryExecutor.control(query)
         this.transactionIsolationLevel = level
         logger.debug { "$pid Isolation level set to $levelStr" }
     }
@@ -444,7 +504,7 @@ internal class OctaviusConnection(
         checkClosed()
         if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION, "Cannot rollback to a savepoint when auto-commit is enabled")
         if (savepoint !is OctaviusSavepointImpl) throw InvalidOperationException(InvalidOperationExceptionReason.INVALID_SAVEPOINT, "Unsupported savepoint")
-        queryExecutor.execute("ROLLBACK TO SAVEPOINT ${savepoint.pgName}")
+        queryExecutor.control("ROLLBACK TO SAVEPOINT ${savepoint.pgName}")
         logger.debug { "$pid Rolled back to savepoint ${savepoint.pgName}" }
     }
 
@@ -452,7 +512,7 @@ internal class OctaviusConnection(
         checkClosed()
         if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION, "Cannot release a savepoint when auto-commit is enabled")
         if (savepoint !is OctaviusSavepointImpl) throw InvalidOperationException(InvalidOperationExceptionReason.INVALID_SAVEPOINT, "Unsupported savepoint")
-        queryExecutor.execute("RELEASE SAVEPOINT ${savepoint.pgName}")
+        queryExecutor.control("RELEASE SAVEPOINT ${savepoint.pgName}")
         logger.debug { "$pid Savepoint ${savepoint.pgName} released" }
     }
 

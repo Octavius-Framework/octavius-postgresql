@@ -99,6 +99,22 @@ class PooledSessionExceptionTest {
     }
 
     @Test
+    fun `should keep the driver's own exception when the pool starts on the first borrow and cannot`() {
+        // Made with the no-argument constructor, as Spring Boot makes it: the pool starts on the first borrow,
+        // and the driver's exception there - unchecked - leaves Hikari as its own PoolInitializationException.
+        HikariDataSource().apply {
+            jdbcUrl = "jdbc:octavius://${TestDatabase.HOST}:${closedPort()}/${TestDatabase.DATABASE}"
+            username = TestDatabase.USER
+            password = TestDatabase.PASSWORD
+            connectionTimeout = 500
+        }.use {
+            val ex = assertThrows<InitializationException> { it.getOctaviusSession() }
+
+            assertEquals(InitializationExceptionReason.CONNECTION_ERROR, ex.reason)
+        }
+    }
+
+    @Test
     fun `should report use after close as an Octavius failure`() {
         pool().use { ds ->
             val session = ds.getOctaviusSession()

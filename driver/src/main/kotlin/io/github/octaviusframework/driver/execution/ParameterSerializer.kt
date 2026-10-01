@@ -7,6 +7,7 @@ import io.github.octaviusframework.driver.container.PgContainer
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterMapper
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.type.PgTyped
@@ -48,7 +49,12 @@ internal class ParameterSerializer(
 
         for (i in 0 until size) {
             val marker = writer.reserveLengthInt()
-            oids[i] = serializeValue(parameters[i], writer, marker)
+            oids[i] = try {
+                serializeValue(parameters[i], writer, marker)
+            } catch (e: OctaviusException) {
+                e.path.add("\$${i + 1}")
+                throw e
+            }
             val length = writer.position - marker - 4
             if (length > MAX_PARAMETER_LENGTH) {
                 throw InvalidOperationException(

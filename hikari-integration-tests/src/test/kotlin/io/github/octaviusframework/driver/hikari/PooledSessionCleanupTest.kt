@@ -163,4 +163,77 @@ class PooledSessionCleanupTest {
         observer.createNativeQuery("DROP TABLE IF EXISTS pool_cleanup_test_2").execute()
         observer.close()
     }
+
+    // ------------------------------------------------------- a pool that turns auto-commit off
+
+    @Test
+    fun `a manual transaction closed unfinished does not follow the connection to the next borrower`() {
+        val observer = TestDatabase.openSession()
+        observer.createNativeQuery("CREATE TABLE IF NOT EXISTS pool_cleanup_test_3 (id INT)").execute()
+        observer.createNativeQuery("TRUNCATE pool_cleanup_test_3").execute()
+
+        HikariDataSource(HikariConfig().apply {
+            jdbcUrl = TestDatabase.URL
+            username = TestDatabase.USER
+            password = TestDatabase.PASSWORD
+            maximumPoolSize = 1   // the same physical connection comes back
+            minimumIdle = 1
+            isAutoCommit = false
+        }).use { pool ->
+            val first = pool.getOctaviusSession()
+            first.createNativeQuery("INSERT INTO pool_cleanup_test_3 VALUES (1)").update()
+            first.close() // neither committed nor rolled back
+
+            val second = pool.getOctaviusSession()
+            assertEquals(
+                0L,
+                second.createNativeQuery("SELECT count(*) FROM pool_cleanup_test_3").fetchFieldStrict<Long>(),
+                "the next borrower carried on inside the first one's transaction"
+            )
+            second.commit()
+            second.close()
+        }
+
+        assertEquals(
+            0L,
+            observer.createNativeQuery("SELECT count(*) FROM pool_cleanup_test_3").fetchFieldStrict<Long>(),
+            "the unfinished work should have been rolled back, not committed by whoever came next"
+        )
+
+        observer.createNativeQuery("DROP TABLE IF EXISTS pool_cleanup_test_3").execute()
+        observer.close()
+    }
+
+
+    @Test
+    fun `a pool with auto-commit off parks its connections outside any transaction`() {
+        val observer = TestDatabase.openSession()
+
+        HikariDataSource(HikariConfig().apply {
+            jdbcUrl = "${TestDatabase.URL}?application_name=pool_autocommit_off"
+            username = TestDatabase.USER
+            password = TestDatabase.PASSWORD
+            maximumPoolSize = 2
+            minimumIdle = 2
+            isAutoCommit = false
+        }).use { pool ->
+            // Both borrowed at once, so both connections exist: one runs a statement and commits, the other
+            // does nothing. The pool turned auto-commit off on each, which sends no BEGIN, and the commit sends
+            // no BEGIN after itself either.
+            val used = pool.getOctaviusSession()
+            val untouched = pool.getOctaviusSession()
+            used.createNativeQuery("SELECT 1").fetchFieldStrict<Int>()
+            used.commit()
+            used.close()
+            untouched.close()
+
+            val states = observer.createNativeQuery(
+                "SELECT state FROM pg_stat_activity WHERE application_name = 'pool_autocommit_off'"
+            ).fetchRows().map { it.get<String>(0) }
+
+            assertEquals(listOf("idle", "idle"), states)
+        }
+
+        observer.close()
+    }
 }

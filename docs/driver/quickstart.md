@@ -4,7 +4,7 @@
 mile zero, the point from which all distances were counted. This page is that column: the shortest way from an empty
 project to a row coming back.*
 
-> **Note:** Octavius requires **Java 21+** and **PostgreSQL 18+**. Attempting to connect to older PostgreSQL versions will fail because the driver uses Protocol v3.2 exclusively.
+> **Note:** Octavius requires **Java 21+** and **PostgreSQL 18+**. Attempting to connect to an older PostgreSQL fails at login, on the version the server reports.
 
 ## 1. Add the Dependency
 

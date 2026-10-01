@@ -22,6 +22,12 @@ import javax.sql.DataSource
  * The driver's own failure is preferred over the restatement wrapped around it whenever the chain
  * carries one: a pool that could not reach the server reports a timeout, while the exception
  * underneath says the connection was refused, which is the half worth keeping.
+ *
+ * One pool answers unchecked as well. A `HikariDataSource` made with its no-argument constructor, as
+ * Spring Boot makes it, starts its pool on the first borrow, and when the driver's exception is what
+ * stopped it - unchecked, not a `SQLException` - Hikari raises its own `PoolInitializationException`
+ * over it. That one is unwrapped the same way; an unchecked exception with nothing of the driver's
+ * in it is left as it is.
  */
 private inline fun <T> obtainingSession(from: Any, block: () -> T): T {
     try {
@@ -36,6 +42,8 @@ private inline fun <T> obtainingSession(from: Any, block: () -> T): T {
             "Could not obtain a session from ${from.javaClass.name}: ${e.message}",
             e
         )
+    } catch (e: RuntimeException) {
+        throw e.findOctaviusCause() ?: e
     }
 }
 

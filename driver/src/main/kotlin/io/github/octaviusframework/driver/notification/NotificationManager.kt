@@ -175,9 +175,15 @@ class NotificationManager internal constructor(private val session: OctaviusSess
      * registrations in place would hand the next borrower of a pooled connection someone
      * else's subscriptions, and let them pile up over the connection's lifetime. Sessions
      * that never called [listen] pay nothing.
+     *
+     * Sent as a statement about the connection rather than as the session's own work, so that it never
+     * opens the transaction a `BEGIN` may be waiting for. Inside one, `UNLISTEN` would take effect only at a
+     * commit - and a session being closed has no commit coming, only the rollback of what it left open.
      */
     internal fun releaseSubscriptions() {
         if (!hasSubscribed) return
-        unlistenAll()
+        connection.queryExecutor.control("UNLISTEN *")
+        hasSubscribed = false
+        logger.debug { "$pid Stopped listening on all channels" }
     }
 }

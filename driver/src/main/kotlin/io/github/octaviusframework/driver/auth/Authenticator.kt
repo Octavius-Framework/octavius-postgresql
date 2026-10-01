@@ -76,10 +76,8 @@ internal object Authenticator {
                 }
 
                 is NegotiateProtocolVersionMessage -> {
-                    throw InitializationException(
-                        InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION,
-                        details = "Server does not support the requested protocol version 3.2. Highest minor version supported by this server is 3.${msg.newestMinorVersion}."
-                    )
+                    val minor = negotiatedMinorVersion(msg)
+                    logger.trace { "Server speaks protocol 3.$minor; continuing on it" }
                 }
 
                 is BackendKeyDataMessage -> {
@@ -109,6 +107,32 @@ internal object Authenticator {
                 }
             }
         }
+    }
+
+    /**
+     * The minor version to carry on with once the server has named an older one than the 3.2 asked for.
+     *
+     * PostgreSQL 18 speaks 3.2 and never sends this. What does is a server or a pooler that speaks 3.0 -
+     * PostgreSQL 17, or a pooler in front of 18 - and the answer is taken rather than refused, because
+     * nothing in the driver depends on 3.2 itself: its one change is a longer cancel key, and the key is kept
+     * at whatever length it arrives. What the driver does need is PostgreSQL 18 behind whatever answered,
+     * and that is checked after login, where the server's own parameters say so.
+     *
+     * The version comes as the full protocol version word. A bare minor number is read too, because the
+     * protocol documentation describes the field that way and a server written from it sends one. Anything
+     * outside protocol 3, or newer than what was asked for, is not a negotiation this driver started.
+     */
+    private fun negotiatedMinorVersion(msg: NegotiateProtocolVersionMessage): Int {
+        val version = msg.newestVersion
+        val major = if (version ushr 16 != 0) version ushr 16 else 3
+        val minor = version and 0xFFFF
+        if (major != 3 || minor > 2) {
+            throw InitializationException(
+                InitializationExceptionReason.PROTOCOL_VIOLATION,
+                details = "Asked for protocol 3.2, the server answered with protocol $major.$minor."
+            )
+        }
+        return minor
     }
 
     /**

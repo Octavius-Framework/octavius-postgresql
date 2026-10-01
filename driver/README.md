@@ -53,16 +53,16 @@ val senators: List<Senator> = session
 - **Kotlin 2.4+** — every ergonomic entry point is `inline` with a `reified` parameter — `fetchObjects<T>`,
   `fetchField<T>`, `row.get<T>()`, `registerEnum<T>()` — so they are callable from Kotlin and not from Java.
   Columns also come back as `kotlin.time.Instant` and `kotlin.uuid.Uuid`.
-- **PostgreSQL 18+** — Wire Protocol v3.2 exclusively, introduced in PostgreSQL 18. Older servers expect v3.0
-  and the connection fails during the handshake.
+- **PostgreSQL 18+** — refused at login below that. The driver asks for Wire Protocol v3.2 and takes v3.0 from a
+  connection pooler in front of 18.
 
 [The repository README](../README.md#requirements) has the reasoning behind each of these, and the one further
 requirement that belongs to `driver-spring-integration` rather than to the driver.
 
 ## Project status
 
-1.0.0 is released, and every module in this repository carries that version. What the number does and does not
-promise, and how each push is tested, is in the [repository README](../README.md#project-status).
+Every module in this repository carries one version and is released with the others. What the number does and does
+not promise, and how each push is tested, is in the [repository README](../README.md#project-status).
 
 The driver has not seen long production use: the figures under [Performance](#performance) come from
 benchmarks, not from a year of traffic.

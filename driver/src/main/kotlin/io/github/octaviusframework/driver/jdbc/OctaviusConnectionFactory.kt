@@ -23,9 +23,9 @@ private const val DEFAULT_APPLICATION_NAME = "Octavius Driver"
 /**
  * Factory object responsible for establishing physical connections to a PostgreSQL database.
  *
- * It handles URL parsing, socket creation, SSL negotiation, and the PostgreSQL startup 
- * and authentication sequences. It ensures that the connected server meets the minimum 
- * version requirement (PostgreSQL 18+).
+ * It handles URL parsing, socket creation, SSL negotiation, and the PostgreSQL startup
+ * and authentication sequences. It ensures that the connected server meets the minimum
+ * version requirement (PostgreSQL 18+) and reports the `search_path` that requirement is for.
  */
 internal object OctaviusConnectionFactory {
     /**
@@ -120,14 +120,25 @@ internal object OctaviusConnectionFactory {
             if (serverVersion != null) {
                 val majorVersion = serverVersion.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
                 if (majorVersion < 18) {
-                    // Closed rather than left to the catch below: by here there is a session to say
-                    // goodbye to, which is the one case in this block where a Terminate means anything.
                     stream.close()
                     throw InitializationException(
                         InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION,
                         "Octavius Driver requires PostgreSQL database version 18 or higher. Received version: $serverVersion"
                     )
                 }
+            }
+
+            // What PostgreSQL 18 is required for. Unqualified type names resolve against the live search path,
+            // which 18 reports at login and again whenever it changes. Without it every such name would resolve
+            // against a path nobody set, so a login that did not bring it is refused rather than guessed at.
+            if (stream.parameters["search_path"] == null) {
+                stream.close()
+                throw InitializationException(
+                    InitializationExceptionReason.MISSING_PROTOCOL_PARAMETER,
+                    "The server did not report search_path at login. PostgreSQL 18 reports it on every " +
+                        "connection, so something in between is not passing it on - a connection pooler or a " +
+                        "proxy, most likely."
+                )
             }
 
             logger.debug {

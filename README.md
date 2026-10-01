@@ -27,7 +27,7 @@ underneath.*
 | **Object is a Vessel**           | A `data class` is a typed container for what came back — no proxies, no lazy loading, nothing dirty to check.              |
 | **No Legate Speaks for It**      | The driver talks Wire Protocol v3.2 itself. Nothing is wrapped, and no other driver is delegated to underneath.            |
 | **Each Province Governs Itself** | Every artifact is its own coordinate and its own decision, and dependencies run one way. The driver alone is a working stack. |
-| **One Standard, No Fallback**    | v3.2 or nothing: PostgreSQL 17 fails the handshake rather than half-working, so there are no compatibility shims to carry. |
+| **One Standard, No Fallback**    | PostgreSQL 18 or nothing: 17 is refused at login rather than half-working, so there are no compatibility shims to carry.   |
 
 [Design Philosophy](DESIGN_PHILOSOPHY.md) is the argument behind them — what was decided, what was rejected,
 and where a reasonable person would have chosen otherwise.
@@ -92,15 +92,16 @@ unchanged next to it.
   `reified` parameter, and a reified function can only be inlined into Kotlin, never called. The non-reified
   layer underneath is reachable from Java, but it means hand-building a `KType` for every column you read:
   possible, not usable.
-- **PostgreSQL 18+** — the driver speaks **Wire Protocol v3.2** exclusively, introduced in PostgreSQL 18. Older
-  servers expect v3.0 and the connection fails during the handshake.
+- **PostgreSQL 18+** — the first version to report its `search_path` to the client, which is what unqualified
+  type names resolve against. An older server is refused at login. The driver asks for **Wire Protocol v3.2**,
+  and takes v3.0 from a connection pooler in front of 18 that speaks nothing newer.
 - **Spring Boot 4.x** — for `driver-spring-integration` only. The core driver has no Spring dependency at all.
 
 ## Project status
 
 Written by one person. Every push runs the suite against a real PostgreSQL 18, alongside a job that generates
-certificates and exercises the TLS modes end to end, and a third that points the driver at PostgreSQL 17 to
-prove the handshake refuses it rather than half-working.
+certificates and exercises the TLS modes end to end, a third that points the driver at PostgreSQL 17 to
+prove it is refused rather than half-working, and a fourth that goes through PgBouncer in transaction pooling.
 
 The version is not a maturity claim. It says when something shipped and what it did to the API, and nothing
 about how long it has run anywhere. None of it has seen long production use.

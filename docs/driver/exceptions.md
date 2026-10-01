@@ -38,15 +38,15 @@ abstract class OctaviusException(
 ) : RuntimeException(message, cause)
 ```
 
-| Member                 | Type                  | What it holds                                                                                                                          |
-|:-----------------------|:----------------------|:---------------------------------------------------------------------------------------------------------------------------------------|
-| `message`              | `String`              | The machine-readable identifier, `EXCEPTION_NAME[:REASON_ENUM]` — never prose.                                                         |
-| `sqlState`             | `String?`             | The five-character SQLSTATE. `null` for purely client-side failures that never reached the server.                                     |
-| `serverErrorMessage`   | `ServerErrorMessage?` | The complete parsed `ErrorResponse` from PostgreSQL. `null` when the error originated in the driver.                                   |
-| `queryContext`         | `QueryContext?`       | What *your application* executed — SQL, parameters, and their database-level forms. Attached on the way out.                           |
-| `path`                 | `MutableList<String>` | Where the failure happened, innermost first — an attribute five levels down a composite, a step of a plan. Appended to on the way out. |
-| `cause`                | `Throwable?`          | The underlying exception, where one exists (an `IOException` under a `NetworkException`, for example).                                 |
-| `getDetailedMessage()` | `String?`             | The human-readable explanation, assembled per subclass. This is what the log block renders.                                            |
+| Member                 | Type                  | What it holds                                                                                                                                                                                                                        |
+|:-----------------------|:----------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `message`              | `String`              | The machine-readable identifier, `EXCEPTION_NAME[:REASON_ENUM]` — never prose.                                                                                                                                                       |
+| `sqlState`             | `String?`             | The five-character SQLSTATE. `null` for purely client-side failures that never reached the server.                                                                                                                                   |
+| `serverErrorMessage`   | `ServerErrorMessage?` | The complete parsed `ErrorResponse` from PostgreSQL. `null` when the error originated in the driver.                                                                                                                                 |
+| `queryContext`         | `QueryContext?`       | What *your application* executed — SQL, parameters, and their database-level forms. Attached on the way out.                                                                                                                         |
+| `path`                 | `MutableList<String>` | Where the failure happened, innermost first — an attribute five levels down a composite, the column it was read from, the parameter it was bound to as the `$n` of the statement sent, a step of a plan. Appended to on the way out. |
+| `cause`                | `Throwable?`          | The underlying exception, where one exists (an `IOException` under a `NetworkException`, for example).                                                                                                                               |
+| `getDetailedMessage()` | `String?`             | The human-readable explanation, assembled per subclass. This is what the log block renders.                                                                                                                                          |
 
 `path` and `queryContext` are the two things a frame can add to an exception **without replacing it**, which is why both live on the base class rather than on the subclass that happens to need them. Replacing an exception costs the type the caller catches on — a `ConstraintViolationException` restated as a mapping failure stops being the thing a retry loop matches — so a layer that knows *where* it was appends a segment and rethrows the exception it was given. Both are rendered into `toString()`: `path` reversed, outermost first, on a `PATH:` line.
 
@@ -338,10 +338,10 @@ Every reason here is about the statement itself, and `position` is the evidence 
 | `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                      |
 | `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                            |
 | `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                       |
-| `PROTOCOL_VIOLATION`                     | Unexpected message received during the authentication exchange.                                                                                    |
-| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from the server's authentication challenge.                                                                           |
+| `PROTOCOL_VIOLATION`                     | Unexpected message received during login, a protocol other than 3.0–3.2 offered in its place among them.                                           |
+| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from what the server sent at login — its authentication challenge, or a `search_path` a pooler did not pass on.       |
 | `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                         |
-| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18 — Octavius speaks Wire Protocol v3.2 exclusively.                                                                         |
+| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18, by the `server_version` it reports at login.                                                                             |
 | `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one.                       |
 | `CONNECTION_UNAVAILABLE`                 | The data source had none to give rather than failing to open one — a pool that ran out of time waiting for a free one. Nothing reached the server. |
 
@@ -640,17 +640,8 @@ class SQLExceptionWrapper(val wrappedException: OctaviusException)
     : SQLException(wrappedException.message, wrappedException.sqlState)
 ```
 
-The wrapper carries the message and SQLSTATE, but **not** the cause chain — `wrapper.cause` is `null`. Reach for
-`wrapper.wrappedException` to get back the typed exception with its context and stack trace intact:
-
-```kotlin
-try {
-    dataSource.connection.use { /* raw JDBC */ }
-} catch (e: SQLExceptionWrapper) {
-    val octavius = e.wrappedException
-    logger.error(octavius) { "..." }
-}
-```
+The wrapper carries the message and SQLSTATE and nothing else: `wrapper.cause` is `null`, and it has no stack trace
+of its own. The typed exception, with its context and stack trace, is `wrapper.wrappedException`.
 
 Going the other way, `OctaviusSessionImpl` unwraps automatically: session-level operations that delegate to the JDBC
 connection (`autoCommit`, `commit()`, `rollback()`, `transactionIsolationLevel`, `networkTimeout`, …) catch
@@ -700,8 +691,8 @@ See [Spring Integration](spring-integration.md) for the surrounding configuratio
 
 ### Digging it out yourself
 
-The translator above only runs where Spring is holding the exception. The one place nothing does it for you is *
-*building the pool** — `HikariDataSource(config)` opens a connection to check the configuration works, and a driver
+The translator above only runs where Spring is holding the exception. The one place nothing does it for you is
+**building the pool** — `HikariDataSource(config)` opens a connection to check the configuration works, and a driver
 failure there comes back as Hikari's `PoolInitializationException`, thrown from a Hikari constructor you called
 directly. That is correct layering rather than a gap: you called their API, you get their exception, and no amount of
 driver code changes that.

@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.transaction
 
+import io.github.octaviusframework.driver.jdbc.OctaviusConnection
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.driver.session.TransactionIsolationLevel
@@ -21,7 +22,10 @@ private val logger = KotlinLogging.logger {}
  * `rollback()`, `autoCommit` manipulation, or manual savepoints), use the methods 
  * provided directly on the parent [OctaviusSession].
  */
-class TransactionManager internal constructor(@PublishedApi internal val session: OctaviusSession) {
+class TransactionManager internal constructor(
+    @PublishedApi internal val session: OctaviusSession,
+    private val connection: OctaviusConnection
+) {
 
     /**
      * Executes the given [block] within a transaction scope.
@@ -37,8 +41,11 @@ class TransactionManager internal constructor(@PublishedApi internal val session
      * done, which is the same decision the restricted receiver is there to keep out of the block.
      *
      * Whatever of [isolation], [readOnly], [statementTimeout] and [transactionTimeout] is asked for goes out
-     * as one statement after the `BEGIN`, in a single round trip; asking for none of them sends nothing at
-     * all. All four end with the transaction, which is what separates them from
+     * in the same message as the `BEGIN`, which the block's first statement sends ahead of itself - at no
+     * round trip of their own, and not at all where the block runs no statement. A term the server refuses
+     * fails that first statement, inside the block, so it rolls back like any other failure - and so does
+     * one sent at once because a hand-written `BEGIN` had already opened the transaction. All four end
+     * with the transaction, which is what separates them from
      * [OctaviusSessionOperations.transactionIsolationLevel] and [OctaviusSessionOperations.readOnly] - those
      * are session-wide, and are not what this sets.
      *
@@ -65,9 +72,11 @@ class TransactionManager internal constructor(@PublishedApi internal val session
         }
 
         session.autoCommit = false
-        applySettings(isolation, readOnly, statementTimeout, transactionTimeout)
         var failure: Throwable? = null
         try {
+            // Inside the try, because the terms do not always wait for the first statement: on a transaction a
+            // hand-written BEGIN already opened they go out here, and a refusal has to be rolled back like the rest.
+            applySettings(isolation, readOnly, statementTimeout, transactionTimeout)
             val result = session.block()
             session.commit()
             return result
@@ -135,12 +144,14 @@ class TransactionManager internal constructor(@PublishedApi internal val session
     }
 
     /**
-     * Sends the terms this transaction was opened with, as one statement.
+     * Hands the terms this transaction was opened with to its `BEGIN`, as one statement.
      *
      * `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts: both
      * end with the transaction, so nothing here has to be undone before the connection goes back to a pool.
-     * The first of them has to precede the first query of the transaction, which is why this runs where it
-     * does, and one `execute` carries all four - a script is one round trip, and there is nothing to bind.
+     * The first of them has to precede the first query of the transaction, and nothing precedes it more
+     * closely than the `BEGIN`'s own message - a script, so one round trip carries it all, with nothing to bind.
+     *
+     * Sent now only where the server already has a transaction running that no `BEGIN` of the driver's opened.
      */
     @PublishedApi
     internal fun applySettings(
@@ -165,7 +176,7 @@ class TransactionManager internal constructor(@PublishedApi internal val session
             transactionTimeout?.let { add("SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}") }
         }
 
-        session.createNativeQuery(statements.joinToString("; ")).execute()
+        connection.deferTransactionTerms(statements.joinToString("; "))
     }
 
     /**
@@ -197,10 +208,10 @@ class TransactionManager internal constructor(@PublishedApi internal val session
      *
      * A failure here is only rethrown when the scope was already failing, and then as a suppressed
      * exception on [failure] rather than in its place. Out of a scope that **committed** it is logged
-     * and goes no further. What it commits there is the empty transaction the successful `commit()`
-     * left open behind it, which the server has no reason to refuse - so what fails is the socket,
-     * and a broken socket is already on the record: `checkClosed` raises `NetworkException` the next
-     * time anything touches this session, logged or not. Raising it here would only report a failed
+     * and goes no further. The commit left nothing open, so switching back sends nothing, and what can
+     * still fail is only the check that the connection is there - which means it went away after the
+     * commit, and that is already on the record: `checkClosed` raises `NetworkException` the next time
+     * anything touches this session, logged or not. Raising it here would only report a failed
      * transaction for one whose work is in the database, and invite a retry that writes it twice.
      */
     @PublishedApi

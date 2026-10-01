@@ -12,16 +12,16 @@ Octavius under Spring's transaction manager, reporting failure in Spring's vocab
 class SenateService(private val octavius: OctaviusTemplate) {
 
     @Transactional
-    fun enrol(cognomen: String): Int = octavius.execute { session ->
-        session.createNamedQuery("INSERT INTO senate (cognomen) VALUES (@cognomen) RETURNING id")
+    fun enrol(cognomen: String): Int = octavius.execute {
+        createNamedQuery("INSERT INTO senate (cognomen) VALUES (@cognomen) RETURNING id")
             .fetchFieldStrict<Int>("cognomen" to cognomen)
     }
 }
 ```
 
-`OctaviusSpringAutoConfiguration` runs after Boot's `DataSourceAutoConfiguration` and contributes two beans —
-the `OctaviusTemplate` above and an `OctaviusJdbcTransactionManager`. Both are `@ConditionalOnMissingBean`, so
-declaring your own replaces them.
+`OctaviusSpringAutoConfiguration` runs after Boot's `DataSourceAutoConfiguration`, before its
+`DataSourceTransactionManagerAutoConfiguration`, and contributes two beans — the `OctaviusTemplate` above and an
+`OctaviusJdbcTransactionManager`. Both are `@ConditionalOnMissingBean`, so declaring your own replaces them.
 
 ## What it does
 

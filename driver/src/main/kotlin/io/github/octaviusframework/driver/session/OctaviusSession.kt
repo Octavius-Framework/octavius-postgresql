@@ -103,6 +103,9 @@ interface OctaviusSessionOperations {
 
     /**
      * The current transaction state of this session (Idle, In Transaction, or Failed).
+     *
+     * With auto-commit off this is In Transaction before the first statement too, while the `BEGIN` that
+     * statement sends ahead of itself has yet to go out.
      */
     val transactionState: TransactionState
 
@@ -161,13 +164,15 @@ interface OctaviusSession : OctaviusSessionOperations, AutoCloseable {
      * Specifies whether the session operates in auto-commit mode.
      * If `true`, each individual statement is treated as a separate transaction.
      *
-     * Switching it back on commits the transaction that is open, and is refused on the same terms as
-     * [commit] where an earlier error aborted that transaction.
+     * Switching it off sends nothing: the transaction's `BEGIN` goes out ahead of its first statement, so the
+     * server sees no transaction until one runs. Switching it back on commits the transaction that is open, and
+     * is refused on the same terms as [commit] where an earlier error aborted that transaction.
      */
     var autoCommit: Boolean
 
     /**
-     * Commits the current transaction, persisting all changes made within it.
+     * Commits the current transaction, persisting all changes made within it. The next statement begins the
+     * next transaction; one that ran no statement is ended without anything being sent.
      *
      * A transaction an earlier error aborted is not committed and not quietly rolled back either. PostgreSQL
      * would answer the `COMMIT` with a `ROLLBACK` and report nothing, so the driver does not send it: the
@@ -179,7 +184,8 @@ interface OctaviusSession : OctaviusSessionOperations, AutoCloseable {
     fun commit()
 
     /**
-     * Rolls back the current transaction, discarding all changes made within it.
+     * Rolls back the current transaction, discarding all changes made within it. The next statement begins
+     * the next transaction, as after [commit].
      */
     fun rollback()
 
