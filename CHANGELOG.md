@@ -4,83 +4,52 @@
 
 #### Added
 
-- **PostgreSQL 18 behind a pooler that speaks protocol 3.0 is accepted.** The driver still asks for 3.2 and takes
-  3.0 when that is the answer, since nothing it does depends on 3.2 but the length of the cancel key.
+- **PostgreSQL 18 behind a pooler that speaks protocol 3.0 is accepted.** The driver still asks for 3.2, but nothing
+  it does depends on it beyond the length of the cancel key.
 
 #### Changed
 
 - **PostgreSQL 17 and older are refused after login rather than at the handshake**, still with
-  `UNSUPPORTED_SERVER_VERSION`, and `details` names the version the server reports instead of the protocol it
-  offered.
+  `UNSUPPORTED_SERVER_VERSION`.
 
-- **A login that does not report `search_path` is refused with `MISSING_PROTOCOL_PARAMETER`.** PostgreSQL 18 always
-  reports it, so this is a pooler or a proxy in between that does not pass it on.
+- **A login that does not report `search_path` is refused with `MISSING_PROTOCOL_PARAMETER`** - the mark of a pooler
+  or a proxy that does not pass it on.
 
-- **`SQLExceptionWrapper` no longer records a stack trace.** The exception it wraps keeps its own, and that is
-  the one the session rethrows. HikariCP's warning about evicting a connection, which every `session.abort()`
-  under the pool raises, prints the wrapper without frames.
+- **`SQLExceptionWrapper` no longer records a stack trace.** The exception it wraps keeps its own.
 
-- **A transaction's `BEGIN` goes out with its first statement, not when auto-commit is turned off.**
-  `autoCommit = false` sends nothing, and `commit()` and `rollback()` send `COMMIT` and `ROLLBACK` alone rather
-  than chaining the next `BEGIN` onto them: the first statement that finds no transaction on the server sends one
-  ahead of itself, and a `COPY` or a savepoint does the same. The session is `IN_TRANSACTION` from the moment
-  auto-commit goes off, as before. A `required { }` block around one statement costs three round trips instead of
-  four, and three instead of five with terms, which travel in the `BEGIN`'s own message; a block that runs no
-  statement sends nothing. Between transactions the backend is `idle` rather than `idle in transaction`, as is
-  every connection waiting in a pool configured with `auto-commit=false`, so `idle_in_transaction_session_timeout`
-  has nothing to drop.
+- **A transaction's `BEGIN` goes out with its first statement, not when auto-commit is turned off**, and `commit()`
+  and `rollback()` no longer chain the next one. Between transactions the backend is `idle` rather than
+  `idle in transaction`, and a transaction that runs no statement sends nothing.
 
-- **A value that cannot be sent names its parameter on the `path`**, as the `$n` of the statement sent - in a
-  named query, the position its name was rewritten to. The query context lists every value and cannot say which of
-  them failed, so two parameters of the same composite type read alike without it: `PATH: $2 -> tribute`.
+- **A value that cannot be sent names its parameter on the `path`**, as the `$n` of the statement sent:
+  `PATH: $2 -> tribute`.
 
-- **A column that cannot be decoded is named on the `path`**, as one that cannot be mapped already was. A row is
-  decoded as it arrives, before anything asks for a column, so `'NaN'::numeric` failed as a `CodecException` that
-  did not say which column held it.
+- **A column that cannot be decoded is named on the `path`**, as one that cannot be mapped already was.
 
 #### Fixed
 
-- **`now()` in a transaction that follows a `commit()` or `rollback()` is the time of its first statement.** The
-  `BEGIN` chained onto the commit opened the next transaction there and then, and PostgreSQL fixes `now()` when a
-  transaction begins, so a session that waited between transactions read a `now()` as old as the wait.
+- **`now()` in a transaction that follows a `commit()` or `rollback()` is the time of its first statement**, not of
+  the commit.
 
-- **A term the server refuses no longer leaves auto-commit off.** `required` sent the terms before entering the
-  part of it that rolls back and restores auto-commit, so a refused one - a `statementTimeout` past what
-  PostgreSQL accepts - left the session in an aborted transaction with auto-commit off. The terms go out with the
-  block's first statement now, and a refusal rolls the block back like any other failure. So does one sent as the
-  block is entered, which is where they still go on a transaction a hand-written `BEGIN` had already opened.
+- **A term the server refuses rolls the `required` block back and leaves auto-commit on.** It used to leave the
+  session in an aborted transaction with auto-commit off.
 
-- **A manual transaction closed unfinished no longer follows its connection to the next borrower.** A session
-  closed with auto-commit off and a transaction still open on the server left it to the pool, and HikariCP rolls
-  back only work that went through its own statement proxies, which the driver's queries do not. Under a pool
-  configured with `auto-commit=false` the next borrower carried on inside that transaction, and its commit made
-  the earlier session's work permanent. The session rolls back whatever the server still has open as it closes,
-  as it already did for a transaction opened by a hand-written `BEGIN`.
+- **A session closed with a manual transaction unfinished rolls it back** instead of leaving it on the connection
+  for the next borrower to commit.
 
-- **A connection that could not be obtained leaves as `OctaviusDataAccessException` over an
-  `InitializationException`, from `OctaviusTemplate` under Spring Boot's pool and from a `@Transactional` method
-  alike.** Boot creates `HikariDataSource` without starting its pool, so the pool starts on the first borrow, and
-  until it did, every `execute` left as Hikari's own `PoolInitializationException`. A pool with none free left as
-  `UncategorizedSQLException`, and is `CONNECTION_UNAVAILABLE` now, as `DataSource.getOctaviusSession()` already
-  reported it. A transaction that could not get its connection left as `CannotCreateTransactionException`, which
-  `OctaviusJdbcTransactionManager` now restates the same way.
+- **A connection that could not be obtained leaves `OctaviusTemplate` and `OctaviusJdbcTransactionManager` as
+  `OctaviusDataAccessException` over an `InitializationException`** - `CONNECTION_UNAVAILABLE` for a pool with none
+  free - instead of Hikari's `PoolInitializationException`, `UncategorizedSQLException` or
+  `CannotCreateTransactionException`.
 
-- **`DataSource.getOctaviusSession()` raises the driver's exception when a pool started on the first borrow
-  could not start**, instead of Hikari's `PoolInitializationException` over it. It unwrapped the driver's failure
-  only from a `SQLException`, and a `HikariDataSource` made with its no-argument constructor reports one that
-  stopped its pool unchecked.
+- **`DataSource.getOctaviusSession()` raises the driver's exception when a pool started on the first borrow could
+  not start**, instead of Hikari's `PoolInitializationException`.
 
-- **`OctaviusJdbcTransactionManager` is registered ahead of Boot's own by declaration, no longer by the alphabet.**
-  `OctaviusSpringAutoConfiguration` said only that it runs after `DataSourceAutoConfiguration`, and it came before
-  `DataSourceTransactionManagerAutoConfiguration` because Boot sorts auto-configurations by class name first and
-  `io.github` sorts ahead of `org.springframework`. An auto-configuration ordered earlier that runs after Boot's
-  transaction ones pulled Boot's `JdbcTransactionManager` in first, and the Octavius one backed off. It now runs
-  before `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`.
+- **`OctaviusJdbcTransactionManager` is registered ahead of Boot's own by declaration**, no longer because its class
+  name sorts first.
 
-- **An array element whose converter fails is named by its index, whatever the converter threw.** Read into a
-  collection or an `Array<T>`, an element of a one-dimensional array - or of the innermost dimension of any other -
-  got its index only on a `MappingException`; anything else, such as an enum's `IllegalArgumentException` for a
-  label its Kotlin class does not have, was wrapped a level up without it.
+- **An array element whose converter fails is named by its index whatever the converter threw**, not only on a
+  `MappingException`.
 
 ## Version 2.3.0 (v2.3.0)
 
