@@ -65,6 +65,11 @@
   reported it. A transaction that could not get its connection left as `CannotCreateTransactionException`, which
   `OctaviusJdbcTransactionManager` now restates the same way.
 
+- **`DataSource.getOctaviusSession()` raises the driver's exception when a pool started on the first borrow
+  could not start**, instead of Hikari's `PoolInitializationException` over it. It unwrapped the driver's failure
+  only from a `SQLException`, and a `HikariDataSource` made with its no-argument constructor reports one that
+  stopped its pool unchecked.
+
 - **`OctaviusJdbcTransactionManager` is registered ahead of Boot's own by declaration, no longer by the alphabet.**
   `OctaviusSpringAutoConfiguration` said only that it runs after `DataSourceAutoConfiguration`, and it came before
   `DataSourceTransactionManagerAutoConfiguration` because Boot sorts auto-configurations by class name first and
