@@ -149,7 +149,8 @@ class MultiHostIntegrationTest {
         val ex = refusal(url("127.0.0.1:$first,127.0.0.1:$second"))
 
         assertEquals(InitializationExceptionReason.CONNECTION_ERROR, ex.reason)
-        assertTrue(ex.details!!.contains("127.0.0.1:$first") && ex.details!!.contains("127.0.0.1:$second"), ex.details)
+        val details = ex.details!!
+        assertTrue(details.contains("127.0.0.1:$first") && details.contains("127.0.0.1:$second"), details)
         assertEquals(2, ex.suppressed.size)
     }
 
