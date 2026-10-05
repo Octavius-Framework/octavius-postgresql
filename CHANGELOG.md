@@ -1,3 +1,32 @@
+## Version 2.5.0 (v2.5.0)
+
+### Driver
+
+#### Added
+
+- **Several servers in one URL, chosen among the way `libpq` does** - `jdbc:octavius://db1:5432,db2,db3:5433/curia`,
+  each with a port of its own or `portNumber`'s, and the same list in `serverName` or a `host` parameter.
+  `target_session_attrs` (`any`, `read-write`, `read-only`, `primary`, `standby`, `prefer-standby`) says which kind of
+  server to settle for, read from what it reports at login, and `load_balance_hosts=random` shuffles the order. A server
+  that does not answer, takes no connections now or is the wrong kind is passed over; any other failure ends the search.
+
+- **The servers of one list share one type catalog**, and a server of another cluster than the one it was read from -
+  by `system_identifier` - is passed over with a `warn`.
+
+#### Changed
+
+- **Every address a host name resolves to is tried**, not only the first.
+
+- **An IPv6 address without a port reads as an address in a URL, unbracketed** - `jdbc:octavius://::1/curia` - as it
+  already did in `serverName`. It used to read as the host `:` on port 1.
+
+#### Fixed
+
+- **A cancel request goes to the address its connection reached**, not to its host name resolved again.
+
+- **A port in the URL's address that is not a whole number is refused**, as a `port` parameter already was, instead of
+  being ignored in favour of the default.
+
 ## Version 2.4.0 (v2.4.0)
 
 ### Driver

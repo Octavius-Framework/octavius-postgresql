@@ -101,7 +101,8 @@ unchanged next to it.
 
 Written by one person. Every push runs the suite against a real PostgreSQL 18, alongside a job that generates
 certificates and exercises the TLS modes end to end, a third that points the driver at PostgreSQL 17 to
-prove it is refused rather than half-working, and a fourth that goes through PgBouncer in transaction pooling.
+prove it is refused rather than half-working, a fourth that goes through PgBouncer in transaction pooling, and a
+fifth that chooses among a primary, a standby streaming from it and a server of another cluster.
 
 The version is not a maturity claim. It says when something shipped and what it did to the API, and nothing
 about how long it has run anywhere. None of it has seen long production use.
