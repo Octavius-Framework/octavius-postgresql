@@ -8,7 +8,7 @@ on:
       - '.github/**'
       - 'docs/**'
   pull_request:
-    branches: [ "master", "multihost" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 jobs:
