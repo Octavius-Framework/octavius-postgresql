@@ -98,16 +98,13 @@ Worth knowing about a reload:
 
 ### One catalog per database, not per URL
 
-Catalogs are cached in `GlobalCatalogStore` under a `DatabaseKey` of **host + port + database name** — deliberately *not* the whole connection URL:
-
-```kotlin
-internal data class DatabaseKey(val host: String, val port: Int, val database: String)
-```
+Catalogs are cached in `GlobalCatalogStore` under a `DatabaseKey` of **the servers + database name** — deliberately *not* the whole connection URL. A single server is its `host:port`; [several](initialization.md#several-servers) are a set, so a URL makes one key whatever order it lists them in.
 
 Credentials, SSL settings and timeouts have no effect on the type catalog. Keying on them would fragment the cache (and would keep a password alive as a map key for the lifetime of the JVM). Practical consequences:
 
 * Two HikariCP pools connecting as different users to the same database **share one catalog** — and therefore one set of registered converters.
 * Registration performed through *any* pool's session is visible to the others.
+* The servers of one list share one catalog, whichever of them a connection lands on. A server of another cluster is passed over rather than read through it — see [One catalog for the list](initialization.md#one-catalog-for-the-list).
 * If your application connects to thousands of *different* databases at runtime (a per-tenant-database setup, say), call `GlobalCatalogStore.removeCatalog(url)` when you close a data source, so the catalog can be collected. With a static set of URLs — the normal case — leave it alone.
 
 ## 2-Layer architecture
@@ -685,7 +682,7 @@ Registration is last-wins in both layers, so overriding the defaults means regis
 * **Register once, at startup.** Registration is global and permanent for the JVM; doing it per request grows the converter lists and buys nothing.
 * **`reloadTypes()` after runtime DDL** — including `CREATE TABLE`, whose row type is a composite. Without it, new types resolve to nothing.
 * **Register before running the query, not before building it.** A query pins the catalog when a terminal runs, so a `registerCodec(...)` or a converter registration between `createNativeQuery(...)` and the `fetch*` call is picked up. What it will not do is reach a terminal already in flight, or rows a previous terminal returned.
-* **Same database, different credentials, same catalog.** The cache key is host + port + database only.
+* **Same database, different credentials, same catalog.** The cache key is the servers and the database only.
 * **Ambiguous type names need a schema.** If the same type name exists in several schemas and none is on the search path, resolution throws instead of guessing.
 * **Empty collections need `PgTyped`.** Erasure leaves nothing in an `emptyList()` for the driver to infer an element type from — the same goes for a list of nothing but nulls.
 * **Not every PostgreSQL type has a codec.** `money`, `timetz`, `tsvector`, `tsquery`, `jsonpath` and friends throw `TypeException(MISSING_CODEC)`. Cast them in SQL or write the codec.

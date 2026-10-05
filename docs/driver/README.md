@@ -49,6 +49,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [What Happens When a Session Opens](initialization.md#what-happens-when-a-session-opens) — Handshake, authentication, catalog load
 - [Authentication](initialization.md#authentication-is-scram-sha-256-or-a-password-inside-tls) — What the driver answers, what it refuses, and why a server asks for it
 - [Channel Binding](initialization.md#channel-binding) — Tying the login to the certificate on the wire, and when to demand it
+- [Several Servers](initialization.md#several-servers) — `target_session_attrs`, `load_balance_hosts`, and what moves the search on
 - [Startup Parameters](initialization.md#startup-parameters) — Unrecognized keys sent to the server
 - [Notices from the Server](initialization.md#notices-from-the-server) — `NoticeHandler`, `PgNotice`, and the thread it runs on
 - [Configuration Reference](initialization.md#configuration-reference) — Every property: connection, network, SSL

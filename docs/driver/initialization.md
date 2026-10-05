@@ -59,7 +59,7 @@ val connection = DriverManager.getConnection(url)
 val session = connection.getOctaviusSession()
 ```
 
-An IPv6 address goes in brackets, the way libpq writes it — `jdbc:octavius://[::1]:5432/res_publica`. They are what tells the address's own colons from the one before the port, so they are required even with no port following: an unbracketed `::1` in a URL reads as the host `:` on port 1. They belong to the URL rather than to the address, though, so `serverName` comes back as a bare `::1` — and that is the form to set directly on `OctaviusProperties` or `OctaviusDataSource`, where there is no port to separate it from.
+An IPv6 address with a port goes in brackets, the way libpq writes it — `jdbc:octavius://[::1]:5432/res_publica`. They are what tells the address's own colons from the one before the port; with no port they can be left off, since an entry with more than one colon is read as an IPv6 address. A URL and `serverName` read an address the same way, and a single server's comes back bare: `serverName` is `::1`, and the port is in `portNumber`.
 
 ### 3. `OctaviusDataSource`
 
@@ -168,7 +168,7 @@ val session = pool.getOctaviusSession()
 
 Two things do **not** go through it:
 
-* **`sslMode`**, because its accessor is typed as the `SslMode` enum. HikariCP converts a string value only for primitives, `Boolean` and `String`; anything else it passes through untouched, and a `String` arriving at a setter expecting `SslMode` fails the pool with *"argument type mismatch"*. Passing the enum itself — `addDataSourceProperty("sslMode", SslMode.REQUIRE)` — works, but a properties file or Spring's `data-source-properties` has only strings to offer.
+* **The accessors typed as enums** — `sslMode`, `channelBinding`, `targetSessionAttrs` and `loadBalanceHosts`. HikariCP converts a string value only for primitives, `Boolean` and `String`; anything else it passes through untouched, and a `String` arriving at a setter expecting an enum fails the pool with *"argument type mismatch"*. Passing the enum itself — `addDataSourceProperty("sslMode", SslMode.REQUIRE)` — works, but a properties file or Spring's `data-source-properties` has only strings to offer.
 * **Startup parameters**, which are not driver settings at all and so have no accessor by design. `application_name` is the exception: it has [a property of its own](#startup-parameters), typed as a `String`, so it goes through like any other.
 
 Both fit on the `url` property, which is itself a bean property and takes a whole URL:
@@ -246,7 +246,8 @@ is slower than the rest:
 6. **The server is checked.** Anything below PostgreSQL 18 gets the connection closed and an
    `InitializationException(UNSUPPORTED_SERVER_VERSION)`, naming the version received. So does a login that did not
    report `search_path`, with `MISSING_PROTOCOL_PARAMETER` — PostgreSQL 18 always reports it, so it is missing only when
-   a pooler or a proxy in between did not pass it on.
+   a pooler or a proxy in between did not pass it on. With [several servers](#several-servers) listed, this is also
+   where one that is not the kind `target_session_attrs` asks for is logged out of, and the next one tried.
 7. **The type catalog is loaded**, once per database — see below.
 
 > [!IMPORTANT]
@@ -292,9 +293,58 @@ Binding hashes the certificate; it does not judge it. That still belongs to [`ve
 
 ### The first connection pays for the type catalog
 
-Step 7 reads the server's type catalog into a `TypeCatalog`, held in `GlobalCatalogStore` per database and keyed by **host, port and database name** — deliberately not by the full URL, so credentials, SSL settings and timeouts do not fragment the cache. Every later connection to that same database, from any pool in the JVM, reuses the loaded catalog and skips the work.
+Step 7 reads the server's type catalog into a `TypeCatalog`, held in `GlobalCatalogStore` per database and keyed by **the servers and the database name** — deliberately not by the full URL, so credentials, SSL settings and timeouts do not fragment the cache. Every later connection to that same database, from any pool in the JVM, reuses the loaded catalog and skips the work.
 
 In practice: the first connection a pool opens is measurably slower than its siblings, and pre-warming one connection at startup moves that cost out of your first request. If your application connects to thousands of distinct databases over its lifetime, `GlobalCatalogStore.removeCatalog(url)` releases a catalog you are done with. The details of what gets loaded, and how to refresh it after a migration, are in [Type System](type-system.md#the-catalog-load).
+
+## Several servers
+
+The address can list several servers, the way `libpq` does — each with a port of its own, or the one `portNumber` gives the rest:
+
+```kotlin
+val url = "jdbc:octavius://db1:5432,db2:5432,db3/res_publica?target_session_attrs=read-write"
+```
+
+`serverName` takes the same list — `"db1,db2:5433,[::1]:5434"` — and so does a `host` parameter. The servers are tried in turn until one becomes a connection, and so is every address each name resolves to.
+
+**A server is chosen when a connection opens**, and an open session never moves. A pool replaces a connection whose server went away, and the replacement goes through the list again.
+
+### Which server: `target_session_attrs`
+
+| `TargetSessionAttrs`                | Settles for                                                                                 |
+|:------------------------------------|:--------------------------------------------------------------------------------------------|
+| `ANY` (`any`)                       | The first server that accepts the connection. Default.                                      |
+| `READ_WRITE` (`read-write`)         | One whose sessions accept writes: not in hot standby, `default_transaction_read_only` off.  |
+| `READ_ONLY` (`read-only`)           | The converse: in hot standby, or `default_transaction_read_only` on.                        |
+| `PRIMARY` (`primary`)               | One not in hot standby.                                                                     |
+| `STANDBY` (`standby`)               | One in hot standby.                                                                         |
+| `PREFER_STANDBY` (`prefer-standby`) | A standby where the list has one; where it has none, a second pass takes any server.        |
+
+The values and their meaning are `libpq`'s. A server's kind is read from what it reports at login — `in_hot_standby`, and `default_transaction_read_only` for the two read/write modes — so telling one kind from another costs no query. A server that does not report what the setting needs is refused with `MISSING_PROTOCOL_PARAMETER`, the same as one that does not report `search_path`.
+
+### In what order: `load_balance_hosts`
+
+`disable`, the default, tries the servers as listed and each one's addresses in the order its name resolves to. `random` shuffles both, afresh for every connection — which spreads a pool's connections over every server `target_session_attrs` accepts.
+
+### What moves the search on
+
+| At a server                                                                                                  | The search                     |
+|:-------------------------------------------------------------------------------------------------------------|:-------------------------------|
+| Nothing answers at the address, or not within `loginTimeout`                                                 | Goes on to the next address    |
+| It takes no connections now — starting up, shutting down, in recovery (`57P03`)                              | Goes on to the next server     |
+| It is not the kind `target_session_attrs` asks for                                                           | Goes on to the next server     |
+| It belongs to another cluster than the catalog — [below](#one-catalog-for-the-list)                          | Goes on to the next server     |
+| Anything else — a rejected password, a TLS failure, a database that does not exist, PostgreSQL older than 18 | Ends, and that error is thrown |
+
+What the last row covers would fail the same way on every server. `loginTimeout` is spent per address, so three servers that do not answer can take three times as long.
+
+Where nothing in the list could be used, the `InitializationException(CONNECTION_ERROR)` lists every server and address tried and why each was passed over, and carries their exceptions as suppressed. A single server at a single address fails exactly as it would with nothing to choose between.
+
+### One catalog for the list
+
+The servers of one list are one database: they share one [type catalog](#the-first-connection-pays-for-the-type-catalog), and with it every converter and registration, whichever server a connection lands on and in whatever order the list names them.
+
+That is correct only while they are one cluster. The catalog maps types by OID, and only a physical standby is sure to have its primary's. So before a server of a list is used for the first time, the driver asks it for its `system_identifier`; one from another cluster — a logical replica, another node of a multi-master set — is passed over, with a warning in the log. Servers like that need a data source each.
 
 ## Startup parameters
 
@@ -381,14 +431,16 @@ Every value below is parsed where it is set — in a URL, through `setProperty`,
 
 ### Connection and authentication
 
-| Property                                  | Default           | Meaning                                                                  |
-|:------------------------------------------|:------------------|:-------------------------------------------------------------------------|
-| `user`                                    | `postgres`        | Database username.                                                       |
-| `password`                                | none              | Password for that user.                                                  |
-| `serverName` (or `host`)                  | `localhost`       | Address of the database server.                                          |
-| `portNumber` (or `port`)                  | `5432`            | Port the server listens on.                                              |
-| `databaseName` (or `database`)            | `postgres`        | Database to connect to.                                                  |
-| `applicationName` (or `application_name`) | `Octavius Driver` | Name this connection reports to the server, shown in `pg_stat_activity`. |
+| Property                                         | Default           | Meaning                                                                                                |
+|:-------------------------------------------------|:------------------|:-------------------------------------------------------------------------------------------------------|
+| `user`                                           | `postgres`        | Database username.                                                                                     |
+| `password`                                       | none              | Password for that user.                                                                                |
+| `serverName` (or `host`)                         | `localhost`       | Address of the database server, or [several](#several-servers) separated by commas.                    |
+| `portNumber` (or `port`)                         | `5432`            | Port the server listens on — with several, of every one not stating its own.                           |
+| `databaseName` (or `database`)                   | `postgres`        | Database to connect to.                                                                                |
+| `targetSessionAttrs` (or `target_session_attrs`) | `ANY`             | Which kind of server to settle for among several; see [the table](#which-server-target_session_attrs). |
+| `loadBalanceHosts` (or `load_balance_hosts`)     | `DISABLE`         | `RANDOM` tries the servers, and each one's addresses, in random order.                                 |
+| `applicationName` (or `application_name`)        | `Octavius Driver` | Name this connection reports to the server, shown in `pg_stat_activity`.                               |
 
 There is no property selecting an authentication method: the server names it and [the driver either answers or refuses](#authentication-is-scram-sha-256-or-a-password-inside-tls). What you can choose is whether it must be [bound to the TLS channel](#channel-binding), with `channelBinding` in the SSL table below.
 
@@ -396,7 +448,7 @@ There is no property selecting an authentication method: the server names it and
 
 | Property                         | Default                                                     | Meaning                                                                                                                                                                                                                      |
 |:---------------------------------|:------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `loginTimeout`                   | `DriverManager.getLoginTimeout()`, or 10 s when that is `0` | Seconds to wait for the socket connect and login.                                                                                                                                                                            |
+| `loginTimeout`                   | `DriverManager.getLoginTimeout()`, or 10 s when that is `0` | Seconds to wait for the socket connect and login, at each address tried.                                                                                                                                                     |
 | `socketTimeout`                  | `0` — wait forever                                          | Seconds to wait on a socket read before failing.                                                                                                                                                                             |
 | `cancelSignalTimeout`            | `10`                                                        | Seconds allowed for a [cancel request](queries.md#cancelling-a-query-in-flight), covering both its connect and its reads. It travels on a connection of its own, so it gets a budget of its own.                             |
 | `maxCachedRowSize`               | `65536`                                                     | Largest row, in bytes, kept in the reusable row buffer.                                                                                                                                                                      |

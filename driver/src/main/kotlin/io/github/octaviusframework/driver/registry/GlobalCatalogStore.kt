@@ -9,7 +9,7 @@ import kotlin.concurrent.withLock
 private val logger = KotlinLogging.logger {}
 
 /**
- * Where the type catalogs live: one per physical database (host, port, database name), for the whole JVM.
+ * Where the type catalogs live: one per database - the servers it is reached on and its name - for the whole JVM.
  *
  * In standard JDBC environments, connection pools (like HikariCP) use URLs to identify different databases.
  * Keying on the database itself rather than on the URL is what keeps the parts that do not affect the catalog -

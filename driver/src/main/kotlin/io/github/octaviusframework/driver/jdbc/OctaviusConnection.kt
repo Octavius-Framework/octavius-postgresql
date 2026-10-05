@@ -38,9 +38,6 @@ internal class OctaviusConnection(
         initialParameterWriterCapacity,
         logParameterValues
     )
-    init {
-        GlobalCatalogStore.ensureLoaded(databaseKey, queryExecutor)
-    }
 
     @Volatile
     var isClosedFlag: Boolean = false
@@ -229,9 +226,10 @@ internal class OctaviusConnection(
         // The cancel request cannot travel on this connection - the protocol requires a fresh one -
         // and it carries the backend's process id and cancel key. cancelSignalTimeout bounds both
         // its connect and its reads, because a cancel can get stuck on a server the session itself
-        // is not stuck on.
+        // is not stuck on. It goes to the address this connection reached, not by name: a name can
+        // resolve to several servers, and the key means something only to this one.
         val cancelStream = try {
-            PgStream(stream.host, stream.port, stream.cancelSignalTimeoutSecs)
+            PgStream(stream.host, stream.port, stream.address, stream.cancelSignalTimeoutSecs)
         } catch (e: Exception) {
             // Never opened, so there is nothing to clean up and nothing to report.
             logger.debug(e) { "$pid Could not open a connection to carry the cancel request" }
