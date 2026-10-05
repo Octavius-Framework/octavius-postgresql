@@ -23,7 +23,8 @@ import kotlin.test.assertTrue
  *
  * The test database is a primary, and it is the only real server there is. A standby, a server not taking
  * connections yet, and one that refuses the password are played by a [ScriptedServer], each only ever passed over -
- * a scripted server cannot answer the queries a connection that settled on it would send.
+ * a scripted server cannot answer the queries a connection that settled on it would send. [MultiHostReplicationTest]
+ * runs the same choices against a real standby and a real second cluster.
  */
 class MultiHostIntegrationTest {
 

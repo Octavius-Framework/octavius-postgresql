@@ -8,7 +8,7 @@ on:
       - '.github/**'
       - 'docs/**'
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "multihost" ]
   workflow_dispatch:
 
 jobs:
@@ -230,6 +230,40 @@ jobs:
           TEST_PGBOUNCER: "true"
           PGBOUNCER_PORT: "6432"
         run: ./gradlew :driver:test --tests "*PgBouncerIntegrationTest*"
+
+  test-multihost:
+    runs-on: ubuntu-latest
+    # Several servers in one URL against real ones: a primary, a streaming standby of it - the same
+    # cluster - and a primary of a cluster of its own. The script that starts them is the one to run
+    # locally too.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Start primary, standby and foreign cluster
+        run: scripts/multihost-servers.sh
+
+      - name: Run Multi-Host Tests
+        env:
+          TEST_MULTIHOST: "true"
+        run: ./gradlew :driver:test --tests "*MultiHostReplicationTest*"
+
+      - name: Server logs
+        if: failure()
+        run: |
+          for name in octavius-mh-primary octavius-mh-standby octavius-mh-foreign; do
+            echo "::group::$name"; docker logs "$name" 2>&1 | tail -100; echo "::endgroup::"
+          done
 
   test-spring-example:
     runs-on: ubuntu-latest

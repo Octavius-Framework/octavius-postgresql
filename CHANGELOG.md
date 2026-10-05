@@ -27,6 +27,14 @@
 - **A port in the URL's address that is not a whole number is refused**, as a `port` parameter already was, instead of
   being ignored in favour of the default.
 
+### Project
+
+#### Added
+
+- **Several servers are tested against real ones in CI** - a primary, a streaming standby of it and a primary of
+  another cluster, which `scripts/multihost-servers.sh` starts in Docker. `MultiHostReplicationTest` runs against them
+  under `TEST_MULTIHOST=true`.
+
 ## Version 2.4.0 (v2.4.0)
 
 ### Driver
