@@ -118,6 +118,25 @@ class DynamicTypesAcrossClientsTest : AbstractIntegrationTest() {
         }
     }
 
+    object Elsewhere {
+        @Serializable
+        data class Grant(val province: String, val iugera: Int)
+    }
+
+    @Test
+    fun `two classes of one simple name are told apart in the refusal`() {
+        withTwoClients { a, b ->
+            a.dynamicTypes.register<Grant>("grant")
+
+            val thrown = assertFailsWith<InvalidOperationException> { b.dynamicTypes.register<Elsewhere.Grant>("grant") }
+            assertTrue(
+                thrown.details!!.contains(Grant::class.qualifiedName!!) &&
+                    thrown.details!!.contains(Elsewhere.Grant::class.qualifiedName!!),
+                thrown.details
+            )
+        }
+    }
+
     @Test
     fun `one class cannot take two names`() {
         withTwoClients { a, _ ->
