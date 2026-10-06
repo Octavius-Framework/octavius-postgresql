@@ -268,7 +268,7 @@ internal object OctaviusConnectionFactory {
                 )
             }
 
-            GlobalCatalogStore.ensureLoaded(databaseKey, connection.queryExecutor)
+            GlobalCatalogStore.ensureLoaded(databaseKey, connection.catalogHolder, connection.queryExecutor)
 
             logger.debug {
                 "[PID: ${stream.processId}] Connected to $server/$databaseName as '$user' " +

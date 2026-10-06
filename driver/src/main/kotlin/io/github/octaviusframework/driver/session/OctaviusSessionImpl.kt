@@ -98,6 +98,7 @@ internal class OctaviusSessionImpl(
         checkOpen()
         GlobalCatalogStore.reload(
             octaviusConnection.databaseKey,
+            octaviusConnection.catalogHolder,
             octaviusConnection.queryExecutor
         )
     }

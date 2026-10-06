@@ -27,6 +27,10 @@
 - **A port in the URL's address that is not a whole number is refused**, as a `port` parameter already was, instead of
   being ignored in favour of the default.
 
+- **`reloadTypes()` re-reads the catalog its session reads**, also where `GlobalCatalogStore.removeCatalog` ran while
+  the session's connection was open. It used to re-read the catalog that took the dropped one's place, which that
+  session never reads - opening it if no connection had yet.
+
 ## Version 2.4.0 (v2.4.0)
 
 ### Driver
