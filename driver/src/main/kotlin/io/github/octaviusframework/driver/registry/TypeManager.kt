@@ -150,7 +150,8 @@ class TypeManager internal constructor(
      * @param typeName Optional custom type name in the database. If empty, the name is derived from the class name
      *   by converting `PascalCase` to `snake_case`.
      * @param schema Optional schema where the type is defined. If empty, the type is resolved through the search path.
-     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException if [T] is not a data class.
+     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException if [T] is not a data class, if
+     *   the type name is registered for another class, or if [T] is registered under another type name.
      */
     inline fun <reified T : Any> registerAutoComposite(
         typeName: String = "",
@@ -162,11 +163,15 @@ class TypeManager internal constructor(
     /**
      * Registers a composite type mapped reflectively onto the data class [kClass].
      *
+     * A type name is registered for one class and a class under one type name; the same class under the same name
+     * again changes nothing.
+     *
      * @param kClass The Kotlin data class representing the composite type.
      * @param typeName Optional custom type name in the database. If empty, the name is derived from the class name
      *   by converting `PascalCase` to `snake_case`.
      * @param schema Optional schema where the type is defined. If empty, the type is resolved through the search path.
-     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException if [kClass] is not a data class.
+     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException if [kClass] is not a data class,
+     *   if the type name is registered for another class, or if [kClass] is registered under another type name.
      */
     fun registerAutoComposite(
         kClass: KClass<*>,
@@ -205,6 +210,8 @@ class TypeManager internal constructor(
      * @param schema Optional schema where the enum is defined.
      * @param pgConvention The naming convention used for enum values in PostgreSQL.
      * @param kotlinConvention The naming convention used for enum values in Kotlin.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` if the type name is registered for another enum, or if
+     *   [T] is registered under another type name or conventions.
      */
     inline fun <reified T : Enum<T>> registerEnum(
         typeName: String = "",
@@ -223,12 +230,16 @@ class TypeManager internal constructor(
      * cannot name its type. The bound bought them nothing but a cast at every call site; being an enum is
      * checked here instead, once, and reported as the bad argument it is.
      *
+     * A type name is registered for one enum and an enum under one type name and one pair of conventions; the
+     * same enum under the same name with the same conventions again changes nothing.
+     *
      * @param enumClass The Kotlin enum class.
      * @param typeName Optional custom type name in the database.
      * @param schema Optional schema where the enum is defined.
      * @param pgConvention The naming convention used for enum values in PostgreSQL.
      * @param kotlinConvention The naming convention used for enum values in Kotlin.
-     * @throws InvalidOperationException `INVALID_ARGUMENT` if [enumClass] is not an enum class.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` if [enumClass] is not an enum class, if the type name
+     *   is registered for another enum, or if [enumClass] is registered under another type name or conventions.
      */
     fun registerEnum(
         enumClass: KClass<*>,
@@ -261,9 +272,12 @@ class TypeManager internal constructor(
         // took its snapshot between them would hold a converter whose registration TypeCatalog.registeredEnums
         // does not describe - which is what the layer holding JSON reads to decide what an enum means inside it.
         holder.update {
-            it.withParameterConverter(EnumParameterConverter(typed, qualifiedName, pgConvention, kotlinConvention))
-                .withResultConverter(EnumResultConverter(typed, qualifiedName, pgConvention, kotlinConvention))
-                .withEnum(enumClass, PgEnumRegistration(qualifiedName, pgConvention, kotlinConvention))
+            it.withEnum(
+                enumClass,
+                PgEnumRegistration(qualifiedName, pgConvention, kotlinConvention),
+                EnumParameterConverter(typed, qualifiedName, pgConvention, kotlinConvention),
+                EnumResultConverter(typed, qualifiedName, pgConvention, kotlinConvention)
+            )
         }
     }
 }

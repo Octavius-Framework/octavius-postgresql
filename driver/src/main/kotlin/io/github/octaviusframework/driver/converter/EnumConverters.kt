@@ -52,8 +52,10 @@ internal class EnumParameterConverter<T : Enum<T>>(
 /**
  * Converts a PostgreSQL String representation back into a Kotlin Enum instance during result set deserialization.
  *
- * Claims a value only when the column's own type is the PostgreSQL enum named by [qualifiedName], so an
- * unrelated `text` column carrying the same label is left to another converter.
+ * Claims a value only when the column's own type is the PostgreSQL enum named by [qualifiedName] - in any schema,
+ * where that names none - so an unrelated `text` column carrying the same label is left to another converter.
+ * Asked for `Any` rather than the enum, it claims only a value
+ * [enumClassFor][io.github.octaviusframework.driver.registry.TypeCatalog.enumClassFor] reads as this enum.
  *
  * @param T The type of the Kotlin enum.
  * @property enumClass The Kotlin KClass of the enum.
@@ -75,11 +77,14 @@ internal class EnumResultConverter<T : Enum<T>>(
     override val supportedSourceClass = String::class
 
     override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
-        if (sourceType !is PgType.Enum) return false
-        val expectedClass = expectedType.classifier as? KClass<*> ?: return false
-        if (expectedClass != enumClass && expectedClass != Any::class) return false
+        if (sourceType !is PgType.Enum || sourceType.name != qualifiedName.name) return false
+        if (qualifiedName.schema.isNotEmpty() && sourceType.schema != qualifiedName.schema) return false
 
-         return sourceType.name == qualifiedName.name && (qualifiedName.schema.isEmpty() || sourceType.schema == qualifiedName.schema)
+        return when (expectedType.classifier) {
+            enumClass -> true
+            Any::class -> context.types.catalog.enumClassFor(sourceType) == enumClass
+            else -> false
+        }
     }
 
     override fun convert(source: String, expectedType: KType, sourceType: PgType, context: DeserializationContext): T {

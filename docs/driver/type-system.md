@@ -543,7 +543,15 @@ session.typeManager.registerEnum<LegioStatus>(
 )
 ```
 
-Available conventions are `SNAKE_CASE_UPPER`, `SNAKE_CASE_LOWER`, `PASCAL_CASE` and `CAMEL_CASE`. A database label with no matching Kotlin constant throws during deserialization rather than falling back silently.
+Available conventions are `SNAKE_CASE_UPPER`, `SNAKE_CASE_LOWER`, `PASCAL_CASE` and `CAMEL_CASE`. A database label with
+no matching Kotlin constant throws during deserialization rather than falling back silently.
+
+A type name is registered for one enum, and an enum under one type name with one pair of conventions. A second enum
+under a taken name, or a registered enum under another name or other conventions, is refused with
+`InvalidOperationException(INVALID_ARGUMENT)`; the same registration again changes nothing. Names are compared as
+written, so `rank` and `provincia.rank` can stand for two enums: read as `Any`, a value takes the enum registered under
+its schema-qualified name, and failing that the one registered under the bare name, whichever was registered first —
+as [composites](composites-reflection.md#composites-onto-data-classes) do.
 
 ### Composites (data classes)
 

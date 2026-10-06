@@ -40,6 +40,7 @@ internal fun builtinCatalog(): TypeCatalog {
         registeredComposites = emptyMap(),
         compositeClassByName = emptyMap(),
         registeredEnums = emptyMap(),
+        enumClassByName = emptyMap(),
         attachments = emptyMap()
     )
 

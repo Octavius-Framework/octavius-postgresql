@@ -25,7 +25,7 @@ class ParameterMismatchIntegrationTest : AbstractIntegrationTest() {
     data class Assessment(val label: String, val payload: Tribute)
 
     data class NarrowInt(val big: Int)      // against an int8 attribute
-    data class MatchingLong(val big: Long)  // against the same attribute, correctly
+    data class MatchingLong(val big: Long)  // against an int8 attribute too, correctly
 
     private lateinit var session: OctaviusSession
 
@@ -34,6 +34,7 @@ class ParameterMismatchIntegrationTest : AbstractIntegrationTest() {
         CREATE TYPE parammm.tribute AS (amount int, currency text);
         CREATE TYPE parammm.assessment AS (label text, payload parammm.tribute);
         CREATE TYPE parammm.holder AS (big int8);
+        CREATE TYPE parammm.long_holder AS (big int8);
     """.trimIndent()
 
     @BeforeAll
@@ -41,7 +42,7 @@ class ParameterMismatchIntegrationTest : AbstractIntegrationTest() {
         session = openSession()
         session.typeManager.registerAutoComposite<Assessment>("assessment", schema = "parammm")
         session.typeManager.registerAutoComposite<NarrowInt>("holder", schema = "parammm")
-        session.typeManager.registerAutoComposite<MatchingLong>("holder", schema = "parammm")
+        session.typeManager.registerAutoComposite<MatchingLong>("long_holder", schema = "parammm")
         // Tribute deliberately left unregistered
     }
 

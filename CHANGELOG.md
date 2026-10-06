@@ -20,6 +20,14 @@
 - **An IPv6 address without a port reads as an address in a URL, unbracketed** - `jdbc:octavius://::1/curia` - as it
   already did in `serverName`. It used to read as the host `:` on port 1.
 
+- **One composite or enum type name for two classes is refused, and so is one class under two names**, with
+  `InvalidOperationException(INVALID_ARGUMENT)`, as for `dynamic_dto` - and an enum registered again with other
+  conventions. A second class used to take the name over for reads as `Any`, on every session on the database. The
+  same registration again changes nothing, and an enum's no longer puts a second pair of converters ahead of the first.
+
+- **An enum registered with a schema is read as `Any` ahead of one registered without**, as a composite already was.
+  Whichever was registered last used to win.
+
 #### Fixed
 
 - **A cancel request goes to the address its connection reached**, not to its host name resolved again.
