@@ -170,7 +170,7 @@ val newIds: List<Long> = session.createNativeQuery("""
 ```
 
 > [!IMPORTANT]
-> **`RETURNING` does not promise the rows come back in the order you sent them.** SQL guarantees no ordering without an `ORDER BY`, and there is nothing here to order by that you did not supply yourself. Zipping `newIds` against `cognomina` by position is the kind of assumption that holds in testing and breaks under a parallel plan.
+> **`RETURNING` does not promise the rows come back in the order you sent them.** SQL guarantees no ordering without an `ORDER BY`, and there is nothing here to order by that you did not supply yourself. Zipping `newIds` against `cognomina` by position is the kind of assumption that holds in testing: nothing in this plan happens to reorder rows, but nothing promises it either. And it breaks outright once a row can be skipped — `RETURNING` reports only the rows actually inserted, so an `ON CONFLICT DO NOTHING` or a `BEFORE` trigger returning `NULL` leaves one out, and every id from that point on pairs with the wrong name.
 >
 > If you need to correlate results with inputs, carry the correlation in the data. `WITH ORDINALITY` numbers the unnested rows for you:
 >
