@@ -124,8 +124,8 @@ db.select("id", "cognomen")
 A filter assembled at runtime is otherwise a string-concatenation problem with a dangling `AND` in it. Here the
 clause either has something to say or is not rendered.
 
-`offset` and `page` are the exception and take non-null values, an offset without a limit being a question
-rather than a filter. `page(page, size)` is `limit(size).offset(page * size)`, counted from zero.
+`page(page, size)` is the exception and takes non-null values: it is `limit(size).offset(page * size)`, counted
+from zero.
 
 `locking(clause)` adds row locking, written whole with `FOR` in it, since several clauses may follow one
 another: `locking("FOR NO KEY UPDATE OF l SKIP LOCKED")`. Worth calling only inside
