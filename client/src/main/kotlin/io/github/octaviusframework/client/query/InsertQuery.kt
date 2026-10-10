@@ -26,10 +26,18 @@ class OnConflictClause @PublishedApi internal constructor() {
     private var target: String? = null
     private var action: String? = null
 
-    /** Conflicts on a unique index over these columns. */
-    fun onColumns(vararg columns: String) {
+    /**
+     * Conflicts on a unique index over these columns.
+     *
+     * @param columns The index's columns or expressions.
+     * @param where The index predicate, rendered as `WHERE` after the columns. `null` or blank leaves it out.
+     */
+    fun onColumns(vararg columns: String, where: String? = null) {
         requireBuildable(columns.isNotEmpty()) { "ON CONFLICT on columns needs at least one column." }
-        target = "(${columns.joinToString(", ")})"
+        target = buildString {
+            append('(').append(columns.joinToString(", ")).append(')')
+            if (!where.isNullOrBlank()) append(" WHERE ").append(where)
+        }
     }
 
     /** Conflicts on a named constraint. */

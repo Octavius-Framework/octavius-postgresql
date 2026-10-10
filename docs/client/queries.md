@@ -222,7 +222,8 @@ db.insertInto("census")
 ```
 
 Two decisions go in it. **What to conflict on** — `onColumns("citizen_id", …)` for a unique index over those
-columns, or `onConstraint("census_citizen_uq")` for a named one. **What to do about it** — `doNothing()`, or
+columns, `onColumns("citizen_id", where = "revoked_at IS NULL")` for a partial one, or
+`onConstraint("census_citizen_uq")` for a named constraint. **What to do about it** — `doNothing()`, or
 `doUpdate(…)`.
 
 The target is optional and the action is not: a clause saying what to conflict on and nothing about what to do

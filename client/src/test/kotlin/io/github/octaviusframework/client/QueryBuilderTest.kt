@@ -33,11 +33,19 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             id   INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             name TEXT NOT NULL
         );
+
+        CREATE TABLE builder_senators (
+            id          SERIAL PRIMARY KEY,
+            cognomen    TEXT NOT NULL,
+            seat        INT  NOT NULL,
+            expelled_at TIMESTAMPTZ
+        );
+        CREATE UNIQUE INDEX builder_senators_sitting ON builder_senators (cognomen) WHERE expelled_at IS NULL;
     """.trimIndent()
 
     @BeforeEach
     fun clearTable() {
-        db.rawQuery("TRUNCATE builder_legions, builder_tribunes RESTART IDENTITY").execute()
+        db.rawQuery("TRUNCATE builder_legions, builder_tribunes, builder_senators RESTART IDENTITY").execute()
     }
 
     // --- SELECT: what it renders ------------------------------------------------------------------
@@ -161,6 +169,28 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             RETURNING id
             """.trimIndent(),
             sql
+        )
+    }
+
+    @Test
+    fun `ON CONFLICT puts a partial index's predicate after its columns`() {
+        assertEquals(
+            "INSERT INTO senators (cognomen)\nVALUES (@cognomen)\nON CONFLICT (cognomen) WHERE expelled_at IS NULL DO NOTHING",
+            db.insertInto("senators").value("cognomen")
+                .onConflict {
+                    onColumns("cognomen", where = "expelled_at IS NULL")
+                    doNothing()
+                }
+                .toSql()
+        )
+        assertEquals(
+            "INSERT INTO senators (cognomen)\nVALUES (@cognomen)\nON CONFLICT (cognomen) DO NOTHING",
+            db.insertInto("senators").value("cognomen")
+                .onConflict {
+                    onColumns("cognomen", where = " ")
+                    doNothing()
+                }
+                .toSql()
         )
     }
 
@@ -403,6 +433,28 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
         val rows = db.select("name", "strength").from("builder_legions").fetchRows()
         assertEquals(1, rows.size)
         assertEquals(5000, rows.single().get<Int>("strength"))
+    }
+
+    @Test
+    fun `ON CONFLICT upserts against a partial unique index, leaving the rows outside it alone`() {
+        db.rawQuery("INSERT INTO builder_senators (cognomen, seat, expelled_at) VALUES ('Catilina', 1, now())")
+            .update()
+
+        val upsert = db.insertInto("builder_senators")
+            .values(listOf("cognomen", "seat"))
+            .onConflict {
+                onColumns("cognomen", where = "expelled_at IS NULL")
+                doUpdate("seat = excluded.seat")
+            }
+        upsert.update("cognomen" to "Catilina", "seat" to 2)
+        upsert.update("cognomen" to "Catilina", "seat" to 3)
+
+        val seats = db.select("seat", "expelled_at IS NOT NULL AS expelled").from("builder_senators")
+            .orderBy("id")
+            .fetchRows()
+            .map { it.get<Int>("seat") to it.get<Boolean>("expelled") }
+
+        assertEquals(listOf(1 to true, 3 to false), seats)
     }
 
     @Test

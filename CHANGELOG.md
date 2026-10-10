@@ -53,6 +53,9 @@
 - **`SelectQuery.window(definitions)`**, rendering a `WINDOW` clause between `HAVING` and `ORDER BY`, where a
   select had no place for it.
 
+- **`onConflict { onColumns(…, where = predicate) }`**, rendering a partial unique index's predicate after the
+  target's columns, where the target had no place for it.
+
 #### Changed
 
 - **`SelectQuery.forUpdate(of, mode)` and `LockWaitMode` are gone, replaced by `locking(clause)`**, which takes the
