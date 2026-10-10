@@ -1,5 +1,6 @@
 package io.github.octaviusframework.client
 
+import io.github.octaviusframework.client.query.OverridingValue
 import io.github.octaviusframework.client.query.QueryFragment
 import io.github.octaviusframework.client.query.join
 import io.github.octaviusframework.client.query.withParam
@@ -27,11 +28,16 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             strength INT  NOT NULL DEFAULT 0,
             province TEXT
         );
+
+        CREATE TABLE builder_tribunes (
+            id   INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            name TEXT NOT NULL
+        );
     """.trimIndent()
 
     @BeforeEach
     fun clearTable() {
-        db.rawQuery("TRUNCATE builder_legions RESTART IDENTITY").execute()
+        db.rawQuery("TRUNCATE builder_legions, builder_tribunes RESTART IDENTITY").execute()
     }
 
     // --- SELECT: what it renders ------------------------------------------------------------------
@@ -162,6 +168,22 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             db.insertInto("legions")
                 .columns("name", "strength")
                 .fromSelect("SELECT name, strength FROM legion_drafts")
+                .toSql()
+        )
+    }
+
+    @Test
+    fun `insert puts OVERRIDING after its columns, in either form`() {
+        assertEquals(
+            "INSERT INTO tribunes (id, name) OVERRIDING SYSTEM VALUE\nVALUES (@id, @name)",
+            db.insertInto("tribunes").values(listOf("id", "name")).overriding(OverridingValue.SYSTEM).toSql()
+        )
+        assertEquals(
+            "INSERT INTO tribunes (id, name) OVERRIDING USER VALUE\nSELECT id, name FROM tribune_drafts",
+            db.insertInto("tribunes")
+                .columns("id", "name")
+                .overriding(OverridingValue.USER)
+                .fromSelect("SELECT id, name FROM tribune_drafts")
                 .toSql()
         )
     }
@@ -363,6 +385,19 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
         val rows = db.select("name", "strength").from("builder_legions").fetchRows()
         assertEquals(1, rows.size)
         assertEquals(5000, rows.single().get<Int>("strength"))
+    }
+
+    @Test
+    fun `OVERRIDING puts a value into a GENERATED ALWAYS column, or leaves the column its own`() {
+        val insert = db.insertInto("builder_tribunes").values(listOf("id", "name")).returning("id")
+
+        val kept = insert.copy().overriding(OverridingValue.SYSTEM)
+            .fetchFieldStrict<Int>("id" to 100, "name" to "Ti. Gracchus")
+        val generated = insert.copy().overriding(OverridingValue.USER)
+            .fetchFieldStrict<Int>("id" to null, "name" to "P. Clodius")
+
+        assertEquals(100, kept)
+        assertEquals(1, generated)
     }
 
     @Test

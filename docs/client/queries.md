@@ -95,12 +95,12 @@ when the SQL is rendered — which is when a terminal runs, or when
 
 Beyond `with` / `recursive`, which all four carry, each has the clauses its statement has:
 
-| Builder                | Clauses                                                                                                        |
-|------------------------|----------------------------------------------------------------------------------------------------------------|
-| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `orderBy`, `limit`, `offset`, `page`, `locking`          |
-| `db.insertInto(table)` | `value`, `values`, `valueExpression`, `valuesExpressions`, `columns` + `fromSelect`, `onConflict`, `returning` |
-| `db.update(table)`     | `setValue`, `setValues`, `setExpression`, `setExpressions`, `from`, `where`, `returning`                       |
-| `db.deleteFrom(table)` | `using`, `where`, `returning`                                                                                  |
+| Builder                | Clauses                                                                                                                      |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `orderBy`, `limit`, `offset`, `page`, `locking`                        |
+| `db.insertInto(table)` | `value`, `values`, `valueExpression`, `valuesExpressions`, `columns` + `fromSelect`, `overriding`, `onConflict`, `returning` |
+| `db.update(table)`     | `setValue`, `setValues`, `setExpression`, `setExpressions`, `from`, `where`, `returning`                                     |
+| `db.deleteFrom(table)` | `using`, `where`, `returning`                                                                                                |
 
 `fromSubquery(sql, alias)` parenthesises and aliases for you, which is all it does — `from("(…) AS t")` is the
 same statement. `using` is `DELETE`'s join clause, as `from` is `UPDATE`'s. `columns(…)` names the target

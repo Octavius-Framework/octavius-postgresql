@@ -45,6 +45,11 @@
 
 ### Client
 
+#### Added
+
+- **`InsertQuery.overriding(OverridingValue.SYSTEM)` and `USER`**, rendering `OVERRIDING … VALUE` after the column
+  list, where the `VALUES` form had no place for it.
+
 #### Changed
 
 - **`SelectQuery.forUpdate(of, mode)` and `LockWaitMode` are gone, replaced by `locking(clause)`**, which takes the

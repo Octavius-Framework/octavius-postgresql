@@ -3,6 +3,19 @@ package io.github.octaviusframework.client.query
 import io.github.octaviusframework.client.session.SessionProvider
 
 /**
+ * Which value an identity column takes where an `INSERT` supplies one: `OVERRIDING SYSTEM VALUE` or
+ * `OVERRIDING USER VALUE`.
+ */
+enum class OverridingValue {
+
+    /** The value supplied, into a column `GENERATED ALWAYS` as well, which refuses one without this. */
+    SYSTEM,
+
+    /** The column's own, whatever was supplied for it - `NULL` included - being ignored. */
+    USER
+}
+
+/**
  * The `ON CONFLICT` clause of an [InsertQuery], configured inside [InsertQuery.onConflict].
  *
  * A target is optional - PostgreSQL infers one for `DO NOTHING` - but an action is not, since a clause that
@@ -109,6 +122,7 @@ class InsertQuery @PublishedApi internal constructor(
     private val assignments = LinkedHashMap<String, String>()
     private val targetColumns = mutableListOf<String>()
     private var selectSource: String? = null
+    private var overridingValue: OverridingValue? = null
     private var conflict: OnConflictClause? = null
     private var returningColumns: String? = null
 
@@ -161,6 +175,12 @@ class InsertQuery @PublishedApi internal constructor(
         selectSource = query
     }
 
+    /**
+     * Adds `OVERRIDING SYSTEM VALUE` or `OVERRIDING USER VALUE`, to the `VALUES` form and to [fromSelect] alike.
+     * `null` leaves it out.
+     */
+    fun overriding(value: OverridingValue?): InsertQuery = apply { overridingValue = value }
+
     /** Configures the `ON CONFLICT` clause. */
     fun onConflict(config: OnConflictClause.() -> Unit): InsertQuery = apply {
         conflict = OnConflictClause().apply(config)
@@ -179,6 +199,7 @@ class InsertQuery @PublishedApi internal constructor(
         it.assignments.putAll(assignments)
         it.targetColumns.addAll(targetColumns)
         it.selectSource = selectSource
+        it.overridingValue = overridingValue
         it.conflict = conflict?.let { source -> OnConflictClause().also { copy -> source.copyInto(copy) } }
         it.returningColumns = returningColumns
     }
@@ -195,12 +216,14 @@ class InsertQuery @PublishedApi internal constructor(
         requireBuildable(table.isNotBlank()) { "An INSERT needs a table." }
 
         val source = selectSource
+        val overriding = overridingValue?.let { " OVERRIDING ${it.name} VALUE" }.orEmpty()
         return buildString {
             append(cte.render())
             append("INSERT INTO ").append(table)
 
             if (source != null) {
                 if (targetColumns.isNotEmpty()) append(" (").append(targetColumns.joinToString(", ")).append(')')
+                append(overriding)
                 append('\n').append(source)
             } else {
                 requireBuildable(assignments.isNotEmpty()) {
@@ -208,6 +231,7 @@ class InsertQuery @PublishedApi internal constructor(
                         "or take the rows from a SELECT with fromSelect()."
                 }
                 append(" (").append(assignments.keys.joinToString(", ")).append(')')
+                append(overriding)
                 append("\nVALUES (").append(assignments.values.joinToString(", ")).append(')')
             }
 
