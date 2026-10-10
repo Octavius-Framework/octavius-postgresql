@@ -219,39 +219,6 @@ internal class QueryExecutor(
     }
 
     /**
-     * Sends the opening of an Extended Query exchange: `Parse`, `Bind` and a `Describe` of the portal.
-     *
-     * Stops there because what follows is the one thing the three callers disagree on - a single
-     * `Execute` and a `Sync` for a result read whole, an `Execute` per batch for one streamed.
-     * Serializing the parameters is part of this: it fills [parameterWriter], which the `Bind` built
-     * here is the only reader of.
-     *
-     * A waiting `BEGIN` is written here too, between the two: after the parameters, so that a value which
-     * cannot be encoded leaves nothing in the buffer for the next exchange to send, and before the `Parse`.
-     *
-     * @return What [sendWaitingBegin] returned, for the caller to hand to [receiveBegin] once it has flushed.
-     */
-    private fun sendParseBindDescribe(
-        sql: String,
-        params: Array<out Any?>,
-        parameterSerializer: ParameterSerializer?
-    ): Int {
-        val paramTypes = parameterSerializer?.serializeAll(params, parameterWriter) ?: IntArray(0)
-        val paramValues = if (parameterSerializer != null) parameterWriter.data else ByteArray(0)
-        val paramValuesLength = if (parameterSerializer != null) parameterWriter.position else 0
-
-        val beginMessages = sendWaitingBegin()
-        stream.sendMessage(ParseMessage(UNNAMED, sql, paramTypes))
-        stream.sendMessage(
-            BindMessage(
-                UNNAMED, UNNAMED, params.size, paramValues, BINARY_FORMAT, BINARY_FORMAT, paramValuesLength
-            )
-        )
-        stream.sendMessage(DescribeMessage('P', UNNAMED))
-        return beginMessages
-    }
-
-    /**
      * Uses Simple Query Protocol (Q).
      * Intended for calls that do not return results or where results are ignored (e.g., SET TIME ZONE, BEGIN).
      *
@@ -315,6 +282,39 @@ internal class QueryExecutor(
         }
 
         traceDone(startedAt) { "done" }
+    }
+
+    /**
+     * Sends the opening of an Extended Query exchange: `Parse`, `Bind` and a `Describe` of the portal.
+     *
+     * Stops there because what follows is the one thing the three callers disagree on - a single
+     * `Execute` and a `Sync` for a result read whole, an `Execute` per batch for one streamed.
+     * Serializing the parameters is part of this: it fills [parameterWriter], which the `Bind` built
+     * here is the only reader of.
+     *
+     * A waiting `BEGIN` is written here too, between the two: after the parameters, so that a value which
+     * cannot be encoded leaves nothing in the buffer for the next exchange to send, and before the `Parse`.
+     *
+     * @return What [sendWaitingBegin] returned, for the caller to hand to [receiveBegin] once it has flushed.
+     */
+    private fun sendParseBindDescribe(
+        sql: String,
+        params: Array<out Any?>,
+        parameterSerializer: ParameterSerializer?
+    ): Int {
+        val paramTypes = parameterSerializer?.serializeAll(params, parameterWriter) ?: IntArray(0)
+        val paramValues = if (parameterSerializer != null) parameterWriter.data else ByteArray(0)
+        val paramValuesLength = if (parameterSerializer != null) parameterWriter.position else 0
+
+        val beginMessages = sendWaitingBegin()
+        stream.sendMessage(ParseMessage(UNNAMED, sql, paramTypes))
+        stream.sendMessage(
+            BindMessage(
+                UNNAMED, UNNAMED, params.size, paramValues, BINARY_FORMAT, BINARY_FORMAT, paramValuesLength
+            )
+        )
+        stream.sendMessage(DescribeMessage('P', UNNAMED))
+        return beginMessages
     }
 
     /**
