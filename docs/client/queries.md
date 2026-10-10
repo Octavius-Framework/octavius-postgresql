@@ -97,7 +97,7 @@ Beyond `with` / `recursive`, which all four carry, each has the clauses its stat
 
 | Builder                | Clauses                                                                                                        |
 |------------------------|----------------------------------------------------------------------------------------------------------------|
-| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `orderBy`, `limit`, `offset`, `page`, `forUpdate`        |
+| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `orderBy`, `limit`, `offset`, `page`, `locking`          |
 | `db.insertInto(table)` | `value`, `values`, `valueExpression`, `valuesExpressions`, `columns` + `fromSelect`, `onConflict`, `returning` |
 | `db.update(table)`     | `setValue`, `setValues`, `setExpression`, `setExpressions`, `from`, `where`, `returning`                       |
 | `db.deleteFrom(table)` | `using`, `where`, `returning`                                                                                  |
@@ -127,9 +127,8 @@ clause either has something to say or is not rendered.
 `offset` and `page` are the exception and take non-null values, an offset without a limit being a question
 rather than a filter. `page(page, size)` is `limit(size).offset(page * size)`, counted from zero.
 
-`forUpdate(of, mode)` adds row locking. `of` names which of the query's tables to lock, or `null` for all of
-them; `mode` is `LockWaitMode.NOWAIT` (fail rather than wait) or `LockWaitMode.SKIP_LOCKED` (leave the locked
-rows out and carry on), `null` waiting for them. Worth calling only inside
+`locking(clause)` adds row locking, written whole with `FOR` in it, since several clauses may follow one
+another: `locking("FOR NO KEY UPDATE OF l SKIP LOCKED")`. Worth calling only inside
 [`db.transaction { }`](transactions-failures.md#propagation): the lock is held until the transaction ends, and
 outside one that is until the statement finishes, which is no lock at all.
 

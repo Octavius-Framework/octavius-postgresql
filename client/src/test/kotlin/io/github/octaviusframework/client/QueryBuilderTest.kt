@@ -1,6 +1,5 @@
 package io.github.octaviusframework.client
 
-import io.github.octaviusframework.client.query.LockWaitMode
 import io.github.octaviusframework.client.query.QueryFragment
 import io.github.octaviusframework.client.query.join
 import io.github.octaviusframework.client.query.withParam
@@ -51,6 +50,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             .where(null)
             .groupBy("")
             .orderBy(null)
+            .locking(" ")
             .toSql()
 
         assertEquals("SELECT *\nFROM legions", sql)
@@ -67,7 +67,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             .orderBy("total DESC")
             .limit(10)
             .offset(20)
-            .forUpdate(of = "l", mode = LockWaitMode.SKIP_LOCKED)
+            .locking("FOR UPDATE OF l SKIP LOCKED")
             .toSql()
 
         assertEquals(

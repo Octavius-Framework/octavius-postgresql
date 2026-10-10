@@ -43,6 +43,15 @@
   the session's connection was open. It used to re-read the catalog that took the dropped one's place, which that
   session never reads - opening it if no connection had yet.
 
+### Client
+
+#### Changed
+
+- **`SelectQuery.forUpdate(of, mode)` and `LockWaitMode` are gone, replaced by `locking(clause)`**, which takes the
+  locking clause as SQL: `forUpdate(of = "l", mode = LockWaitMode.SKIP_LOCKED)` is
+  `locking("FOR UPDATE OF l SKIP LOCKED")`. `FOR NO KEY UPDATE`, `FOR SHARE`, `FOR KEY SHARE` and several clauses in
+  one statement were out of the builder's reach.
+
 ## Version 2.4.0 (v2.4.0)
 
 ### Driver

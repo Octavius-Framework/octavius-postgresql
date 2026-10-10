@@ -3,18 +3,6 @@ package io.github.octaviusframework.client.query
 import io.github.octaviusframework.client.session.SessionProvider
 
 /**
- * What to do about rows a `FOR UPDATE` finds already locked.
- */
-enum class LockWaitMode {
-
-    /** Fail at once rather than waiting for the lock to be released. */
-    NOWAIT,
-
-    /** Leave the locked rows out of the result and carry on with the rest. */
-    SKIP_LOCKED
-}
-
-/**
  * A `SELECT` under construction.
  *
  * Every clause takes SQL and passes it through: `from("legions l JOIN provinces p ON l.province_id = p.id")`
@@ -46,9 +34,7 @@ class SelectQuery @PublishedApi internal constructor(
     private var orderByClause: String? = null
     private var limitValue: Long? = null
     private var offsetValue: Long? = null
-    private var locking: Boolean = false
-    private var lockingOf: String? = null
-    private var lockingMode: LockWaitMode? = null
+    private var lockingClause: String? = null
 
     /** Adds a common table expression. Call it more than once for more than one. */
     fun with(name: String, query: String): SelectQuery = apply { cte.add(name, query) }
@@ -105,19 +91,15 @@ class SelectQuery @PublishedApi internal constructor(
     }
 
     /**
-     * Locks the selected rows with `FOR UPDATE`, for a read-then-write that must not race.
+     * Sets the locking clause, as SQL. `null` or blank leaves it out.
+     *
+     * Written whole, `FOR` included, since several may follow one another: `"FOR UPDATE"`,
+     * `"FOR NO KEY UPDATE OF l SKIP LOCKED"`, `"FOR UPDATE OF l FOR SHARE OF p NOWAIT"`.
      *
      * Only meaningful inside a transaction - the lock is held until it ends, and outside one that is until the
      * statement finishes, which is no lock at all.
-     *
-     * @param of Which tables of the query to lock, where it names more than one. `null` locks all of them.
-     * @param mode What to do about rows already locked. `null` waits for them.
      */
-    fun forUpdate(of: String? = null, mode: LockWaitMode? = null): SelectQuery = apply {
-        locking = true
-        lockingOf = of
-        lockingMode = mode
-    }
+    fun locking(clause: String?): SelectQuery = apply { lockingClause = clause }
 
     /**
      * Returns an independent copy, so that variants can be built from a shared base.
@@ -138,9 +120,7 @@ class SelectQuery @PublishedApi internal constructor(
         it.orderByClause = orderByClause
         it.limitValue = limitValue
         it.offsetValue = offsetValue
-        it.locking = locking
-        it.lockingOf = lockingOf
-        it.lockingMode = lockingMode
+        it.lockingClause = lockingClause
     }
 
     override fun querySql(): String {
@@ -163,11 +143,7 @@ class SelectQuery @PublishedApi internal constructor(
             appendClause("ORDER BY", orderByClause)
             limitValue?.let { append("\nLIMIT ").append(it) }
             offsetValue?.takeIf { it > 0 }?.let { append("\nOFFSET ").append(it) }
-            if (locking) {
-                append("\nFOR UPDATE")
-                lockingOf?.takeIf { it.isNotBlank() }?.let { append(" OF ").append(it) }
-                lockingMode?.let { append(' ').append(it.name.replace('_', ' ')) }
-            }
+            lockingClause?.takeIf { it.isNotBlank() }?.let { append('\n').append(it) }
         }
     }
 }
