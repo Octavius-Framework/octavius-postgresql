@@ -31,6 +31,7 @@ class SelectQuery @PublishedApi internal constructor(
     private var whereCondition: String? = null
     private var groupByClause: String? = null
     private var havingClause: String? = null
+    private var windowClause: String? = null
     private var orderByClause: String? = null
     private var limitValue: Long? = null
     private var offsetValue: Long? = null
@@ -64,6 +65,12 @@ class SelectQuery @PublishedApi internal constructor(
 
     /** Sets the `HAVING` condition, which requires a `GROUP BY`. `null` or blank leaves the clause out. */
     fun having(condition: String?): SelectQuery = apply { havingClause = condition }
+
+    /**
+     * Sets the `WINDOW` clause, as SQL: the named windows the select list and `ORDER BY` refer to,
+     * `"w AS (PARTITION BY province ORDER BY strength DESC)"`. `null` or blank leaves the clause out.
+     */
+    fun window(definitions: String?): SelectQuery = apply { windowClause = definitions }
 
     /** Sets the `ORDER BY` clause. `null` or blank leaves the clause out. */
     fun orderBy(ordering: String?): SelectQuery = apply { orderByClause = ordering }
@@ -117,6 +124,7 @@ class SelectQuery @PublishedApi internal constructor(
         it.whereCondition = whereCondition
         it.groupByClause = groupByClause
         it.havingClause = havingClause
+        it.windowClause = windowClause
         it.orderByClause = orderByClause
         it.limitValue = limitValue
         it.offsetValue = offsetValue
@@ -140,6 +148,7 @@ class SelectQuery @PublishedApi internal constructor(
             appendClause("WHERE", whereCondition)
             appendClause("GROUP BY", groupByClause)
             appendClause("HAVING", havingClause)
+            appendClause("WINDOW", windowClause)
             appendClause("ORDER BY", orderByClause)
             limitValue?.let { append("\nLIMIT ").append(it) }
             offsetValue?.takeIf { it > 0 }?.let { append("\nOFFSET ").append(it) }

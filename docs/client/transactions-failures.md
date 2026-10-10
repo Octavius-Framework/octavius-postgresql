@@ -295,8 +295,8 @@ class SpringSessionProvider(
             definition.transactionTimeout?.let { "SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}" }
         )
 
-        return TransactionTemplate(transactionManager, spring).execute {
-            if (timeouts.isNotEmpty()) {
+        return TransactionTemplate(transactionManager, spring).execute { status ->
+            if (status.isNewTransaction && timeouts.isNotEmpty()) {
                 template.execute { createNativeQuery(timeouts.joinToString("; ")).execute() }
             }
             block()
@@ -310,7 +310,9 @@ for, and isolation maps straight across because `TransactionIsolationLevel.jdbcV
 `ISOLATION_*` constant. What is not delegation is the timeouts: Spring has one, it means the transaction rather
 than the statement, and it enforces it itself — so both `SET LOCAL`s are yours to issue, and they account for
 about a third of the class. They go in one statement for the same reason the driver's own `required` sends them
-that way: a script separated by `;` is one round trip, and there is nothing here to bind.
+that way: a script separated by `;` is one round trip, and there is nothing here to bind. And they go only where
+`isNewTransaction` says this call began the transaction — [the rule above](#isolation-read-only-and-timeouts):
+joined, or under a savepoint, a `SET LOCAL` would stand over the rest of the outer transaction.
 
 That is the whole of what a `client-spring-integration` module would contain, which is why there is not one.
 See [Spring Integration](../driver/spring-integration.md) for what the driver's own module wires up.

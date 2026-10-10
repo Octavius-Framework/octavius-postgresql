@@ -97,7 +97,7 @@ Beyond `with` / `recursive`, which all four carry, each has the clauses its stat
 
 | Builder                | Clauses                                                                                                                      |
 |------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `orderBy`, `limit`, `offset`, `page`, `locking`                        |
+| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `window`, `orderBy`, `limit`, `offset`, `page`, `locking`              |
 | `db.insertInto(table)` | `value`, `values`, `valueExpression`, `valuesExpressions`, `columns` + `fromSelect`, `overriding`, `onConflict`, `returning` |
 | `db.update(table)`     | `setValue`, `setValues`, `setExpression`, `setExpressions`, `from`, `where`, `returning`                                     |
 | `db.deleteFrom(table)` | `using`, `where`, `returning`                                                                                                |

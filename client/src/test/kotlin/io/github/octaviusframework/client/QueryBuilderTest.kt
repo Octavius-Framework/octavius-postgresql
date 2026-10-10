@@ -55,6 +55,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             .from("legions")
             .where(null)
             .groupBy("")
+            .window(null)
             .orderBy(null)
             .locking(" ")
             .toSql()
@@ -64,12 +65,13 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
 
     @Test
     fun `a full select renders every clause in order`() {
-        val sql = db.select("province", "count(*) AS total")
+        val sql = db.select("province", "count(*) AS total", "rank() OVER w AS place")
             .with("active", "SELECT id FROM legions WHERE disbanded_at IS NULL")
             .from("legions l JOIN active a ON a.id = l.id")
             .where("l.strength > @min")
             .groupBy("province")
             .having("count(*) > 1")
+            .window("w AS (ORDER BY count(*) DESC)")
             .orderBy("total DESC")
             .limit(10)
             .offset(20)
@@ -79,11 +81,12 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
         assertEquals(
             """
             WITH active AS (SELECT id FROM legions WHERE disbanded_at IS NULL)
-            SELECT province, count(*) AS total
+            SELECT province, count(*) AS total, rank() OVER w AS place
             FROM legions l JOIN active a ON a.id = l.id
             WHERE l.strength > @min
             GROUP BY province
             HAVING count(*) > 1
+            WINDOW w AS (ORDER BY count(*) DESC)
             ORDER BY total DESC
             LIMIT 10
             OFFSET 20
@@ -366,6 +369,21 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             .fetchFields<String>("floor" to 4500)
 
         assertEquals(listOf("IX Hispana"), removed)
+    }
+
+    @Test
+    fun `a named window runs in a select with no GROUP BY`() {
+        db.rawQuery("INSERT INTO builder_legions (name, strength) VALUES ('IX Hispana', 4800), ('X Fretensis', 5200)")
+            .update()
+
+        val running = db.select("name", "sum(strength) OVER w AS running")
+            .from("builder_legions")
+            .window("w AS (ORDER BY id)")
+            .orderBy("id")
+            .fetchRows()
+            .map { it.get<Long>("running") }
+
+        assertEquals(listOf(4800L, 10000L), running)
     }
 
     @Test
