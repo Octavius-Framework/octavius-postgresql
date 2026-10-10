@@ -386,7 +386,7 @@ internal class OctaviusConnection(
 
     /**
      * Hands [terms] - `SET TRANSACTION`, `SET LOCAL` - to the transaction auto-commit was just turned off for,
-     * to go out in the same message as its `BEGIN`.
+     * to go out with its `BEGIN`.
      *
      * Where the server already has a transaction running - one a hand-written `BEGIN` opened - no `BEGIN` is
      * coming for them to travel with, and they go out now instead.

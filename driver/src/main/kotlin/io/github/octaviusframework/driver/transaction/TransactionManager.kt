@@ -41,8 +41,8 @@ class TransactionManager internal constructor(
      * done, which is the same decision the restricted receiver is there to keep out of the block.
      *
      * Whatever of [isolation], [readOnly], [statementTimeout] and [transactionTimeout] is asked for goes out
-     * in the same message as the `BEGIN`, which the block's first statement sends ahead of itself - at no
-     * round trip of their own, and not at all where the block runs no statement. A term the server refuses
+     * right behind the `BEGIN`, and both go with the block's first statement - at no round trip of their own,
+     * and not at all where the block runs no statement. A term the server refuses
      * fails that first statement, inside the block, so it rolls back like any other failure - and so does
      * one sent at once because a hand-written `BEGIN` had already opened the transaction. All four end
      * with the transaction, which is what separates them from
@@ -149,7 +149,8 @@ class TransactionManager internal constructor(
      * `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts: both
      * end with the transaction, so nothing here has to be undone before the connection goes back to a pool.
      * The first of them has to precede the first query of the transaction, and nothing precedes it more
-     * closely than the `BEGIN`'s own message - a script, so one round trip carries it all, with nothing to bind.
+     * closely than a message right behind the `BEGIN` - a script, sent with the `BEGIN` and the first statement
+     * alike, with nothing to bind.
      *
      * Sent now only where the server already has a transaction running that no `BEGIN` of the driver's opened.
      */

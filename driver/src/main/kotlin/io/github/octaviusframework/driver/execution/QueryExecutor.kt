@@ -69,8 +69,8 @@ internal class QueryExecutor(
     /**
      * What the next `BEGIN` carries after it - `SET TRANSACTION`, `SET LOCAL` - or `null` for nothing.
      *
-     * Terms belong to one transaction, so they go with the `BEGIN` that opens it, in the same message and at no
-     * round trip of their own, and are dropped once it has gone. Whoever ends that transaction without a
+     * Terms belong to one transaction, so they go with the `BEGIN` that opens it, in a message right behind it
+     * and at no round trip of their own, and are dropped once it has gone. Whoever ends that transaction without a
      * statement having begun it drops them too.
      */
     var deferredTerms: String? = null
@@ -140,14 +140,10 @@ internal class QueryExecutor(
      *
      * The busy mark is what makes a reentrant call fail cleanly instead of interleaving its
      * messages into an exchange already in flight - the lock alone cannot, being reentrant.
-     *
-     * [beginFirst] is off only for the statements that manage the connection or its transaction
-     * themselves - see [control].
      */
-    private inline fun <T> exchange(beginFirst: Boolean = true, block: () -> T): T = stream.lock.withLock {
+    private inline fun <T> exchange(block: () -> T): T = stream.lock.withLock {
         stream.beginExchange()
         try {
-            if (beginFirst) beginWaitingTransaction()
             block()
         } finally {
             stream.endExchange()
@@ -155,29 +151,72 @@ internal class QueryExecutor(
     }
 
     /**
-     * Sends the `BEGIN` a transaction is waiting on, if one is: auto-commit is off and the server's last
+     * Writes the `BEGIN` a transaction is waiting on, if one is: auto-commit is off and the server's last
      * `ReadyForQuery` said idle.
      *
-     * One round trip of its own, ahead of the statement that needed it, so a failure here - a term the server
-     * refuses - raises before that statement is ever sent. A refused term leaves the transaction begun and failed,
-     * which is where the terms stop mattering; only a `BEGIN` that did not take at all keeps them for the next try.
+     * Nothing is flushed. The statement that needed it is written straight after and goes out in the same
+     * write, so the `BEGIN` costs no round trip of its own, and [receiveBegin] reads its answer ahead of the
+     * statement's.
+     *
+     * The terms go in a message of their own behind it rather than in the `BEGIN`'s. The server parses a whole
+     * message before running any of it, so a message it could not parse would never have begun the transaction -
+     * and the statement already on its way behind it would then run, and commit, outside one. Sent alone, the
+     * `BEGIN` has run by the time anything after it can fail, which leaves the transaction failed rather than
+     * never begun, and the statement refused.
+     *
+     * @return How many messages it went out as: none, one, or two with terms - each answered by a `ReadyForQuery`.
      */
-    private fun beginWaitingTransaction() {
-        if (!beginsTransactions || stream.transactionStatus != 'I') return
-        val terms = deferredTerms
+    private fun sendWaitingBegin(): Int {
+        if (!beginsTransactions || stream.transactionStatus != 'I') return 0
+        stream.sendMessage(SimpleQueryMessage("BEGIN"))
+        val terms = deferredTerms ?: return 1
+        stream.sendMessage(SimpleQueryMessage(terms))
+        return 2
+    }
+
+    /**
+     * Reads the answer to what [sendWaitingBegin] wrote, up to its last `ReadyForQuery`, and hands back the
+     * refusal if there was one - a term the server would not take.
+     *
+     * Read before anything of the statement's, which is what keeps the readers below unaware of it: the
+     * `BEGIN`'s `CommandComplete` would otherwise be the first one they saw. A refusal is returned rather than
+     * thrown, so that the statement's own answer - a refusal too, the transaction having failed - is read off
+     * the connection first; the caller throws this one in its place. A refused term leaves the transaction
+     * begun and failed, which is where the terms stop mattering; only a `BEGIN` that did not take at all keeps
+     * them for the next try.
+     *
+     * @param messages What [sendWaitingBegin] returned.
+     */
+    private fun receiveBegin(messages: Int): ErrorOrNoticeMessage? {
+        if (messages == 0) return null
+        var refusal: ErrorOrNoticeMessage? = null
         try {
-            simpleQuery(if (terms == null) "BEGIN" else "BEGIN; $terms", ignoreRows = false)
-            logger.debug { "$pid Transaction begun ahead of its first statement" }
+            var remaining = messages
+            while (remaining > 0) {
+                when (val msg = stream.receiveMessage()) {
+                    is ErrorOrNoticeMessage -> if (refusal == null) refusal = msg
+                    is ReadyForQueryMessage -> remaining--
+                    else -> { /* The CommandComplete of the BEGIN, and of each term */ }
+                }
+            }
         } finally {
             if (stream.transactionStatus != 'I') deferredTerms = null
         }
+        if (refusal == null) logger.debug { "$pid Transaction begun ahead of its first statement" }
+        return refusal
     }
 
     /**
      * Opens the transaction a `BEGIN` is waiting on, for the one caller that talks to the server without an
-     * exchange of this class: a `COPY`, whose transfer outlives any single exchange.
+     * exchange of this class: a `COPY`, whose transfer outlives any single exchange. This one waits for the
+     * answer, a round trip of its own, before the `COPY` goes out.
      */
-    fun beginWaitingTransactionNow() = exchange { }
+    fun beginWaitingTransactionNow() = exchange {
+        val messages = sendWaitingBegin()
+        if (messages == 0) return@exchange
+        stream.flush()
+        receiveBegin(messages)?.let { throw ExceptionTranslator.translate(it) }
+    }
 
     /**
      * Sends the opening of an Extended Query exchange: `Parse`, `Bind` and a `Describe` of the portal.
@@ -186,16 +225,22 @@ internal class QueryExecutor(
      * `Execute` and a `Sync` for a result read whole, an `Execute` per batch for one streamed.
      * Serializing the parameters is part of this: it fills [parameterWriter], which the `Bind` built
      * here is the only reader of.
+     *
+     * A waiting `BEGIN` is written here too, between the two: after the parameters, so that a value which
+     * cannot be encoded leaves nothing in the buffer for the next exchange to send, and before the `Parse`.
+     *
+     * @return What [sendWaitingBegin] returned, for the caller to hand to [receiveBegin] once it has flushed.
      */
     private fun sendParseBindDescribe(
         sql: String,
         params: Array<out Any?>,
         parameterSerializer: ParameterSerializer?
-    ) {
+    ): Int {
         val paramTypes = parameterSerializer?.serializeAll(params, parameterWriter) ?: IntArray(0)
         val paramValues = if (parameterSerializer != null) parameterWriter.data else ByteArray(0)
         val paramValuesLength = if (parameterSerializer != null) parameterWriter.position else 0
 
+        val beginMessages = sendWaitingBegin()
         stream.sendMessage(ParseMessage(UNNAMED, sql, paramTypes))
         stream.sendMessage(
             BindMessage(
@@ -203,6 +248,7 @@ internal class QueryExecutor(
             )
         )
         stream.sendMessage(DescribeMessage('P', UNNAMED))
+        return beginMessages
     }
 
     /**
@@ -213,7 +259,7 @@ internal class QueryExecutor(
      * [ReadyForQueryMessage] before this connection is usable again, and that means draining whatever the
      * server sent. What [ignoreRows] governs is only whether their arrival is reported as a mistake.
      */
-    fun execute(sql: String, ignoreRows: Boolean = false) = exchange { simpleQuery(sql, ignoreRows) }
+    fun execute(sql: String, ignoreRows: Boolean = false) = exchange { simpleQuery(sql, ignoreRows, beginFirst = true) }
 
     /**
      * Runs a statement that manages the connection or its transaction itself: `COMMIT`, `ROLLBACK`, a savepoint
@@ -224,14 +270,20 @@ internal class QueryExecutor(
      * transaction - so opening one for it would be at best a wasted round trip, and for a session setting
      * would take the setting out of the transaction it was meant to reach.
      */
-    fun control(sql: String) = exchange(beginFirst = false) { simpleQuery(sql, ignoreRows = false) }
+    fun control(sql: String) = exchange { simpleQuery(sql, ignoreRows = false, beginFirst = false) }
 
-    /** The body of [execute] and [control], run inside an exchange one of them has taken. */
-    private fun simpleQuery(sql: String, ignoreRows: Boolean) {
+    /**
+     * The body of [execute] and [control], run inside an exchange one of them has taken.
+     *
+     * @param beginFirst Whether a waiting `BEGIN` goes out ahead of [sql] - off only for [control].
+     */
+    private fun simpleQuery(sql: String, ignoreRows: Boolean, beginFirst: Boolean) {
         val startedAt = traceStart(sql, emptyArray())
 
+        val beginMessages = if (beginFirst) sendWaitingBegin() else 0
         stream.sendMessage(SimpleQueryMessage(sql))
         stream.flush()
+        val beginRefusal = receiveBegin(beginMessages)
 
         var errorResponse: ErrorOrNoticeMessage? = null
         var executionError: OctaviusException? = null
@@ -254,6 +306,8 @@ internal class QueryExecutor(
             }
         }
 
+        // Ahead of the statement's own error, which is only the failed transaction refusing it.
+        if (beginRefusal != null) throw ExceptionTranslator.translate(beginRefusal)
         if (errorResponse != null) {
             throw ExceptionTranslator.translate(errorResponse)
         } else if (executionError != null) {
@@ -275,11 +329,12 @@ internal class QueryExecutor(
     ): Long = exchange {
         val startedAt = traceStart(sql, params)
 
-        sendParseBindDescribe(sql, params, parameterSerializer)
+        val beginMessages = sendParseBindDescribe(sql, params, parameterSerializer)
         stream.sendMessage(ExecuteMessage(UNNAMED, 0))
         stream.sendMessage(SyncMessage())
 
         stream.flush()
+        val beginRefusal = receiveBegin(beginMessages)
 
         var rowsAffected = 0L
         var errorResponse: ErrorOrNoticeMessage? = null
@@ -324,6 +379,8 @@ internal class QueryExecutor(
             }
         }
 
+        // Ahead of the statement's own error, which is only the failed transaction refusing it.
+        if (beginRefusal != null) throw ExceptionTranslator.translate(beginRefusal)
         if (errorResponse != null) {
             throw ExceptionTranslator.translate(errorResponse)
         } else if (executionError != null) {
@@ -371,11 +428,12 @@ internal class QueryExecutor(
     ): List<R> = exchange {
         val startedAt = traceStart(sql, params)
 
-        sendParseBindDescribe(sql, params, parameterSerializer)
+        val beginMessages = sendParseBindDescribe(sql, params, parameterSerializer)
         stream.sendMessage(ExecuteMessage(UNNAMED, maxRows))
         stream.sendMessage(SyncMessage())
 
         stream.flush()
+        val beginRefusal = receiveBegin(beginMessages)
 
         val rows = mutableListOf<R>()
         var rowMetadata: RowMetadata? = null
@@ -433,6 +491,7 @@ internal class QueryExecutor(
             }
         }
         
+        if (beginRefusal != null) throw ExceptionTranslator.translate(beginRefusal)
         if (errorResponse != null) {
             throw ExceptionTranslator.translate(errorResponse)
         } else if (executionError != null) {
@@ -472,7 +531,8 @@ internal class QueryExecutor(
         exchange {
             val startedAt = traceStart(sql, params)
 
-            sendParseBindDescribe(sql, params, parameterSerializer)
+            var beginMessages = sendParseBindDescribe(sql, params, parameterSerializer)
+            var beginRefusal: ErrorOrNoticeMessage? = null
 
             var rowMetadata: RowMetadata? = null
             var errorResponse: ErrorOrNoticeMessage? = null
@@ -485,6 +545,12 @@ internal class QueryExecutor(
                 stream.sendMessage(ExecuteMessage(UNNAMED, fetchSize))
                 stream.sendMessage(FlushMessage())
                 stream.flush()
+                // Only after the first Execute: the BEGIN goes out in the same write as the statement, and a
+                // refused term leaves the statement to be refused in turn, which the loop below reads as usual.
+                if (beginMessages > 0) {
+                    beginRefusal = receiveBegin(beginMessages)
+                    beginMessages = 0
+                }
 
                 msgLoop@ while (true) {
                     when (val msg = stream.receiveMessage()) {
@@ -552,6 +618,7 @@ internal class QueryExecutor(
                 }
             }
 
+            if (beginRefusal != null) throw ExceptionTranslator.translate(beginRefusal)
             if (errorResponse != null) throw ExceptionTranslator.translate(errorResponse)
             if (executionError != null) throw executionError
 

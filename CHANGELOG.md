@@ -28,6 +28,10 @@
 - **An enum registered with a schema is read as `Any` ahead of one registered without**, as a composite already was.
   Whichever was registered last used to win.
 
+- **A transaction's `BEGIN` goes out with its first statement in one write**, terms included, rather than as a round
+  trip of its own ahead of it: a `required { }` around one statement costs two round trips instead of three. A `COPY`
+  that begins a transaction still waits for its `BEGIN`.
+
 #### Fixed
 
 - **A cancel request goes to the address its connection reached**, not to its host name resolved again.

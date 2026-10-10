@@ -2,6 +2,7 @@ package io.github.octaviusframework.driver.initialization
 
 import io.github.octaviusframework.driver.exception.ExecutionAbortedException
 import io.github.octaviusframework.driver.exception.ExecutionAbortedExceptionReason
+import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.session.OctaviusSession
@@ -14,6 +15,8 @@ import java.util.concurrent.Executors
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The driver through PgBouncer, which speaks protocol 3.0 to its clients whatever the server behind it speaks.
@@ -75,6 +78,39 @@ class PgBouncerIntegrationTest : AbstractIntegrationTest() {
                 .fetchField<Boolean>(Rank.Praetor)
 
             assertTrue(boundAsSenatus)
+        }
+    }
+
+    @Test
+    fun `should hold a transaction its first statement began through the pooler`() {
+        // The BEGIN, the terms and the first statement reach the pooler in one write, each answered by a
+        // ReadyForQuery of its own; the transaction has to keep its server across all three and past them.
+        openPooledSession().use { session ->
+            val (timeout, oneTransaction) = session.transaction.required(statementTimeout = 7.seconds) {
+                val first = createNativeQuery("SELECT pg_current_xact_id()::text").fetchField<String>()
+                val timeout = createNativeQuery("SELECT current_setting('statement_timeout')").fetchField<String>()
+                val last = createNativeQuery("SELECT pg_current_xact_id()::text").fetchField<String>()
+                timeout to (first == last)
+            }
+
+            assertEquals("7s", timeout)
+            assertTrue(oneTransaction)
+            assertEquals("0", session.createNativeQuery("SELECT current_setting('statement_timeout')").fetchField<String>())
+        }
+    }
+
+    @Test
+    fun `should refuse a term through the pooler and carry on`() {
+        openPooledSession().use { session ->
+            // Past the int milliseconds statement_timeout is kept in, so the SET LOCAL behind the BEGIN is refused.
+            val thrown = assertFailsWith<OctaviusException> {
+                session.transaction.required(statementTimeout = 30.days) {
+                    createNativeQuery("SELECT 1").fetchField<Int>()
+                }
+            }
+
+            assertEquals("22023", thrown.sqlState)
+            assertEquals(1, session.createNativeQuery("SELECT 1").fetchField<Int>())
         }
     }
 

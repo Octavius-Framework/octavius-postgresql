@@ -144,7 +144,7 @@ on its savepoint path, they are ignored and a warning says which ones were dropp
 reach for where the terms have to hold. A `db.transaction { }` written inside a `db.execute { }` *is* starting
 one — `execute` binds a session, not a transaction — so there its terms apply in full.
 
-**All four are scoped to the transaction and travel in the `BEGIN`'s own message**, which goes out with the
+**All four are scoped to the transaction and travel right behind the `BEGIN`**, which goes out with the
 block's first statement: `SET TRANSACTION` for isolation and `readOnly`, `SET LOCAL` for the timeouts, at no
 round trip of their own. Nothing is left on the connection when the transaction ends, so nothing follows it
 back into the pool.
