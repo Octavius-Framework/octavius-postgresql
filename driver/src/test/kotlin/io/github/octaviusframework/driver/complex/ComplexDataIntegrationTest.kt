@@ -205,8 +205,7 @@ class ComplexDataIntegrationTest : AbstractIntegrationTest() {
             )
         }
     }
-
-    /** The invasion of AD 43, quotes of both kinds included, since both are special inside a composite's text. */
+    
     private fun britannia() = Campaign(
         name = "Expeditio \"Britannica\"",
         description = "Claudius's invasion, four legions across the Oceanus.",
