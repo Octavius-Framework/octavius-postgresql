@@ -82,7 +82,7 @@ val newSenatorId: Long = session.transaction.required {
 
 For integrating with an existing transaction manager, or when commit and rollback are decided elsewhere, drive the boundaries through `OctaviusSession` directly. A few behaviours here are easy to be surprised by, so they are worth stating plainly.
 
-**Leaving auto-commit opens a transaction, and its `BEGIN` goes out with the first statement.** `session.autoCommit = false` sends nothing. The session is `IN_TRANSACTION` from that line on, but the server hears of the transaction only when a statement arrives: the driver sends the `BEGIN` ahead of that statement, as a round trip of its own. A transaction that never runs a statement never reaches the server, and ending it sends nothing either.
+**Leaving auto-commit opens a transaction, and its `BEGIN` goes out with the first statement.** `session.autoCommit = false` sends nothing. The session is `IN_TRANSACTION` from that line on, but the server hears of the transaction only when a statement arrives: the driver sends the `BEGIN` together with that statement, at no round trip of its own. A transaction that never runs a statement never reaches the server, and ending it sends nothing either.
 
 **`commit()` and `rollback()` end the transaction, and the next statement begins another.** The session stays `IN_TRANSACTION` until you turn auto-commit back on, so there is no need to "begin" anything before the next statement — and nothing is left open on the server in between.
 
@@ -191,7 +191,7 @@ session.transaction.required(
 }
 ```
 
-Whatever of the four is asked for travels **in the `BEGIN`'s own message**, so it costs no round trip of its
+Whatever of the four is asked for travels **right behind the `BEGIN`**, so it costs no round trip of its
 own: `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts. Ask for
 none of them — the default — and the `BEGIN` goes alone.
 

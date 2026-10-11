@@ -27,5 +27,8 @@ benchmarks/logs/
 ### Throwaway TLS server from scripts/ssl-test-server.ps1 ###
 .ssl-test/
 
+### Throwaway primary, standby and foreign server from scripts/replication-test-servers.ps1 ###
+.replication-test/
+
 # Yarn lockfile the Kotlin/JS target writes for the annotations module
 /kotlin-js-store/

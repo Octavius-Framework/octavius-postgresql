@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import java.io.EOFException
 import java.io.IOException
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketException
@@ -34,8 +35,12 @@ import javax.net.ssl.SSLSocket
  * Represents a connection stream to a PostgreSQL database.
  * Handles reading and writing of PostgreSQL wire protocol messages.
  *
- * @property host The hostname or IP address of the PostgreSQL server.
+ * @property host The hostname or IP address of the PostgreSQL server, as it was written - what a
+ *   certificate is matched against.
  * @property port The port number of the PostgreSQL server.
+ * @property address Which of the addresses [host] resolves to the socket is opened to. Kept because
+ *   [host] can name several, and a second connection opened on this one's behalf - a cancel request -
+ *   has to reach the same server.
  * @property loginTimeoutSecs Timeout in seconds for the initial connection and login process.
  * @param notificationBufferCapacity Capacity of the buffer for asynchronous notifications.
  * @property sslConfiguration The SSL settings this connection was established with, kept so that a
@@ -46,6 +51,7 @@ import javax.net.ssl.SSLSocket
 internal class PgStream(
     val host: String,
     val port: Int,
+    val address: InetAddress,
     val loginTimeoutSecs: Int = 10,
     notificationBufferCapacity: Int = 256,
     val noticeHandler: NoticeHandler? = null,
@@ -158,7 +164,7 @@ internal class PgStream(
 
     init {
         val connectTimeoutMs = if (loginTimeoutSecs > 0) loginTimeoutSecs * 1000 else 10000
-        socket.connect(InetSocketAddress(host, port), connectTimeoutMs)
+        socket.connect(InetSocketAddress(address, port), connectTimeoutMs)
         socket.soTimeout = connectTimeoutMs
         socket.tcpNoDelay = true
         inputStream = PgInputStream(socket.getInputStream())

@@ -148,7 +148,7 @@ container step — remains as available as it ever was.
 ## Why the type registry is global per database
 
 Register a composite through one session and every other session pointing at that database sees it —
-including sessions from a different pool. The registry is keyed by host, port and database name, and it is
+including sessions from a different pool. The registry is keyed by the servers and the database name, and it is
 JVM-wide.
 
 The obvious alternative is a registry per session, which is wrong for a reason that is easy to miss: **the

@@ -98,6 +98,15 @@ class OctaviusPropertiesTest {
     }
 
     @Test
+    fun `should read an unbracketed IPv6 address in the url the way serverName reads it`() {
+        val props = OctaviusProperties.parse("jdbc:octavius://::1/res_publica")
+
+        // More than one colon is an address, with no room for a port
+        assertEquals("::1", props.serverName)
+        assertNull(props.portNumber)
+    }
+
+    @Test
     fun `should round trip an IPv6 host through toUrl`() {
         val original = OctaviusProperties()
         original.serverName = "::1"
@@ -109,6 +118,110 @@ class OctaviusPropertiesTest {
         assertEquals("::1", parsed.serverName)
         assertEquals(5433, parsed.portNumber)
         assertEquals("res_publica", parsed.databaseName)
+    }
+
+    @Test
+    fun `should parse several servers, each with a port of its own or the one for all`() {
+        val props = OctaviusProperties.parse("jdbc:octavius://db1:5433,db2,[2001:db8::1]:5434/res_publica?port=6000")
+
+        // Kept as written: the ports that come with a server stay with it, and portNumber is the one for the rest
+        assertEquals("db1:5433,db2,[2001:db8::1]:5434", props.serverName)
+        assertEquals(
+            listOf(ServerAddress("db1", 5433), ServerAddress("db2", 6000), ServerAddress("2001:db8::1", 5434)),
+            props.servers()
+        )
+        assertEquals("res_publica", props.databaseName)
+    }
+
+    @Test
+    fun `should refuse an entry of the address it cannot read`() {
+        val refused = listOf(
+            "db.local:abc",
+            "db1:5433,db2:abc",
+            "db1,,db2"
+        )
+
+        for (address in refused) {
+            val e = assertFailsWith<InvalidOperationException>(address) {
+                OctaviusProperties.parse("jdbc:octavius://$address/res_publica")
+            }
+            assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, e.reason)
+            assertTrue(e.details!!.contains(address), e.details)
+        }
+    }
+
+    @Test
+    fun `should read several servers given as the host parameter`() {
+        val props = OctaviusProperties.parse("jdbc:octavius:///res_publica?host=db1,db2&port=5433")
+
+        assertEquals(listOf(ServerAddress("db1", 5433), ServerAddress("db2", 5433)), props.servers())
+    }
+
+    @Test
+    fun `should read a lone bare IPv6 address as one server`() {
+        val props = OctaviusProperties().apply {
+            serverName = "::1"
+            portNumber = 5433
+        }
+
+        assertEquals(listOf(ServerAddress("::1", 5433)), props.servers())
+    }
+
+    @Test
+    fun `should round trip several servers and how to choose among them through toUrl`() {
+        val original = OctaviusProperties().apply {
+            serverName = "db1,[::1]:5434"
+            portNumber = 5433
+            targetSessionAttrs = TargetSessionAttrs.PRIMARY
+            loadBalanceHosts = LoadBalanceHosts.RANDOM
+        }
+
+        val parsed = OctaviusProperties.parse(original.toUrl())
+
+        assertEquals(original.servers(), parsed.servers())
+        assertEquals(TargetSessionAttrs.PRIMARY, parsed.targetSessionAttrs)
+        assertEquals(LoadBalanceHosts.RANDOM, parsed.loadBalanceHosts)
+    }
+
+    @Test
+    fun `should read target_session_attrs and load_balance_hosts under either spelling`() {
+        val libpq = OctaviusProperties.parse(
+            "jdbc:octavius://db1,db2/res_publica?target_session_attrs=prefer-standby&load_balance_hosts=random"
+        )
+        val camelCased = OctaviusProperties.parse(
+            "jdbc:octavius://db1,db2/res_publica?targetSessionAttrs=PREFER_STANDBY&loadBalanceHosts=RANDOM"
+        )
+
+        for (props in listOf(libpq, camelCased)) {
+            assertEquals(TargetSessionAttrs.PREFER_STANDBY, props.targetSessionAttrs)
+            assertEquals(LoadBalanceHosts.RANDOM, props.loadBalanceHosts)
+            assertEquals(emptyMap<String, String>(), props.additionalProperties)
+        }
+    }
+
+    @Test
+    fun `merge should carry how to choose among the servers without erasing it`() {
+        val base = OctaviusProperties().apply {
+            targetSessionAttrs = TargetSessionAttrs.STANDBY
+            loadBalanceHosts = LoadBalanceHosts.RANDOM
+        }
+
+        base.merge(OctaviusProperties())
+        assertEquals(TargetSessionAttrs.STANDBY, base.targetSessionAttrs)
+        assertEquals(LoadBalanceHosts.RANDOM, base.loadBalanceHosts)
+
+        base.merge(OctaviusProperties().apply { targetSessionAttrs = TargetSessionAttrs.READ_WRITE })
+        assertEquals(TargetSessionAttrs.READ_WRITE, base.copy().targetSessionAttrs)
+        assertEquals(LoadBalanceHosts.RANDOM, base.copy().loadBalanceHosts)
+    }
+
+    @Test
+    fun `toUrl should render a serverName it cannot read rather than refuse it`() {
+        val props = OctaviusProperties().apply { serverName = "db1,,db2" }
+
+        // A URL is for a log line; the connection is what refuses it
+        assertTrue(props.toUrl().startsWith("jdbc:octavius://db1,,db2:5432/"), props.toUrl())
+        assertFailsWith<InvalidOperationException> { props.servers() }
     }
 
     @Test
@@ -267,7 +380,11 @@ class OctaviusPropertiesTest {
             "ssl=yes",
             "port=abc",
             "socketTimeout=30s",
-            "logParameterValues=tak"
+            "logParameterValues=tak",
+            "target_session_attrs=master",
+            "load_balance_hosts=true",
+            "host=db1,,db2",
+            "host=db1:abc,db2"
         )
 
         for (parameter in refused) {

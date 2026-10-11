@@ -8,7 +8,7 @@ Octavius takes a deliberately radical stance on database access in the JVM world
 It technically implements `java.sql.Driver` and `java.sql.Connection` — but it strips out and disables most of what the JDBC specification actually asks of a driver. `jdbcCompliant()` returns `false`, and means it.
 
 The reasoning: JDBC's core contracts (`ResultSet`, `Statement`) were designed for a different era of Java. They push developers toward stateful, mutable objects, manual index-based binding, and a constant risk of resource leaks if something isn't closed. 
-Octavius replaces all of that with a functional, Kotlin-first API — and even the driver's own name nods to reinvention: Octavius was the birth name of Gaius Octavius, before Rome came to know him as Augustus.
+Octavius replaces all of that with a functional, Kotlin-first API — and even the driver's own name nods to reinvention: Gaius Octavius was the birth name of the man Rome came to know as Augustus.
 
 ## The "Trojan Horse" Strategy (Connection Pools)
 

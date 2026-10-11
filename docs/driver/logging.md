@@ -70,13 +70,13 @@ Two things that build on the driver keep names of their own, and neither is reac
 The split is by **how often a line appears**, not by how important it sounds. What follows is the driver reporting on
 itself.
 
-| Level   | Frequency                                      | What you get                                                               |
-|:--------|:-----------------------------------------------|:---------------------------------------------------------------------------|
-| `error` | Practically never                              | Only a `NoticeHandler` of yours that threw                                 |
-| `warn`  | Practically never                              | A connection on its way out, or a registered codec bound to nothing        |
-| `info`  | Once per database, plus every `reloadTypes()`  | The type catalog load, with its type count and duration                    |
-| `debug` | Once per connection, per transaction, per COPY | Lifecycle: connections, transactions, savepoints, `LISTEN`, TLS, transfers |
-| `trace` | Twice per statement                            | Every statement, its duration, and session parameters that move            |
+| Level   | Frequency                                      | What you get                                                                                            |
+|:--------|:-----------------------------------------------|:--------------------------------------------------------------------------------------------------------|
+| `error` | Practically never                              | Only a `NoticeHandler` of yours that threw                                                              |
+| `warn`  | Practically never                              | A connection on its way out, a registered codec bound to nothing, or a listed server of another cluster |
+| `info`  | Once per database, plus every `reloadTypes()`  | The type catalog load, with its type count and duration                                                 |
+| `debug` | Once per connection, per transaction, per COPY | Lifecycle: connections, transactions, savepoints, `LISTEN`, TLS, transfers                              |
+| `trace` | Twice per statement                            | Every statement, its duration, and session parameters that move                                         |
 
 **Server notices cut across the whole table.** They are the server talking rather than the driver, so they take their
 level from its severity instead of from this scheme, and `warn`, `info` and `debug` each carry them. A codebase that
@@ -90,7 +90,7 @@ The only thing the driver considers worth an unprompted line is
 [the catalog load](initialization.md#the-first-connection-pays-for-the-type-catalog):
 
 ```
-ROME (Relational-Object Mapping Engine) open for DatabaseKey(host=localhost, port=5432, database=curia) - 421 types read in 38ms
+ROME (Relational-Object Mapping Engine) open for localhost:5432/curia - 421 types read in 38ms
 ```
 
 It happens once per database for the lifetime of the JVM, and it is the reason a pool's first connection is measurably
@@ -241,19 +241,23 @@ caught, or a call it made for you - because there it reaches nobody at all. Thos
 | A session could not reset its connection state on `close()`        | `warn`  |
 | A session was closed with a `COPY` still in flight                 | `warn`  |
 | Auto-commit could not be restored after a successful commit        | `warn`  |
+| A listed server belongs to another cluster than the type catalog   | `warn`  |
 | A `NoticeHandler` you configured threw                             | `error` |
+| A listed server was passed over — with why                         | `debug` |
 | `isValid()` answered `false` — with the reason it did              | `debug` |
 | A cancel request could not be opened or sent                       | `debug` |
 | A large object descriptor could not be closed                      | `debug` |
 | A network timeout could not be restored after a probe or poll loop | `debug` |
 | A socket refused to close, or `Terminate` could not be sent        | `trace` |
 
-The first four are at their levels because somebody has to see them. Every `warn` line is a connection on its way out
-with the reason held nowhere else: a pool evicting one reports that it went away and nothing more - whether the
-session could not reset it or was closed with a transfer still open - and a scope whose commit landed before the
-connection dropped tells the caller nothing at all - deliberately, since the work is in the database and raising there
-would read as a transaction that failed. The `error` is your own code, and nothing else in the process will mention
-it.
+The first five are at their levels because somebody has to see them. The first three `warn` lines are a connection on
+its way out with the reason held nowhere else: a pool evicting one reports that it went away and nothing more -
+whether the session could not reset it or was closed with a transfer still open - and a scope whose commit landed
+before the connection dropped tells the caller nothing at all - deliberately, since the work is in the database and
+raising there would read as a transaction that failed. The fourth is a server
+[passed over](initialization.md#one-catalog-for-the-list) every time it is reached: while another in the list answers
+nothing fails, so nothing else would ever say that one of them is never used. The `error` is your own code, and
+nothing else in the process will mention it.
 
 ## What never reaches the log
 

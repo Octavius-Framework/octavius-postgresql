@@ -1,3 +1,68 @@
+## Version 2.5.0 (v2.5.0)
+
+### Driver
+
+#### Added
+
+- **Several servers in one URL, chosen among the way `libpq` does** - `jdbc:octavius://db1:5432,db2,db3:5433/curia`,
+  each with a port of its own or `portNumber`'s, and the same list in `serverName` or a `host` parameter.
+  `target_session_attrs` (`any`, `read-write`, `read-only`, `primary`, `standby`, `prefer-standby`) says which kind of
+  server to settle for, read from what it reports at login, and `load_balance_hosts=random` shuffles the order. A server
+  that does not answer, takes no connections now or is the wrong kind is passed over; any other failure ends the search.
+
+- **The servers of one list share one type catalog**, and a server of another cluster than the one it was read from -
+  by `system_identifier` - is passed over with a `warn`.
+
+#### Changed
+
+- **Every address a host name resolves to is tried**, not only the first.
+
+- **An IPv6 address without a port reads as an address in a URL, unbracketed** - `jdbc:octavius://::1/curia` - as it
+  already did in `serverName`. It used to read as the host `:` on port 1.
+
+- **One composite or enum type name for two classes is refused, and so is one class under two names**, with
+  `InvalidOperationException(INVALID_ARGUMENT)`, as for `dynamic_dto` - and an enum registered again with other
+  conventions. A second class used to take the name over for reads as `Any`, on every session on the database. The
+  same registration again changes nothing, and an enum's no longer puts a second pair of converters ahead of the first.
+
+- **An enum registered with a schema is read as `Any` ahead of one registered without**, as a composite already was.
+  Whichever was registered last used to win.
+
+- **A transaction's `BEGIN` goes out with its first statement in one write**, terms included, rather than as a round
+  trip of its own ahead of it: a `required { }` around one statement costs two round trips instead of three. A `COPY`
+  that begins a transaction still waits for its `BEGIN`.
+
+#### Fixed
+
+- **A cancel request goes to the address its connection reached**, not to its host name resolved again.
+
+- **A port in the URL's address that is not a whole number is refused**, as a `port` parameter already was, instead of
+  being ignored in favour of the default.
+
+- **`reloadTypes()` re-reads the catalog its session reads**, also where `GlobalCatalogStore.removeCatalog` ran while
+  the session's connection was open. It used to re-read the catalog that took the dropped one's place, which that
+  session never reads - opening it if no connection had yet.
+
+### Client
+
+#### Added
+
+- **`InsertQuery.overriding(OverridingValue.SYSTEM)` and `USER`**, rendering `OVERRIDING … VALUE` after the column
+  list, where the `VALUES` form had no place for it.
+
+- **`SelectQuery.window(definitions)`**, rendering a `WINDOW` clause between `HAVING` and `ORDER BY`, where a
+  select had no place for it.
+
+- **`onConflict { onColumns(…, where = predicate) }`**, rendering a partial unique index's predicate after the
+  target's columns, where the target had no place for it.
+
+#### Changed
+
+- **`SelectQuery.forUpdate(of, mode)` and `LockWaitMode` are gone, replaced by `locking(clause)`**, which takes the
+  locking clause as SQL: `forUpdate(of = "l", mode = LockWaitMode.SKIP_LOCKED)` is
+  `locking("FOR UPDATE OF l SKIP LOCKED")`. `FOR NO KEY UPDATE`, `FOR SHARE`, `FOR KEY SHARE` and several clauses in
+  one statement were out of the builder's reach.
+
 ## Version 2.4.0 (v2.4.0)
 
 ### Driver

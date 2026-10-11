@@ -6,7 +6,6 @@ import io.github.octaviusframework.driver.converter.result.mapper.Deserializatio
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
-import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.type.PgType
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
@@ -19,10 +18,7 @@ internal object ReflectionCompositeConverter : ResultConverter<PgComposite, Any>
 
     override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
         val kClass = expectedType.classifier as? KClass<*> ?: return false
-        if (kClass == Any::class) {
-            return context.types.catalog.compositeClassByName.containsKey(QualifiedName(sourceType.schema, sourceType.name)) ||
-                    context.types.catalog.compositeClassByName.containsKey(QualifiedName("", sourceType.name))
-        }
+        if (kClass == Any::class) return context.types.catalog.compositeClassFor(sourceType) != null
         if (!kClass.isData) return false
         return context.types.catalog.registeredComposites.containsKey(kClass)
     }
@@ -32,9 +28,7 @@ internal object ReflectionCompositeConverter : ResultConverter<PgComposite, Any>
         
         @Suppress("UNCHECKED_CAST")
         val kClass = if (expectedClass == Any::class) {
-            context.types.catalog.compositeClassByName[QualifiedName(sourceType.schema, sourceType.name)]
-                ?: context.types.catalog.compositeClassByName[QualifiedName("", sourceType.name)]
-                ?: error("Missing composite registration for type")
+            context.types.catalog.compositeClassFor(sourceType) ?: error("Missing composite registration for type")
         } else {
             expectedClass
         } as KClass<Any>

@@ -92,6 +92,15 @@ the catalog at registration time, so the order of `registerAutoComposite` and `r
 only has to exist by the time a query uses it. Registration is global for the database, so do it once at startup — see
 [Scope](type-system.md#scope-a-session-handle-over-global-state).
 
+A type name is registered for one class and a class under one type name. A second class under a taken name, or a
+registered class under another name, is refused with `InvalidOperationException(INVALID_ARGUMENT)`; the same class under
+the same name again changes nothing.
+
+Names are compared as written, so `address` and `provincia.address` are two, and each can have a class of its own. Read
+as `Any`, a composite becomes the class registered under its schema-qualified name, and failing that the one registered
+under the bare name — so one schema, a tenant's say, can map its type onto a class of its own while every other falls
+back to the shared one.
+
 ### What you can ask a composite column for
 
 Registration changes what a composite value can become, but it is not the only way to read one:
@@ -132,11 +141,6 @@ session.typeManager.registerAutoComposite<Assessment>()
 Both directions report it the same way, and the `path` names the offending attribute — the fastest way to find the
 class you forgot. A class registered nowhere at all and passed at top level has no attribute to name, so it says so
 directly instead: `TypeException(MISSING_CODEC)` — *"Codec not found for: Tribute"*.
-
-Registering two classes under one type name is not rejected, and the second one silently takes the name over: the
-class → name direction stays keyed by class, so `row.get<Address>` keeps working, while `row.get<Any>` starts returning
-the newcomer. Since the registry is shared per database, that lands on every session in the JVM. One class per type is
-the only arrangement that behaves predictably.
 
 ## Writing a whole object as one parameter
 

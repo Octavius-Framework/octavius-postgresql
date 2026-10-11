@@ -2,6 +2,7 @@ package io.github.octaviusframework.driver.registry
 
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
+import io.github.octaviusframework.driver.properties.ServerAddress
 import io.github.octaviusframework.driver.type.PgType
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -87,7 +88,7 @@ class CatalogAttachmentTest {
 
     @Test
     fun `removing the catalog drops it`() {
-        val key = DatabaseKey("attachment-test-host", 5432, "attachment_test")
+        val key = DatabaseKey(setOf(ServerAddress("attachment-test-host", 5432)), "attachment_test")
         TypeManager(GlobalCatalogStore.holderFor(key)).attach(Tally::class) { Tally(listOf("gone")) }
 
         GlobalCatalogStore.removeCatalog("jdbc:octavius://attachment-test-host:5432/attachment_test")

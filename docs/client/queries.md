@@ -95,12 +95,12 @@ when the SQL is rendered — which is when a terminal runs, or when
 
 Beyond `with` / `recursive`, which all four carry, each has the clauses its statement has:
 
-| Builder                | Clauses                                                                                                        |
-|------------------------|----------------------------------------------------------------------------------------------------------------|
-| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `orderBy`, `limit`, `offset`, `page`, `forUpdate`        |
-| `db.insertInto(table)` | `value`, `values`, `valueExpression`, `valuesExpressions`, `columns` + `fromSelect`, `onConflict`, `returning` |
-| `db.update(table)`     | `setValue`, `setValues`, `setExpression`, `setExpressions`, `from`, `where`, `returning`                       |
-| `db.deleteFrom(table)` | `using`, `where`, `returning`                                                                                  |
+| Builder                | Clauses                                                                                                                      |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `db.select(…)`         | `from`, `fromSubquery`, `where`, `groupBy`, `having`, `window`, `orderBy`, `limit`, `offset`, `page`, `locking`              |
+| `db.insertInto(table)` | `value`, `values`, `valueExpression`, `valuesExpressions`, `columns` + `fromSelect`, `overriding`, `onConflict`, `returning` |
+| `db.update(table)`     | `setValue`, `setValues`, `setExpression`, `setExpressions`, `from`, `where`, `returning`                                     |
+| `db.deleteFrom(table)` | `using`, `where`, `returning`                                                                                                |
 
 `fromSubquery(sql, alias)` parenthesises and aliases for you, which is all it does — `from("(…) AS t")` is the
 same statement. `using` is `DELETE`'s join clause, as `from` is `UPDATE`'s. `columns(…)` names the target
@@ -124,12 +124,11 @@ db.select("id", "cognomen")
 A filter assembled at runtime is otherwise a string-concatenation problem with a dangling `AND` in it. Here the
 clause either has something to say or is not rendered.
 
-`offset` and `page` are the exception and take non-null values, an offset without a limit being a question
-rather than a filter. `page(page, size)` is `limit(size).offset(page * size)`, counted from zero.
+`page(page, size)` is the exception and takes non-null values: it is `limit(size).offset(page * size)`, counted
+from zero.
 
-`forUpdate(of, mode)` adds row locking. `of` names which of the query's tables to lock, or `null` for all of
-them; `mode` is `LockWaitMode.NOWAIT` (fail rather than wait) or `LockWaitMode.SKIP_LOCKED` (leave the locked
-rows out and carry on), `null` waiting for them. Worth calling only inside
+`locking(clause)` adds row locking, written whole with `FOR` in it, since several clauses may follow one
+another: `locking("FOR NO KEY UPDATE OF l SKIP LOCKED")`. Worth calling only inside
 [`db.transaction { }`](transactions-failures.md#propagation): the lock is held until the transaction ends, and
 outside one that is until the statement finishes, which is no lock at all.
 
@@ -223,7 +222,8 @@ db.insertInto("census")
 ```
 
 Two decisions go in it. **What to conflict on** — `onColumns("citizen_id", …)` for a unique index over those
-columns, or `onConstraint("census_citizen_uq")` for a named one. **What to do about it** — `doNothing()`, or
+columns, `onColumns("citizen_id", where = "revoked_at IS NULL")` for a partial one, or
+`onConstraint("census_citizen_uq")` for a named constraint. **What to do about it** — `doNothing()`, or
 `doUpdate(…)`.
 
 The target is optional and the action is not: a clause saying what to conflict on and nothing about what to do

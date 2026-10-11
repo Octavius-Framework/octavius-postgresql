@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.exception.SQLExceptionWrapper
 import io.github.octaviusframework.driver.session.OctaviusSessionImpl
+import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.driver.session.TransactionIsolationLevel
 import org.junit.jupiter.api.assertThrows
 import kotlin.test.assertEquals
@@ -259,6 +260,70 @@ class TransactionTest : AbstractIntegrationTest() {
 
         assertTrue(session.autoCommit)
         assertEquals(TransactionState.IDLE, session.transactionState)
+        assertEquals(0L, countRows())
+    }
+
+    @Test
+    fun `whichever terminal begins the transaction reads its own answer`() {
+        session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia'), (2, 'Hispania')").execute()
+        session.autoCommit = false
+
+        val streamed = mutableListOf<Int>()
+        session.createNativeQuery("SELECT id FROM tributes ORDER BY id").forEachField<Int>(fetchSize = 1) { streamed += it }
+        session.rollback()
+        val fetched = session.createNativeQuery("SELECT id FROM tributes ORDER BY id").fetchFields<Int>()
+        session.rollback()
+        val updated = session.createNativeQuery("UPDATE tributes SET province = upper(province)").update()
+        session.rollback()
+        session.createNativeQuery("DELETE FROM tributes").execute()
+        session.rollback()
+        session.autoCommit = true
+
+        assertEquals(listOf(1, 2), streamed)
+        assertEquals(listOf(1, 2), fetched)
+        assertEquals(2L, updated)
+        assertEquals(2L, countRows())
+    }
+
+    @Test
+    fun `a refused term is what the first statement throws, whichever terminal it is`() {
+        val terminals = listOf<OctaviusSessionOperations.() -> Unit>(
+            { createNativeQuery("SELECT 1").forEachRow(fetchSize = 1) { } },
+            { createNativeQuery("SELECT 1").fetchRows() },
+            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").update() },
+            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute() }
+        )
+
+        for (terminal in terminals) {
+            val thrown = assertThrows<OctaviusException> {
+                session.transaction.required(statementTimeout = 30.days) { terminal(this) }
+            }
+
+            // The term's own refusal, not the 25P02 the statement drew from the transaction it failed
+            assertEquals("22023", thrown.sqlState)
+            assertTrue(session.autoCommit)
+        }
+        assertEquals(0L, countRows())
+    }
+
+    @Test
+    fun `a term the server cannot parse leaves the first statement refused rather than run alone`() {
+        val connection = (session as OctaviusSessionImpl).octaviusConnection
+        val statements = listOf<OctaviusSessionOperations.() -> Unit>(
+            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").update() },
+            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute() }
+        )
+
+        for (statement in statements) {
+            session.autoCommit = false
+            connection.deferTransactionTerms("SET LOCAL statement_timeout =")
+
+            val thrown = assertThrows<OctaviusException> { statement(session) }
+
+            assertEquals("42601", thrown.sqlState)
+            session.rollback()
+            session.autoCommit = true
+        }
         assertEquals(0L, countRows())
     }
 

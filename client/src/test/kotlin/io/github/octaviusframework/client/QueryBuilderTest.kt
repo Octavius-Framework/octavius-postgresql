@@ -1,6 +1,6 @@
 package io.github.octaviusframework.client
 
-import io.github.octaviusframework.client.query.LockWaitMode
+import io.github.octaviusframework.client.query.OverridingValue
 import io.github.octaviusframework.client.query.QueryFragment
 import io.github.octaviusframework.client.query.join
 import io.github.octaviusframework.client.query.withParam
@@ -28,11 +28,24 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             strength INT  NOT NULL DEFAULT 0,
             province TEXT
         );
+
+        CREATE TABLE builder_tribunes (
+            id   INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            name TEXT NOT NULL
+        );
+
+        CREATE TABLE builder_senators (
+            id          SERIAL PRIMARY KEY,
+            cognomen    TEXT NOT NULL,
+            seat        INT  NOT NULL,
+            expelled_at TIMESTAMPTZ
+        );
+        CREATE UNIQUE INDEX builder_senators_sitting ON builder_senators (cognomen) WHERE expelled_at IS NULL;
     """.trimIndent()
 
     @BeforeEach
     fun clearTable() {
-        db.rawQuery("TRUNCATE builder_legions RESTART IDENTITY").execute()
+        db.rawQuery("TRUNCATE builder_legions, builder_tribunes, builder_senators RESTART IDENTITY").execute()
     }
 
     // --- SELECT: what it renders ------------------------------------------------------------------
@@ -50,7 +63,9 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
             .from("legions")
             .where(null)
             .groupBy("")
+            .window(null)
             .orderBy(null)
+            .locking(" ")
             .toSql()
 
         assertEquals("SELECT *\nFROM legions", sql)
@@ -58,26 +73,28 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
 
     @Test
     fun `a full select renders every clause in order`() {
-        val sql = db.select("province", "count(*) AS total")
+        val sql = db.select("province", "count(*) AS total", "rank() OVER w AS place")
             .with("active", "SELECT id FROM legions WHERE disbanded_at IS NULL")
             .from("legions l JOIN active a ON a.id = l.id")
             .where("l.strength > @min")
             .groupBy("province")
             .having("count(*) > 1")
+            .window("w AS (ORDER BY count(*) DESC)")
             .orderBy("total DESC")
             .limit(10)
             .offset(20)
-            .forUpdate(of = "l", mode = LockWaitMode.SKIP_LOCKED)
+            .locking("FOR UPDATE OF l SKIP LOCKED")
             .toSql()
 
         assertEquals(
             """
             WITH active AS (SELECT id FROM legions WHERE disbanded_at IS NULL)
-            SELECT province, count(*) AS total
+            SELECT province, count(*) AS total, rank() OVER w AS place
             FROM legions l JOIN active a ON a.id = l.id
             WHERE l.strength > @min
             GROUP BY province
             HAVING count(*) > 1
+            WINDOW w AS (ORDER BY count(*) DESC)
             ORDER BY total DESC
             LIMIT 10
             OFFSET 20
@@ -156,12 +173,50 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     }
 
     @Test
+    fun `ON CONFLICT puts a partial index's predicate after its columns`() {
+        assertEquals(
+            "INSERT INTO senators (cognomen)\nVALUES (@cognomen)\nON CONFLICT (cognomen) WHERE expelled_at IS NULL DO NOTHING",
+            db.insertInto("senators").value("cognomen")
+                .onConflict {
+                    onColumns("cognomen", where = "expelled_at IS NULL")
+                    doNothing()
+                }
+                .toSql()
+        )
+        assertEquals(
+            "INSERT INTO senators (cognomen)\nVALUES (@cognomen)\nON CONFLICT (cognomen) DO NOTHING",
+            db.insertInto("senators").value("cognomen")
+                .onConflict {
+                    onColumns("cognomen", where = " ")
+                    doNothing()
+                }
+                .toSql()
+        )
+    }
+
+    @Test
     fun `insert from a select names its target columns instead of declaring values`() {
         assertEquals(
             "INSERT INTO legions (name, strength)\nSELECT name, strength FROM legion_drafts",
             db.insertInto("legions")
                 .columns("name", "strength")
                 .fromSelect("SELECT name, strength FROM legion_drafts")
+                .toSql()
+        )
+    }
+
+    @Test
+    fun `insert puts OVERRIDING after its columns, in either form`() {
+        assertEquals(
+            "INSERT INTO tribunes (id, name) OVERRIDING SYSTEM VALUE\nVALUES (@id, @name)",
+            db.insertInto("tribunes").values(listOf("id", "name")).overriding(OverridingValue.SYSTEM).toSql()
+        )
+        assertEquals(
+            "INSERT INTO tribunes (id, name) OVERRIDING USER VALUE\nSELECT id, name FROM tribune_drafts",
+            db.insertInto("tribunes")
+                .columns("id", "name")
+                .overriding(OverridingValue.USER)
+                .fromSelect("SELECT id, name FROM tribune_drafts")
                 .toSql()
         )
     }
@@ -347,6 +402,21 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     }
 
     @Test
+    fun `a named window runs in a select with no GROUP BY`() {
+        db.rawQuery("INSERT INTO builder_legions (name, strength) VALUES ('IX Hispana', 4800), ('X Fretensis', 5200)")
+            .update()
+
+        val running = db.select("name", "sum(strength) OVER w AS running")
+            .from("builder_legions")
+            .window("w AS (ORDER BY id)")
+            .orderBy("id")
+            .fetchRows()
+            .map { it.get<Long>("running") }
+
+        assertEquals(listOf(4800L, 10000L), running)
+    }
+
+    @Test
     fun `ON CONFLICT DO UPDATE upserts against the server`() {
         db.insertInto("builder_legions")
             .values(listOf("name", "strength"))
@@ -363,6 +433,41 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
         val rows = db.select("name", "strength").from("builder_legions").fetchRows()
         assertEquals(1, rows.size)
         assertEquals(5000, rows.single().get<Int>("strength"))
+    }
+
+    @Test
+    fun `ON CONFLICT upserts against a partial unique index, leaving the rows outside it alone`() {
+        db.rawQuery("INSERT INTO builder_senators (cognomen, seat, expelled_at) VALUES ('Catilina', 1, now())")
+            .update()
+
+        val upsert = db.insertInto("builder_senators")
+            .values(listOf("cognomen", "seat"))
+            .onConflict {
+                onColumns("cognomen", where = "expelled_at IS NULL")
+                doUpdate("seat = excluded.seat")
+            }
+        upsert.update("cognomen" to "Catilina", "seat" to 2)
+        upsert.update("cognomen" to "Catilina", "seat" to 3)
+
+        val seats = db.select("seat", "expelled_at IS NOT NULL AS expelled").from("builder_senators")
+            .orderBy("id")
+            .fetchRows()
+            .map { it.get<Int>("seat") to it.get<Boolean>("expelled") }
+
+        assertEquals(listOf(1 to true, 3 to false), seats)
+    }
+
+    @Test
+    fun `OVERRIDING puts a value into a GENERATED ALWAYS column, or leaves the column its own`() {
+        val insert = db.insertInto("builder_tribunes").values(listOf("id", "name")).returning("id")
+
+        val kept = insert.copy().overriding(OverridingValue.SYSTEM)
+            .fetchFieldStrict<Int>("id" to 100, "name" to "Ti. Gracchus")
+        val generated = insert.copy().overriding(OverridingValue.USER)
+            .fetchFieldStrict<Int>("id" to null, "name" to "P. Clodius")
+
+        assertEquals(100, kept)
+        assertEquals(1, generated)
     }
 
     @Test

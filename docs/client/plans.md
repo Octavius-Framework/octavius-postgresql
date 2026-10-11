@@ -225,7 +225,7 @@ Kotlin; the plan writes what was decided.
 
 ```kotlin
 fun answer(petitionId: Int, draft: EdictDraft): Int = db.transaction {
-    val status = select("status").from("petitions").where("id = @id").forUpdate()
+    val status = select("status").from("petitions").where("id = @id").locking("FOR UPDATE")
         .fetchFieldStrict<String>("id" to petitionId)
     if (status != "OPEN") throw PetitionClosedException(petitionId)
 

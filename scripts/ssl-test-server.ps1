@@ -20,12 +20,6 @@
     remove  Stop the server and delete `.ssl-test/` outright.
     status  Report whether the instance exists and whether it is listening.
 
-.PARAMETER Port
-    Port to listen on. Defaults to 5433, to stay clear of an ordinary install on 5432.
-
-.PARAMETER Password
-    Password for the `postgres` role. Defaults to the one the tests use.
-
 .EXAMPLE
     .\scripts\ssl-test-server.ps1 start
 
@@ -36,14 +30,15 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet('start', 'stop', 'remove', 'status')]
-    [string]$Action = 'start',
-
-    [int]$Port = 5433,
-
-    [string]$Password = '1234'
+    [string]$Action = 'start'
 )
 
 $ErrorActionPreference = 'Stop'
+
+# SslIntegrationTest connects to this port and logs in with this password, so neither can change here alone. The
+# port is 5433 to stay clear of an ordinary install on 5432.
+$Port = 5433
+$Password = '1234'
 
 $root     = Split-Path -Parent $PSScriptRoot
 $base     = Join-Path $root '.ssl-test'

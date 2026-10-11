@@ -24,14 +24,30 @@ class OctaviusProperties {
     /** The password to authenticate with. */
     var password: String? = null
 
-    /** Hostname or IP address of the server. Defaults to `localhost`. */
+    /**
+     * Hostname or IP address of the server, or several separated by commas - `db1,db2:5433,[::1]:5434` - each
+     * with a port of its own or [portNumber]'s. Defaults to `localhost`.
+     *
+     * Several are tried in turn until one becomes a connection; [targetSessionAttrs] says which kind of server
+     * that may be, and [loadBalanceHosts] in what order they are tried. An IPv6 address with a port of its own
+     * goes in brackets; a lone one without may go bare.
+     */
     var serverName: String? = null
 
-    /** Port the server listens on. Defaults to `5432`. */
+    /** Port the server listens on - with several in [serverName], of every one not stating its own. Defaults to `5432`. */
     var portNumber: Int? = null
 
     /** The database to connect to. Defaults to `postgres`. */
     var databaseName: String? = null
+
+    /**
+     * Which kind of server to settle for among those in [serverName]: a primary, a standby, one accepting writes,
+     * and so on. Defaults to [TargetSessionAttrs.ANY], the first that accepts the connection.
+     */
+    var targetSessionAttrs: TargetSessionAttrs? = null
+
+    /** In what order the servers in [serverName] are tried. Defaults to [LoadBalanceHosts.DISABLE], as listed. */
+    var loadBalanceHosts: LoadBalanceHosts? = null
 
     /**
      * The name this connection reports to the server, where it shows up in `pg_stat_activity` and in
@@ -46,6 +62,9 @@ class OctaviusProperties {
     /**
      * Seconds to wait for the socket connect and login. Falls back to `DriverManager.getLoginTimeout()`,
      * or 10 seconds when that is `0`.
+     *
+     * It is spent per address: with several servers, or a name resolving to several addresses, each one tried
+     * gets the whole of it.
      */
     var loginTimeout: Int? = null
 
@@ -159,9 +178,11 @@ class OctaviusProperties {
         when (key.lowercase()) {
             "user" -> user = value
             "password" -> password = value
-            "servername", "host" -> serverName = value
+            "servername", "host" -> serverName = value.also { ServerAddress.parseList(key, it, 5432) }
             "portnumber", "port" -> portNumber = intValue(key, value)
             "databasename", "database" -> databaseName = value
+            "targetsessionattrs", "target_session_attrs" -> targetSessionAttrs = TargetSessionAttrs.of(value)
+            "loadbalancehosts", "load_balance_hosts" -> loadBalanceHosts = LoadBalanceHosts.of(value)
             "applicationname", "application_name" -> applicationName = value
             "logintimeout" -> loginTimeout = intValue(key, value)
             "sockettimeout" -> socketTimeout = intValue(key, value)
@@ -221,6 +242,8 @@ class OctaviusProperties {
         other.serverName?.let { serverName = it }
         other.portNumber?.let { portNumber = it }
         other.databaseName?.let { databaseName = it }
+        other.targetSessionAttrs?.let { targetSessionAttrs = it }
+        other.loadBalanceHosts?.let { loadBalanceHosts = it }
         other.applicationName?.let { applicationName = it }
         other.loginTimeout?.let { loginTimeout = it }
         other.socketTimeout?.let { socketTimeout = it }
@@ -239,6 +262,18 @@ class OctaviusProperties {
         other.sslPassword?.let { sslPassword = it }
         other.channelBinding?.let { channelBinding = it }
         additionalProperties.putAll(other.additionalProperties)
+    }
+
+    /**
+     * The servers a connection is tried against, in the order [serverName] lists them, each with its own
+     * port or [portNumber] - and `localhost` alone when no server is named.
+     *
+     * @throws InvalidOperationException `INVALID_ARGUMENT` if [serverName] does not read as a list of servers.
+     */
+    internal fun servers(): List<ServerAddress> {
+        val defaultPort = portNumber ?: 5432
+        val names = serverName ?: return listOf(ServerAddress("localhost", defaultPort))
+        return ServerAddress.parseList("serverName", names, defaultPort)
     }
 
     /**
@@ -262,9 +297,15 @@ class OctaviusProperties {
          * database and query string all optional. A URL that does not start with that prefix is not an
          * error: nothing is parsed out of it and only [info] takes effect.
          *
-         * An IPv6 address goes in brackets, `jdbc:octavius://[::1]:5432/res_publica`, and is stored
-         * without them: the brackets separate the address from the port and belong to the URL, not to
-         * the host that is later matched against a certificate.
+         * The address is read the way [serverName] reads one - see [ServerAddress.entries] - so an IPv6
+         * address with a port goes in brackets, `jdbc:octavius://[::1]:5432/res_publica`, and a single one
+         * is stored without them: they separate the address from the port, and are not part of the host a
+         * certificate is matched against.
+         *
+         * Several servers are separated by commas, each with a port of its own or none -
+         * `jdbc:octavius://db1:5432,db2,[::1]:5433/res_publica`. A single server's port goes into
+         * [portNumber]; several keep theirs beside them in [serverName], where [portNumber] is the port of
+         * those stating none.
          *
          * **Later wins, and silence is not a value.** [info] is applied first and the URL over it, so
          * the URL overrides it - but only where the URL actually states something. A URL that omits the
@@ -313,24 +354,19 @@ class OctaviusProperties {
                 // something. An absent host, port or database leaves whatever `info` supplied in place
                 // instead of overwriting it with a default; the defaults belong to the connection
                 // factory, which is the one place that knows them.
-                //
-                // An IPv6 literal is written in brackets - `[::1]:5432` - and is full of colons, so the
-                // one that separates the port is the last, and only when it comes after the closing
-                // bracket. On a plain `host:port` that is the same colon it always was.
-                val colonIndex = hostPort.lastIndexOf(':')
-                val portFollows = colonIndex != -1 && hostPort.lastIndexOf(']') < colonIndex
-                val host = if (portFollows) hostPort.substring(0, colonIndex) else hostPort
-                if (host.isNotEmpty()) {
-                    // The brackets belong to the URL, not to the address: what is kept here is what
-                    // the server is asked for by name elsewhere - the host a certificate is matched
-                    // against under verify-full, and the one a log line prints.
-                    val bare = if (host.length > 1 && host.startsWith('[') && host.endsWith(']')) {
-                        host.substring(1, host.length - 1)
-                    } else host
-                    octaviusProperties.serverName = URLDecoder.decode(bare, "UTF-8")
-                }
-                if (portFollows) {
-                    hostPort.substring(colonIndex + 1).toIntOrNull()?.let { octaviusProperties.portNumber = it }
+                if (hostPort.isNotEmpty()) {
+                    val servers = URLDecoder.decode(hostPort, "UTF-8")
+                    val entries = ServerAddress.entries("host", servers)
+                    val single = entries.singleOrNull()
+                    if (single != null) {
+                        if (single.host.isNotEmpty()) octaviusProperties.serverName = single.host
+                        single.port?.let { octaviusProperties.portNumber = it }
+                    } else {
+                        // Several servers keep their ports beside them, and portNumber stays the port of
+                        // those that state none.
+                        entries.find { it.host.isEmpty() }?.let { ServerAddress.refuse("host", servers, it.text) }
+                        octaviusProperties.serverName = servers
+                    }
                 }
                 if (dbNameRaw.isNotEmpty()) {
                     octaviusProperties.databaseName = URLDecoder.decode(dbNameRaw, "UTF-8")
@@ -363,18 +399,24 @@ class OctaviusProperties {
      * be used as one. Use [copy] when you need a complete duplicate of the configuration.
      */
     fun toUrl(): String {
-        val h = serverName ?: "localhost"
-        val p = portNumber ?: 5432
         val db = databaseName ?: "postgres"
 
-        // An address holding colons is an IPv6 one, and goes back into the URL bracketed - the form
-        // [parse] reads it out of, and the only one where the colon before the port is unambiguous.
-        val authority = if (h.contains(':')) "[$h]" else h
+        // Every server with its port, and an IPv6 one bracketed - the form [parse] reads them out of, and
+        // the only one where the colon before the port is unambiguous. A serverName that does not read as
+        // a list is rendered as it stands: this is a string for a log line, and refusing it is the
+        // connection's business, not the log's.
+        val authority = try {
+            servers().joinToString(",")
+        } catch (_: InvalidOperationException) {
+            "$serverName:${portNumber ?: 5432}"
+        }
 
-        val urlBuilder = StringBuilder("jdbc:octavius://$authority:$p/$db")
+        val urlBuilder = StringBuilder("jdbc:octavius://$authority/$db")
 
         val queryParams = mutableMapOf<String, String>()
         user?.let { queryParams["user"] = it }
+        targetSessionAttrs?.let { queryParams["target_session_attrs"] = it.value }
+        loadBalanceHosts?.let { queryParams["load_balance_hosts"] = it.value }
         loginTimeout?.let { queryParams["loginTimeout"] = it.toString() }
         socketTimeout?.let { queryParams["socketTimeout"] = it.toString() }
         cancelSignalTimeout?.let { queryParams["cancelSignalTimeout"] = it.toString() }

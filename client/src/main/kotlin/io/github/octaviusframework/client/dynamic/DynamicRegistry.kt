@@ -50,8 +50,8 @@ internal class DynamicRegistry private constructor(
         if (underName != null && underName.kClass != kClass) {
             throw InvalidOperationException(
                 InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                details = "The dynamic type name '$name' is already registered for ${underName.kClass.simpleName}; " +
-                    "${kClass.simpleName} cannot take it as well."
+                details = "The dynamic type name '$name' is already registered for ${underName.kClass.displayName}; " +
+                    "${kClass.displayName} cannot take it as well."
             )
         }
 
@@ -63,14 +63,14 @@ internal class DynamicRegistry private constructor(
         if (existing.name != name) {
             throw InvalidOperationException(
                 InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                details = "${kClass.simpleName} is already registered as the dynamic type '${existing.name}'; it " +
+                details = "${kClass.displayName} is already registered as the dynamic type '${existing.name}'; it " +
                     "cannot go under '$name' as well."
             )
         }
         if (existing.strategy != registration.strategy) {
             throw InvalidOperationException(
                 InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                details = "${kClass.simpleName} is already registered as '$name' by a client writing on " +
+                details = "${kClass.displayName} is already registered as '$name' by a client writing on " +
                     "${existing.strategy}, and this one writes on ${registration.strategy}. A class is registered " +
                     "once per database, so every client registering it has to be built on the same " +
                     "DynamicWriteStrategy."
@@ -83,6 +83,8 @@ internal class DynamicRegistry private constructor(
         val EMPTY = DynamicRegistry(emptyMap(), emptyMap())
     }
 }
+
+private val KClass<*>.displayName: String get() = qualifiedName ?: simpleName ?: toString()
 
 /**
  * One class registered as a `dynamic_dto`, on the terms of the client that registered it.

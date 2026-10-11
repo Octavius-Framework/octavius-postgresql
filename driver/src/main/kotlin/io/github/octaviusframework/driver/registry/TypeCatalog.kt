@@ -5,6 +5,8 @@ import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterCo
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.identifier.CaseConvention
@@ -45,9 +47,12 @@ class TypeCatalog internal constructor(
     val registeredComposites: Map<KClass<*>, QualifiedName>,
     val compositeClassByName: Map<QualifiedName, KClass<*>>,
     val registeredEnums: Map<KClass<*>, PgEnumRegistration>,
+    /** [registeredEnums] read the other way, from the PostgreSQL type name. */
+    internal val enumClassByName: Map<QualifiedName, KClass<*>>,
     /** What layers built on the driver keep here, each value under the class it is read back as. */
     internal val attachments: Map<KClass<*>, Any>
 ) {
+
     private fun with(
         dictionary: TypeDictionary = this.dictionary,
         codecs: CodecDictionary = this.codecs,
@@ -57,25 +62,12 @@ class TypeCatalog internal constructor(
         registeredComposites: Map<KClass<*>, QualifiedName> = this.registeredComposites,
         compositeClassByName: Map<QualifiedName, KClass<*>> = this.compositeClassByName,
         registeredEnums: Map<KClass<*>, PgEnumRegistration> = this.registeredEnums,
+        enumClassByName: Map<QualifiedName, KClass<*>> = this.enumClassByName,
         attachments: Map<KClass<*>, Any> = this.attachments
     ) = TypeCatalog(
         dictionary, codecs, resultConverters, anyResultConverters, parameterConverters,
-        registeredComposites, compositeClassByName, registeredEnums, attachments
+        registeredComposites, compositeClassByName, registeredEnums, enumClassByName, attachments
     )
-
-    /**
-     * What a layer built on the driver keeps about this database under [type], or `null` where it keeps nothing.
-     *
-     * The driver reads none of it. It is here so that it has the scope the driver's own registrations have: one
-     * per database, carried across a reload, dropped by [GlobalCatalogStore.removeCatalog] - and, read through
-     * `context.types.catalog`, pinned for an execution like everything else a converter sees.
-     * [TypeManager.attach] is what puts it here.
-     *
-     * @param type The class the value was attached under.
-     * @return The value, or `null`.
-     */
-    @Suppress("UNCHECKED_CAST")
-    fun <T : Any> attachment(type: KClass<T>): T? = attachments[type] as T?
 
     internal fun <T : Any> withAttachment(type: KClass<T>, value: T) =
         with(attachments = attachments + (type to value))
@@ -106,13 +98,122 @@ class TypeCatalog internal constructor(
     internal fun withParameterConverter(converter: ParameterConverter<*>) =
         with(parameterConverters = prepend(converter, parameterConverters))
 
-    internal fun withComposite(kClass: KClass<*>, qualifiedName: QualifiedName) = with(
-        registeredComposites = registeredComposites + (kClass to qualifiedName),
-        compositeClassByName = compositeClassByName + (qualifiedName to kClass)
-    )
+    /**
+     * The catalog this one becomes with [kClass] registered as the composite [qualifiedName].
+     *
+     * A name stands for one class and a class goes under one name, so taking either twice is refused: a composite
+     * read as `Any` becomes the class its name is registered for, and a class written where the server has not
+     * said the type goes out as the name it is registered under - with a second registration, whichever came
+     * last. The same class under the same name again is the registration it already is, and changes nothing.
+     * Names are compared as written, so `address` and `provincia.address` are two and can stand for two classes;
+     * [compositeClassFor] says which one a read as `Any` takes.
+     *
+     * @throws InvalidOperationException `INVALID_ARGUMENT` where the name or the class is taken otherwise.
+     */
+    internal fun withComposite(kClass: KClass<*>, qualifiedName: QualifiedName): TypeCatalog {
+        val underName = compositeClassByName[qualifiedName]
+        if (underName != null && underName != kClass) {
+            throw InvalidOperationException(
+                InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                details = "The composite type '$qualifiedName' is already registered for ${underName.displayName}; " +
+                        "${kClass.displayName} cannot take it as well."
+            )
+        }
 
-    internal fun withEnum(kClass: KClass<*>, registration: PgEnumRegistration) =
-        with(registeredEnums = registeredEnums + (kClass to registration))
+        val existing = registeredComposites[kClass] ?: return with(
+            registeredComposites = registeredComposites + (kClass to qualifiedName),
+            compositeClassByName = compositeClassByName + (qualifiedName to kClass)
+        )
+
+        if (existing != qualifiedName) {
+            throw InvalidOperationException(
+                InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                details = "${kClass.displayName} is already registered as the composite type '$existing'; it " +
+                        "cannot go under '$qualifiedName' as well."
+            )
+        }
+        return this
+    }
+
+    /**
+     * The catalog this one becomes with [kClass] registered as [registration], and the two converters built from
+     * it put ahead of the rest.
+     *
+     * Refused on the terms [withComposite] refuses on, and also where the enum is registered under its name with
+     * other conventions: the labels it writes and reads are theirs, so a second pair could only replace the first.
+     * The same registration again changes nothing, converters included - they would be the ones already there.
+     *
+     * @throws InvalidOperationException `INVALID_ARGUMENT` where the name or the enum is taken otherwise, or the
+     *   enum is registered with other conventions.
+     */
+    internal fun withEnum(
+        kClass: KClass<*>,
+        registration: PgEnumRegistration,
+        parameterConverter: ParameterConverter<*>,
+        resultConverter: ResultConverter<*, *>
+    ): TypeCatalog {
+        val name = registration.qualifiedName
+        val underName = enumClassByName[name]
+        if (underName != null && underName != kClass) {
+            throw InvalidOperationException(
+                InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                details = "The enum type '$name' is already registered for ${underName.displayName}; " +
+                        "${kClass.displayName} cannot take it as well."
+            )
+        }
+
+        val existing = registeredEnums[kClass] ?: return with(
+            registeredEnums = registeredEnums + (kClass to registration),
+            enumClassByName = enumClassByName + (name to kClass)
+        ).withParameterConverter(parameterConverter).withResultConverter(resultConverter)
+
+        if (existing.qualifiedName != name) {
+            throw InvalidOperationException(
+                InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                details = "${kClass.displayName} is already registered as the enum type '${existing.qualifiedName}'; " +
+                        "it cannot go under '$name' as well."
+            )
+        }
+        if (existing != registration) {
+            throw InvalidOperationException(
+                InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                details = "${kClass.displayName} is already registered as '$name' with labels in " +
+                        "${existing.pgConvention} and constants in ${existing.kotlinConvention}; it cannot be " +
+                        "registered again with labels in ${registration.pgConvention} and constants in " +
+                        "${registration.kotlinConvention}."
+            )
+        }
+        return this
+    }
+
+    /**
+     * The class a composite of [type] reads as when `Any` is asked for: the one registered under the type's
+     * schema-qualified name, and failing that the one registered under its bare name.
+     */
+    internal fun compositeClassFor(type: PgType): KClass<*>? =
+        compositeClassByName[QualifiedName(type.schema, type.name)] ?: compositeClassByName[QualifiedName("", type.name)]
+
+
+    /**
+     * The enum a value of [type] reads as when `Any` is asked for: the one registered under the type's
+     * schema-qualified name, and failing that the one registered under its bare name.
+     */
+    internal fun enumClassFor(type: PgType): KClass<*>? =
+        enumClassByName[QualifiedName(type.schema, type.name)] ?: enumClassByName[QualifiedName("", type.name)]
+
+    /**
+     * What a layer built on the driver keeps about this database under [type], or `null` where it keeps nothing.
+     *
+     * The driver reads none of it. It is here so that it has the scope the driver's own registrations have: one
+     * per database, carried across a reload, dropped by [GlobalCatalogStore.removeCatalog] - and, read through
+     * `context.types.catalog`, pinned for an execution like everything else a converter sees.
+     * [TypeManager.attach] is what puts it here.
+     *
+     * @param type The class the value was attached under.
+     * @return The value, or `null`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> attachment(type: KClass<T>): T? = attachments[type] as T?
 
     /**
      * Finds the converter that claims a decoded value, in the order a registration establishes.
@@ -174,6 +275,9 @@ class TypeCatalog internal constructor(
         }
     }
 }
+
+/** Qualified, because the classes that collide over one type name tend to share a simple name - two `Address`es. */
+private val KClass<*>.displayName: String get() = qualifiedName ?: simpleName ?: toString()
 
 /**
  * What an enum was registered as: the type it stands for, and the two conventions that map one side's names

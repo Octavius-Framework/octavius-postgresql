@@ -333,17 +333,17 @@ Every reason here is about the statement itself, and `position` is the evidence 
 **Raised by:** `OctaviusConnectionFactory`, `Authenticator`, `SslNegotiator`, `PgStream` — by the translator for any SQLSTATE class `28`, and by `getOctaviusSession()` for anything a `DataSource` refuses.
 **Properties:** `reason`, `details`, `cause`.
 
-| Reason (`InitializationExceptionReason`) | Description                                                                                                                                        |
-|:-----------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                      |
-| `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                            |
-| `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                       |
-| `PROTOCOL_VIOLATION`                     | Unexpected message received during login, a protocol other than 3.0–3.2 offered in its place among them.                                           |
-| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from what the server sent at login — its authentication challenge, or a `search_path` a pooler did not pass on.       |
-| `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                         |
-| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18, by the `server_version` it reports at login.                                                                             |
-| `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one.                       |
-| `CONNECTION_UNAVAILABLE`                 | The data source had none to give rather than failing to open one — a pool that ran out of time waiting for a free one. Nothing reached the server. |
+| Reason (`InitializationExceptionReason`) | Description                                                                                                                                                                                                  |
+|:-----------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                                                                                |
+| `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                                                                                      |
+| `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                                                                                 |
+| `PROTOCOL_VIOLATION`                     | Unexpected message received during login, a protocol other than 3.0–3.2 offered in its place among them.                                                                                                     |
+| `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from what the server sent at login — its authentication challenge, a `search_path` a pooler did not pass on, or the `in_hot_standby` that `target_session_attrs` is decided by. |
+| `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                                                                                   |
+| `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18, by the `server_version` it reports at login.                                                                                                                                       |
+| `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one, and for a list of servers none of which could be used, each named in `details`. |
+| `CONNECTION_UNAVAILABLE`                 | The data source had none to give rather than failing to open one — a pool that ran out of time waiting for a free one. Nothing reached the server.                                                           |
 
 > [!NOTE]
 > The authorization statements a live session runs do not produce this — a permission refused mid-session is

@@ -3,7 +3,9 @@ package io.github.octaviusframework.driver.jdbc
 import io.github.octaviusframework.driver.auth.ChannelBinding
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.properties.LoadBalanceHosts
 import io.github.octaviusframework.driver.properties.OctaviusProperties
+import io.github.octaviusframework.driver.properties.TargetSessionAttrs
 import io.github.octaviusframework.driver.ssl.SslMode
 import java.io.PrintWriter
 import java.sql.Connection
@@ -43,14 +45,16 @@ class OctaviusDataSource : DataSource {
         }
 
     /**
-     * The hostname or IP address of the PostgreSQL server.
+     * The hostname or IP address of the PostgreSQL server, or several separated by commas, each with a port of
+     * its own or [portNumber]'s - see [OctaviusProperties.serverName].
      */
     var serverName: String?
         get() = octaviusProperties.serverName
         set(value) { octaviusProperties.serverName = value }
 
     /**
-     * The port number on which the PostgreSQL server is listening. Defaults to 5432.
+     * The port number on which the PostgreSQL server is listening - with several servers, the port of every one
+     * not stating its own. Defaults to 5432.
      */
     var portNumber: Int
         get() = octaviusProperties.portNumber ?: 5432
@@ -62,6 +66,20 @@ class OctaviusDataSource : DataSource {
     var databaseName: String?
         get() = octaviusProperties.databaseName
         set(value) { octaviusProperties.databaseName = value }
+
+    /**
+     * Which kind of server to settle for among those in [serverName]. Defaults to [TargetSessionAttrs.ANY].
+     */
+    var targetSessionAttrs: TargetSessionAttrs?
+        get() = octaviusProperties.targetSessionAttrs
+        set(value) { octaviusProperties.targetSessionAttrs = value }
+
+    /**
+     * In what order the servers in [serverName] are tried. Defaults to [LoadBalanceHosts.DISABLE], as listed.
+     */
+    var loadBalanceHosts: LoadBalanceHosts?
+        get() = octaviusProperties.loadBalanceHosts
+        set(value) { octaviusProperties.loadBalanceHosts = value }
 
     /**
      * The name this connection reports to the server, visible in `pg_stat_activity`. Unset, the

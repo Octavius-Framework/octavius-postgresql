@@ -9,12 +9,7 @@ import io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory
 import io.github.octaviusframework.driver.message.frontend.StartupMessage
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
-import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.io.IOException
-import java.net.ServerSocket
-import kotlin.concurrent.thread
+import java.net.InetAddress
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -27,64 +22,10 @@ import kotlin.test.assertTrue
  */
 class ProtocolNegotiationTest {
 
-    /**
-     * Reads one startup message, answers it with [script], and then waits for the client to hang up.
-     * [startupVersion] is the protocol version the startup message asked for.
-     */
-    private class ScriptedServer(private val script: ByteArray) : AutoCloseable {
-        private val serverSocket = ServerSocket(0)
-        val port: Int = serverSocket.localPort
-
-        @Volatile
-        var startupVersion: Int = -1
-
-        private val worker = thread(isDaemon = true) {
-            try {
-                serverSocket.accept().use { socket ->
-                    val input = DataInputStream(socket.getInputStream())
-                    val length = input.readInt()
-                    startupVersion = input.readInt()
-                    input.skipNBytes(length - 8L)
-                    socket.getOutputStream().apply { write(script); flush() }
-                    while (input.read() != -1) { /* a Terminate, then the socket closed */ }
-                }
-            } catch (_: IOException) {
-                // The client dropped the socket, or the test is over and closed ours
-            }
-        }
-
-        override fun close() {
-            serverSocket.close()
-            worker.join(5_000)
-        }
-    }
-
-    private fun message(type: Char, body: DataOutputStream.() -> Unit): ByteArray {
-        val payload = ByteArrayOutputStream().also { DataOutputStream(it).body() }.toByteArray()
-        return ByteArrayOutputStream().also { out ->
-            DataOutputStream(out).run {
-                writeByte(type.code)
-                writeInt(payload.size + 4)
-                write(payload)
-            }
-        }.toByteArray()
-    }
-
-    private fun DataOutputStream.writeCString(value: String) {
-        write(value.toByteArray())
-        writeByte(0)
-    }
-
-    private fun negotiate(version: Int) = message('v') { writeInt(version); writeInt(0) }
-    private val authenticationOk = message('R') { writeInt(0) }
-    private fun parameter(name: String, value: String) = message('S') { writeCString(name); writeCString(value) }
-    private fun backendKey(length: Int) = message('K') { writeInt(4242); write(ByteArray(length) { it.toByte() }) }
-    private val readyForQuery = message('Z') { writeByte('I'.code) }
-
     /** Runs the login against [script] and hands [check] the stream it left, for what it recorded. */
     private fun login(script: ByteArray, check: (PgStream, ScriptedServer) -> Unit) {
         ScriptedServer(script).use { server ->
-            PgStream("localhost", server.port).use { stream ->
+            PgStream("localhost", server.port, InetAddress.getLoopbackAddress()).use { stream ->
                 stream.sendMessage(StartupMessage(mapOf("user" to "postgres", "database" to "senatus")))
                 stream.flush()
                 Authenticator.authenticate(stream, null, ChannelBinding.PREFER)
@@ -128,7 +69,7 @@ class ProtocolNegotiationTest {
     fun `should refuse a version outside protocol 3 or newer than the one asked for`() {
         for (version in listOf(0x0004_0000, 0x0003_0003)) {
             val ex = ScriptedServer(negotiate(version) + authenticationOk + readyForQuery).use { server ->
-                PgStream("localhost", server.port).use { stream ->
+                PgStream("localhost", server.port, InetAddress.getLoopbackAddress()).use { stream ->
                     stream.sendMessage(StartupMessage(mapOf("user" to "postgres")))
                     stream.flush()
                     assertThrows<InitializationException> {
