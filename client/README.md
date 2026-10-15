@@ -61,8 +61,7 @@ There is no Spring integration module and none is planned. Running under a frame
 transactions means implementing `SessionProvider` against it and passing that to
 `OctaviusClient.fromSessionProvider` — for Spring, under thirty lines over the driver's existing
 `OctaviusTemplate` and a `PlatformTransactionManager`. `execute` delegates in one line; the timeouts do not,
-Spring having a single one that means the transaction rather than the statement, so both `SET LOCAL`s are
-yours to issue.
+Spring having a single one where the client has two, so both `SET LOCAL`s are yours to issue.
 
 ## What is thrown and what is returned
 

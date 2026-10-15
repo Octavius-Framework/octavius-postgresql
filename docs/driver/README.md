@@ -144,6 +144,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Using `OctaviusTemplate`](spring-integration.md#using-octaviustemplate) — The template API and connection lifetime
 - [Registering Types at Startup](spring-integration.md#registering-types-at-startup) — Enums and composites in a Spring context
 - [Transaction Management](spring-integration.md#transaction-management) — `@Transactional`, read-only, isolation, nesting
+- [Timeouts](spring-integration.md#timeouts) — `@Transactional(timeout)` per statement or per transaction, and what each costs
 - [Exceptions](spring-integration.md#exceptions) — Translation into Spring's `DataAccessException`
 - [What Else in Spring Works](spring-integration.md#what-else-in-spring-works) — And what cannot, including Actuator's health check
 

@@ -310,8 +310,9 @@ class SpringSessionProvider(
 
 `execute` is a single line of delegation, the template already taking the receiver-lambda the interface asks
 for, and isolation maps straight across because `TransactionIsolationLevel.jdbcValue` *is* Spring's
-`ISOLATION_*` constant. What is not delegation is the timeouts: Spring has one, it means the transaction rather
-than the statement, and it enforces it itself — so both `SET LOCAL`s are yours to issue, and they account for
+`ISOLATION_*` constant. What is not delegation is the timeouts: Spring has one where the client has two, and
+`OctaviusJdbcTransactionManager` sends Spring's as whichever of the two settings its `timeoutScope` names — so the
+client's pair, which a Spring definition has no room for, are yours to issue as `SET LOCAL`s, and they account for
 about a third of the class. They go in one statement for the same reason the driver's own `required` sends them
 that way: a script separated by `;` is one round trip, and there is nothing here to bind. And they go only where
 `isNewTransaction` says this call began the transaction — [the rule above](#isolation-read-only-and-timeouts):
