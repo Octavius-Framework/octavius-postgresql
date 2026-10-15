@@ -382,6 +382,16 @@ internal class PgStream(
     }
 
     /**
+     * Reads one message if one has started to arrive, and returns null rather than wait for one that has not.
+     *
+     * For a transfer that writes without reading, where the server speaks only to end it. Notices and
+     * notifications are taken care of by the read itself, and a `FATAL` raises from inside it.
+     *
+     * @throws SessionTerminatedException if the server ended the session.
+     */
+    fun receivePendingMessage(): BackendMessage? = receiveMessageInternal(pendingOnly = true)
+
+    /**
      * Internal function to receive a backend message, optionally handling timeouts gracefully if polling.
      *
      * @param isPolling If true, a read timeout when reading the initial message tag will return null instead of throwing an exception.

@@ -58,7 +58,7 @@ val rowsImported = FileInputStream("senators.csv").use { file ->
 println("Successfully imported $rowsImported senators.")
 ```
 
-The driver reads the input in 64 KiB chunks and sends each one as it goes until the stream is exhausted, then ends the copy and returns the row count reported by the server. The chunk size is the optional third parameter (`CopyManager.DEFAULT_BUFFER_SIZE` when omitted) — worth lowering only if you are memory-constrained, since larger buffers stop paying off well before the socket does. If anything throws along the way — an `IOException` from your stream, or an error from the server — the copy is cancelled if it is still active and the original exception is rethrown, leaving the connection usable.
+The driver reads the input in 64 KiB chunks and sends each one as it goes until the stream is exhausted, then ends the copy and returns the row count reported by the server. The chunk size is the optional third parameter (`CopyManager.DEFAULT_BUFFER_SIZE` when omitted) — worth lowering only if you are memory-constrained, since larger buffers stop paying off well before the socket does. If anything throws along the way — an `IOException` from your stream, or an error from the server — the copy is cancelled if it is still active and the original exception is rethrown, leaving the connection usable. A row the server rejects as it reads it stops the transfer at the next chunk, and the rest of the stream is not read.
 
 The input stream is **not** closed by the driver. It is yours; close it yourself (as `use` does above).
 
@@ -88,7 +88,8 @@ A few mechanics worth knowing:
 
 * **`writeToCopy(data, offset = 0, length = data.size)`** sends exactly one message and flushes it. The bytes are copied into the driver's output buffer before the call returns, so reusing the same `ByteArray` for the next chunk is safe.
 * **Chunk boundaries are not row boundaries.** The server reassembles a continuous byte stream, so a row may be split across two chunks, and one chunk may carry thousands of rows. What matters is that the *whole* stream is well-formed for the chosen format — the last row still needs its trailing newline in text and CSV.
-* **`endCopy()` returns the row count** parsed out of the `COPY n` tag, and blocks until the server has finished applying the data. This is where constraint violations surface, not at `writeToCopy` — the server validates as it consumes, and a row rejected halfway will typically show up on the next write or at `endCopy()`, whichever reads the error first.
+* **`endCopy()` returns the row count** parsed out of the `COPY n` tag, and blocks until the server has finished applying the data.
+* **A rejected row is reported by the first call after the server rejects it.** Some checks the server makes as it reads each row — a value that won't parse, a wrong column count, `NOT NULL`, `CHECK` — and it ends the copy on the spot: the next `writeToCopy` throws instead of sending, and the handle is finished. Foreign keys are checked only when the statement ends, so those always come from `endCopy()`. A duplicate key comes when the server writes out the rows it has buffered — at `endCopy()` on a small copy, from a later `writeToCopy` on a large one.
 
 ## COPY OUT (Export)
 
@@ -208,7 +209,7 @@ The `UNEXPECTED_RESULT` case deserves a note, because its wording is generic whi
 
 COPY exists to beat row-by-row insertion, and it does. It is not part of the benchmark suite yet — the write figures in [Performance](performance.md) cover single, `UNNEST` and batched inserts, which is the ceiling COPY is meant to go above rather than a measurement of it. Two things determine whether you actually get that margin:
 
-* **Chunk size on the write path.** Every `writeToCopy` call is one protocol message *and* one flush, which means a syscall. Calling it once per row turns a bulk load back into a per-row round trip of a different kind. Accumulate into a buffer of tens of kilobytes and write that — the stream-based `copyIn` overload uses 64 KiB, which is a reasonable target to match.
+* **Chunk size on the write path.** Every `writeToCopy` call is one protocol message *and* one flush, which means a syscall — two, counting the look at the socket for anything the server has said. Calling it once per row turns a bulk load back into a per-row round trip of a different kind. Accumulate into a buffer of tens of kilobytes and write that — the stream-based `copyIn` overload uses 64 KiB, which is a reasonable target to match.
 * **Indexes and triggers.** They are still evaluated per row, and on a large load they dominate everything the protocol does. Dropping and recreating indexes around the copy is standard practice for a full reload.
 
 For exports, the streaming handle keeps memory constant; the one-shot overload does too, since it writes each chunk out as it arrives rather than accumulating.

@@ -57,6 +57,15 @@
   `ROLLBACK`, and that failure replaced the application's exception. Its debug lines print their message now,
   rather than the lambda meant to produce it.
 
+- **`writeToCopy` reports a row the server rejected rather than sending the next chunk.** The server ends a `COPY`
+  the moment it rejects a row it can check as it reads it - a value that does not parse, a wrong column count,
+  `NOT NULL`, `CHECK` - and drops whatever data still arrives. `writeToCopy` reads that before writing, raises the
+  rejection and finishes the handle, where it went on sending until `endCopy()` collected the error, and the
+  `InputStream` overload of `copyIn` stops reading its input there. Foreign keys, checked when the statement ends,
+  still come from `endCopy()`, and a duplicate key whenever the server writes out the rows it has buffered. A
+  `FATAL` is caught the same way, before the chunk whose reset would discard it on Windows. **A `catch` around
+  `endCopy()` alone no longer sees a row rejected mid-transfer.**
+
 #### Fixed
 
 - **A `FATAL` is reported as itself, not as the closed connection after it.** The driver kept reading for a

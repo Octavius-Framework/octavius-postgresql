@@ -76,7 +76,7 @@ Acting on the message rather than on the close is the point. Read on past it and
 
 Most of these do not arrive during a statement. `idle_in_transaction_session_timeout`, `idle_session_timeout`, a `transaction_timeout` that runs out between statements, and `pg_terminate_backend()` on an idle session all reach a connection nobody is reading. So each exchange starts by reading what has already arrived, before anything is written: a notification, a notice, a parameter that changed — and a `FATAL`, which is then reported by the statement that found it, without that statement having been sent. Sending it would reach a backend that has already exited; its host answers with a reset, and a reset is allowed to discard whatever the client had not read yet. Only what is already there is read, so an idle connection the server has told nothing costs one look at the socket.
 
-Where the write happens first anyway — a `COPY IN` streaming into a transaction that `transaction_timeout` has ended, a statement's parameters still going out — the write is what fails, and the driver reads what arrived before reporting it: a `FATAL` waiting there is thrown in place of the failed write, which rides along as a suppressed exception.
+Where the write happens first anyway — a statement's parameters still going out when the server ends the session — the write is what fails, and the driver reads what arrived before reporting it: a `FATAL` waiting there is thrown in place of the failed write, which rides along as a suppressed exception. A `COPY IN` looks before each chunk it sends, the way an exchange looks before it starts.
 
 > [!NOTE]
 > **The reason can still be lost, and then it is a `NetworkException`.** Two things decide it, neither of them the driver's.
