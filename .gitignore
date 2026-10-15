@@ -27,6 +27,9 @@ benchmarks/logs/
 ### Throwaway TLS server from scripts/ssl-test-server.ps1 ###
 .ssl-test/
 
+### Throwaway server with graceful close from scripts/graceful-close-test-server.ps1 ###
+.graceful-close-test/
+
 ### Throwaway primary, standby and foreign server from scripts/replication-test-servers.ps1 ###
 .replication-test/
 

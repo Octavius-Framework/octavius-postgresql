@@ -88,7 +88,7 @@ For integrating with an existing transaction manager, or when commit and rollbac
 
 **As far as the server is concerned, a transaction starts at its first statement.** PostgreSQL fixes the transaction's `now()` at that moment, and a `transactionTimeout` starts counting from it. Before it — between `autoCommit = false` and the first statement, or between a `commit()` and the next one — the backend reports plain `idle`, not `idle in transaction`, so `idle_in_transaction_session_timeout` has nothing to act on. Nothing is lost by waiting: PostgreSQL takes no snapshot, no lock and no transaction id until a statement runs, however early the `BEGIN` arrives.
 
-Once statements start running, the ordinary rules apply — a write consumes a transaction id, and under `REPEATABLE READ` or `SERIALIZABLE` the snapshot lasts the whole transaction, which holds back cleanup.
+Once statements start running, the ordinary rules apply — a write consumes a transaction id, and under `REPEATABLE READ` or `SERIALIZABLE` the snapshot lasts the whole transaction, which holds back cleanup. From then on the backend is `idle in transaction` whenever your code is busy elsewhere, and `idle_in_transaction_session_timeout` does act: the server ends the session, connection and all, and whatever touches it next gets `SessionTerminatedException(TRANSACTION_TIMEOUT)`.
 
 > [!NOTE]
 > **A pool configured with `auto-commit=false` saves nothing, and commits nothing you do not commit yourself.** Switching auto-commit costs no round trip — turning it off sends nothing, and turning it back on after a commit sends nothing either — so there is nothing for a pool to save by leaving it off. What it does do: with HikariCP's `isAutoCommit = false`, every session borrowed from the pool is inside a transaction from its first statement, and one closed without a `commit()` has that transaction rolled back as it closes. Whatever it wrote is gone, and nothing of it reaches the next borrower.
@@ -199,6 +199,15 @@ The `BEGIN` goes out with the block's first statement, and so do the terms. A te
 `statementTimeout` longer than PostgreSQL accepts, `SERIALIZABLE` on a hot standby — fails that statement, and
 the block rolls back as it would for any other failure. A block that runs no statement sends no terms, and
 nothing else.
+
+**The two timeouts do not fail the same way.** A statement that outlives `statementTimeout` is cancelled: it
+comes back as `ExecutionAbortedException`, the block rolls back as it would over any other
+failure, and the session is as usable as before. `transactionTimeout` is PostgreSQL's `transaction_timeout`, and
+when that runs out the server ends the session rather than the transaction — whether a statement is running or
+the block is busy elsewhere. It reaches you as `SessionTerminatedException(TRANSACTION_TIMEOUT)`, and the
+connection is gone with it. That is the one to reach for where the transaction must not outlast its time even
+while your code holds it open doing something else; `statementTimeout` is the one that costs nothing when it
+fires. See [Error Handling](exceptions.md#8-sessionterminatedexception).
 
 All four end when the transaction ends. That is the difference from the session properties in the next
 section, and it is the reason to prefer this form: nothing is left on the connection, so there is nothing for

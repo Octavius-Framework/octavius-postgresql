@@ -200,6 +200,7 @@ Errors from the server follow the driver's normal path: the exchange is drained 
 | Handle used after it finished                                      | `InvalidOperationException(RESOURCE_CLOSED)` — handles are single-use; start a new one through the manager.                                                               |
 | Session used for anything else while a copy is open                | `InvalidOperationException(CONNECTION_BUSY)` — raised before anything goes out, so the transfer itself is untouched.                                                      |
 | Socket failure mid-transfer                                        | `NetworkException`. Unlike the others, this one leaves the connection broken for good.                                                                                    |
+| The server ended the session mid-transfer                          | `SessionTerminatedException` — `transaction_timeout` ran out, or `pg_terminate_backend()`. Broken for good as above, and `cancelCopy()` does nothing on it.               |
 
 The `UNEXPECTED_RESULT` case deserves a note, because its wording is generic while the cause usually isn't: it means the SQL you passed *was* accepted by the server but produced something other than a copy — most often a plain `SELECT` reaching `copyOut`, or a server-side file copy reaching `copyIn`. Full details of the hierarchy live in [Error Handling and Exceptions](exceptions.md).
 

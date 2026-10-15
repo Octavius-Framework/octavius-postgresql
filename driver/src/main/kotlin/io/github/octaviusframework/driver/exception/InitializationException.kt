@@ -26,8 +26,10 @@ enum class InitializationExceptionReason {
     /** The server version is too old for this driver to support. */
     UNSUPPORTED_SERVER_VERSION,
     /**
-     * A generic connection error occurred before authentication could begin - or, of several servers listed, none
-     * could be used, which `details` goes through one by one.
+     * A generic connection error occurred before authentication could begin - or the server refused the login for
+     * something other than the credentials, too many connections or a database that does not exist among them,
+     * with its code in `sqlState` - or, of several servers listed, none could be used, which `details` goes through
+     * one by one.
      */
     CONNECTION_ERROR,
 

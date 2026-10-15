@@ -39,6 +39,12 @@ internal class ErrorOrNoticeMessage(val fields: Map<Char, String>) : BackendMess
 
     val severity: String get() = fields[SEVERITY_NON_LOCALIZED]!!
 
+    /**
+     * Whether this is an error that ends the session: a `FATAL`, or a `PANIC`, which ends every session on the
+     * server. The server closes the connection behind either one, so nothing follows it - no `ReadyForQuery`.
+     */
+    val isFatal: Boolean get() = severity == "FATAL" || severity == "PANIC"
+
     val code: String get() = fields[SQLSTATE]!!
 
     val message: String get() = fields[MESSAGE]!!

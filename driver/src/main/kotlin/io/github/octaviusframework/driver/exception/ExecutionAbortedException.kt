@@ -3,36 +3,24 @@ package io.github.octaviusframework.driver.exception
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 /**
- * Categorizes the specific reason why a [ExecutionAbortedException] was thrown.
- */
-enum class ExecutionAbortedExceptionReason {
-    /** The session or transaction timed out (idle_in_transaction_session_timeout or transaction_timeout). */
-    TRANSACTION_TIMEOUT,
-    /** The query was canceled, either manually or due to statement_timeout. */
-    QUERY_CANCELED
-}
-
-/**
- * Exception thrown when a query execution is aborted by the database engine (e.g. due to a statement timeout or manual cancel request).
+ * Exception thrown when the server stops a statement before it finishes - a `statement_timeout`, or a cancel
+ * request such as `session.cancelQuery()` (57014).
  *
- * @property reason The reason the execution was aborted.
+ * What ends is the statement, not the session: the server abandons it, reports this, and the connection goes on
+ * to the next one. Inside a transaction the transaction is doomed as after any other error, until it is rolled
+ * back. A timeout that ends the session itself - `transaction_timeout`, `idle_in_transaction_session_timeout`,
+ * `idle_session_timeout` - is [SessionTerminatedException] instead, since there the connection goes too.
+ *
  * @param sqlState The SQL state code returned by the database.
  * @param serverErrorMessage The original error message from the database server.
  */
 class ExecutionAbortedException(
-    val reason: ExecutionAbortedExceptionReason,
     sqlState: String,
     serverErrorMessage: ServerErrorMessage
-) : OctaviusException("EXECUTION_ABORTED_EXCEPTION:${reason.name}", sqlState, serverErrorMessage) {
-    
+) : OctaviusException("EXECUTION_ABORTED_EXCEPTION", sqlState, serverErrorMessage) {
+
     override fun getDetailedMessage(): String = buildString {
-        appendLine("Reason: ${generateDeveloperMessage(reason)}")
+        appendLine("Reason: The statement was cancelled - by statement_timeout, or by a cancel request.")
         if (serverErrorMessage?.message != null) appendLine("DB message: ${serverErrorMessage.message}")
     }
 }
-
-private fun generateDeveloperMessage(reason: ExecutionAbortedExceptionReason): String =
-    when (reason) {
-        ExecutionAbortedExceptionReason.TRANSACTION_TIMEOUT -> "The transaction or session timed out."
-        ExecutionAbortedExceptionReason.QUERY_CANCELED -> "The query was canceled (manually or via statement_timeout)."
-    }

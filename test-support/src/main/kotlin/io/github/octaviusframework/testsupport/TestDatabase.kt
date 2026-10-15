@@ -18,9 +18,19 @@ import io.github.octaviusframework.driver.session.OctaviusSession
 object TestDatabase {
 
     const val HOST = "localhost"
-    const val PORT = 5432
+
+    const val DEFAULT_PORT = 5432
+
+    /**
+     * [DEFAULT_PORT], unless `TEST_DATABASE_PORT` names another - for a run against a server that is not the
+     * everyday one, such as the one `scripts/graceful-close-test-server.ps1` stands up.
+     *
+     * Read when the tests run, so neither this nor [URL] is a constant. Where only a constant will do - a Spring
+     * property in an annotation - the variable is left to Spring's own placeholder resolution instead.
+     */
+    val PORT: Int = System.getenv("TEST_DATABASE_PORT")?.toInt() ?: DEFAULT_PORT
     const val DATABASE = "octavius_test"
-    const val URL = "jdbc:octavius://$HOST:$PORT/$DATABASE"
+    val URL = "jdbc:octavius://$HOST:$PORT/$DATABASE"
     const val USER = "postgres"
     const val PASSWORD = "1234"
 

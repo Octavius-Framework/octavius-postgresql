@@ -1,12 +1,14 @@
 package io.github.octaviusframework.driver.notification
 
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.assumeUnreadFatalSurvives
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import io.github.octaviusframework.driver.exception.NetworkException
+import io.github.octaviusframework.driver.exception.SessionTerminatedException
+import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionReason
 
 class NotificationManagerTest : AbstractIntegrationTest() {
 
@@ -76,21 +78,22 @@ class NotificationManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testPollingListenerThrowsOnNetworkError() = runBlocking {
+    fun testPollingListenerThrowsWhenTheServerEndsTheSession() = runBlocking {
         val listenerSession = openSession()
         val adminSession = openSession()
 
         val pid = listenerSession.createNativeQuery("SELECT pg_backend_pid()").fetchField<Int>()
 
         val pollingJob = launch {
-            assertFailsWith<NetworkException> {
+            // The server says why before it closes, and the loop reports that rather than the close
+            val ex = assertFailsWith<SessionTerminatedException> {
                 listenerSession.notifications.startPollingListenerLoop(100)
             }
+            assertEquals(SessionTerminatedExceptionReason.ADMINISTRATOR_COMMAND, ex.reason)
         }
 
         delay(300)
 
-        // Kill the backend to simulate network error/dropped connection
         adminSession.createNativeQuery("SELECT pg_terminate_backend($1)").fetchField<Boolean>(pid)
 
         withTimeout(2000) {
@@ -101,21 +104,21 @@ class NotificationManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testInterruptibleListenerThrowsOnNetworkError() = runBlocking {
+    fun testInterruptibleListenerThrowsWhenTheServerEndsTheSession() = runBlocking {
         val listenerSession = openSession()
         val adminSession = openSession()
 
         val pid = listenerSession.createNativeQuery("SELECT pg_backend_pid()").fetchField<Int>()
 
         val listenerJob = launch {
-            assertFailsWith<NetworkException> {
+            val ex = assertFailsWith<SessionTerminatedException> {
                 listenerSession.notifications.startInterruptibleListenerLoop()
             }
+            assertEquals(SessionTerminatedExceptionReason.ADMINISTRATOR_COMMAND, ex.reason)
         }
 
         delay(300)
 
-        // Kill the backend to simulate network error/dropped connection
         adminSession.createNativeQuery("SELECT pg_terminate_backend($1)").fetchField<Boolean>(pid)
 
         withTimeout(2000) {
@@ -123,5 +126,25 @@ class NotificationManagerTest : AbstractIntegrationTest() {
         }
 
         adminSession.close()
+    }
+
+    @Test
+    fun testPollingListenerReportsIdleSessionTimeout() = runBlocking {
+        // The timeout runs out on a multiple of the poll, so the FATAL tends to land just as one read has timed
+        // out and before the next begins
+        assumeUnreadFatalSurvives()
+        val listenerSession = openSession()
+        listenerSession.notifications.listen("vigiles")
+        // A listening session is an idle one as far as the server is concerned
+        listenerSession.createNativeQuery("SET idle_session_timeout = '300ms'").execute()
+
+        val ex = withTimeout(5000) {
+            assertFailsWith<SessionTerminatedException> {
+                listenerSession.notifications.startPollingListenerLoop(100)
+            }
+        }
+        assertEquals(SessionTerminatedExceptionReason.IDLE_SESSION_TIMEOUT, ex.reason)
+
+        listenerSession.close()
     }
 }

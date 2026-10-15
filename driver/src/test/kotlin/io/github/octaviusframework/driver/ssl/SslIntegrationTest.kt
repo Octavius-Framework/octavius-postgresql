@@ -2,9 +2,10 @@ package io.github.octaviusframework.driver.ssl
 
 import io.github.octaviusframework.driver.auth.ChannelBinding
 import io.github.octaviusframework.driver.exception.ExecutionAbortedException
-import io.github.octaviusframework.driver.exception.ExecutionAbortedExceptionReason
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
+import io.github.octaviusframework.driver.exception.SessionTerminatedException
+import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionReason
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.ssl.SslMode
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import java.util.concurrent.Executors
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 
 @EnabledIfEnvironmentVariable(named = "TEST_SSL", matches = "true")
 class SslIntegrationTest {
@@ -371,7 +373,6 @@ class SslIntegrationTest {
             val exception = assertFailsWith<ExecutionAbortedException> {
                 session.createNativeQuery("SELECT pg_sleep(5)").fetchRowStrict()
             }
-            assertEquals(ExecutionAbortedExceptionReason.QUERY_CANCELED, exception.reason)
             assertEquals("57014", exception.sqlState)
 
             val isSsl = session.createNativeQuery("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()").fetchFieldStrict<Boolean>()
@@ -379,6 +380,48 @@ class SslIntegrationTest {
         } finally {
             executor.shutdown()
             session.close()
+        }
+    }
+
+    private fun requireTls() = OctaviusProperties().apply {
+        user = "postgres"
+        password = "1234"
+        ssl = true
+        sslMode = SslMode.REQUIRE
+    }
+
+    @Test
+    fun testSessionTerminatedWhileIdleOverSsl() {
+        getOctaviusSession(url, requireTls()).use { session ->
+            val pid = session.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict<Int>()
+
+            getOctaviusSession(url, requireTls()).use { admin ->
+                admin.createNativeQuery("SELECT pg_terminate_backend($1)").fetchFieldStrict<Boolean>(pid)
+                val deadline = System.nanoTime() + 10_000_000_000L
+                while (admin.createNativeQuery("SELECT count(*) FROM pg_stat_activity WHERE pid = $1").fetchFieldStrict<Long>(pid) > 0) {
+                    assertTrue(System.nanoTime() < deadline, "backend $pid never went away")
+                    Thread.sleep(20)
+                }
+            }
+
+            // The FATAL is still encrypted on the socket, which the look before the exchange cannot see into,
+            // so it is read after the write instead - and reported as itself, not as the reset behind it.
+            val exception = assertFailsWith<SessionTerminatedException> {
+                session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>()
+            }
+            assertEquals(SessionTerminatedExceptionReason.ADMINISTRATOR_COMMAND, exception.reason)
+        }
+    }
+
+    @Test
+    fun testTransactionTimeoutOverSsl() {
+        getOctaviusSession(url, requireTls()).use { session ->
+            val exception = assertFailsWith<SessionTerminatedException> {
+                session.transaction.required(transactionTimeout = 200.milliseconds) {
+                    createNativeQuery("SELECT pg_sleep(5)").fetchRows()
+                }
+            }
+            assertEquals(SessionTerminatedExceptionReason.TRANSACTION_TIMEOUT, exception.reason)
         }
     }
 }
