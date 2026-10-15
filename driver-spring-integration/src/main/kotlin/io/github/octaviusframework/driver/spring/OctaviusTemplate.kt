@@ -21,6 +21,7 @@ import io.github.octaviusframework.driver.spring.exception.OctaviusDataAccessExc
 import io.github.octaviusframework.driver.spring.exception.OctaviusExceptionTranslator
 import org.springframework.dao.DataAccessException
 import org.springframework.jdbc.UncategorizedSQLException
+import org.springframework.jdbc.datasource.ConnectionHolder
 import org.springframework.jdbc.datasource.DataSourceUtils
 import org.springframework.jdbc.support.SQLExceptionTranslator
 import org.springframework.transaction.support.TransactionSynchronizationManager
@@ -47,6 +48,8 @@ class OctaviusTemplate(private val dataSource: DataSource, val exceptionTranslat
      * @param action the action to execute, with the session as its receiver
      * @return the result of the action
      * @throws org.springframework.dao.DataAccessException if a database access error occurs or an exception is translated
+     * @throws org.springframework.transaction.TransactionTimedOutException if the transaction it would join has
+     *   already run past its timeout
      */
     fun <T> execute(action: OctaviusSessionOperations.() -> T): T {
         // Acquisition is translated too, and restated as the driver's exception first, so a pool
@@ -66,6 +69,7 @@ class OctaviusTemplate(private val dataSource: DataSource, val exceptionTranslat
         var session: OctaviusSession? = null
         var transactionScoped = false
         try {
+            checkTransactionDeadline()
             val bound = TransactionSynchronizationManager.getResource(sessionKey) as OctaviusSessionHolder?
             if (bound != null) {
                 session = bound.session
@@ -90,6 +94,22 @@ class OctaviusTemplate(private val dataSource: DataSource, val exceptionTranslat
             if (!transactionScoped) session?.close()
             DataSourceUtils.releaseConnection(con, dataSource)
         }
+    }
+
+    /**
+     * Refuses to start a block once the transaction around it has run past its timeout.
+     *
+     * Spring's own check - the one `JdbcTemplate` makes before every statement, made here before every
+     * block, since a block is what this template sees. It throws Spring's `TransactionTimedOutException` and
+     * marks the transaction rollback-only. Under [TransactionTimeoutScope.STATEMENT] it is what holds the
+     * transaction as a whole to its timeout, the server holding each statement to it; under
+     * [TransactionTimeoutScope.TRANSACTION] the server holds both, and this spares a block starting on a
+     * transaction that is already over.
+     */
+    private fun checkTransactionDeadline() {
+        val holder = TransactionSynchronizationManager.getResource(dataSource) as? ConnectionHolder ?: return
+        // Throws once the deadline has passed; the time left is of no use here.
+        if (holder.hasTimeout()) holder.getTimeToLiveInMillis()
     }
 
     /**

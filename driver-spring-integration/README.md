@@ -33,6 +33,11 @@ brace. No session is threaded through a signature either way.
 `OctaviusJdbcTransactionManager`, which also answers truthfully when a connection dies mid-transaction rather
 than reporting a rollback that never reached the server.
 
+**`@Transactional(timeout = …)` is enforced.** By default as `statement_timeout`, which cancels a statement that
+runs past it and keeps the connection, with Spring's own deadline checked before every block; set
+`timeoutScope` to `TRANSACTION` for `transaction_timeout`, which bounds the whole transaction on the server and
+ends the session, connection and all, when it runs out.
+
 **A failure that came from Octavius survives the crossing.** It arrives as `OctaviusDataAccessException`, whose
 `octaviusException` hands back the driver's own exception — type, reason enum, SQLSTATE and query context
 intact — however many layers the JDBC surface and the pool wrapped it in on the way. Genuinely foreign

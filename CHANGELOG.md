@@ -10,6 +10,19 @@
   `pg_terminate_backend()` or a shutdown), and `UNKNOWN` for the rest. The connection is gone with it: the next
   call on the session names the server's reason, and a pool evicts the connection.
 
+- **`@Transactional(timeout = …)` is enforced by `OctaviusJdbcTransactionManager`**, and so are a
+  `TransactionTemplate`'s timeout and `spring.transaction.default-timeout`; it did nothing before, being
+  `JdbcTemplate`'s to apply. `timeoutScope` decides how. `STATEMENT`, the default, sends `SET LOCAL
+  statement_timeout`: a statement past it is cancelled and the connection stays, and `OctaviusTemplate` checks
+  Spring's deadline before each block, throwing `TransactionTimedOutException` past it. `TRANSACTION` sends `SET
+  LOCAL transaction_timeout`, which bounds the whole transaction on the server and ends the session when it runs
+  out. Either goes out as the transaction begins, and takes with it the `BEGIN` the driver would otherwise hold
+  back for the first statement - a round trip more for a transaction with a timeout, and none for one without.
+
+- **The auto-configured transaction manager takes Boot's transaction manager customizers**, as the one Boot makes
+  does: `spring.transaction.default-timeout`, `spring.transaction.rollback-on-commit-failure` and a
+  `TransactionManagerCustomizer<OctaviusJdbcTransactionManager>` bean all reach it.
+
 #### Changed
 
 - **`ExecutionAbortedExceptionReason` is gone, and `ExecutionAbortedException.reason` with it: `25P03` and `25P04`
@@ -38,6 +51,11 @@
   Notifications, notices and parameter changes are taken in as they always were, and a `FATAL` among them is
   reported without the statement being sent - which is what keeps it on Windows, where a reset provoked by sending
   it discards whatever the client had not read.
+
+- **`OctaviusJdbcTransactionManager` stays quiet on a rollback that finds the connection gone**, as it already did
+  on one known to be gone beforehand. A session the server ended while nothing ran on it is found by the
+  `ROLLBACK`, and that failure replaced the application's exception. Its debug lines print their message now,
+  rather than the lambda meant to produce it.
 
 #### Fixed
 

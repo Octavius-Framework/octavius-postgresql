@@ -50,10 +50,10 @@ spring:
 `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`.
 It contributes two beans:
 
-| Bean                         | What it gives you                                                                                                                              |
-|:-----------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------|
-| `OctaviusTemplate`           | Runs a block against an `OctaviusSession` on the current transaction's connection, translating exceptions on the way out.                      |
-| `PlatformTransactionManager` | An `OctaviusJdbcTransactionManager`: exception translation, nested transactions, and a truthful answer when a connection dies mid-transaction. |
+| Bean                         | What it gives you                                                                                                                                                 |
+|:-----------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `OctaviusTemplate`           | Runs a block against an `OctaviusSession` on the current transaction's connection, translating exceptions on the way out.                                         |
+| `PlatformTransactionManager` | An `OctaviusJdbcTransactionManager`: exception translation, nested transactions, enforced timeouts, and a truthful answer when a connection dies mid-transaction. |
 
 Exception translation follows from that second bean and from the template, and the rule is one sentence: **if the
 failure came from Octavius, `octaviusException` hands you back the driver's own exception** — its type, its reason enum,
@@ -205,6 +205,35 @@ fun updateUserDetails() {
 }
 ```
 
+### Timeouts
+
+`@Transactional(timeout = …)` is enforced, and so are a `TransactionTemplate`'s timeout and `spring.transaction.default-timeout`. `JdbcTransactionManager` leaves the timeout to `JdbcTemplate`, which applies what is left of it to every statement it runs — so without `JdbcTemplate` nothing would, and the annotation would be decoration. `OctaviusJdbcTransactionManager` sends it to the server when the transaction begins, as a `SET LOCAL`: it ends with the transaction, and nothing follows the connection back into the pool. Being a statement, it also sends the transaction's `BEGIN`, which the driver otherwise holds back until the method's first statement — so a transaction with a timeout begins as the method starts, at a round trip more than one without, and the server's clock starts when Spring's does.
+
+PostgreSQL has no timeout that bounds a whole transaction and leaves the connection standing, so which setting it goes out as is a choice, made by `timeoutScope`:
+
+|                                  | `STATEMENT` — the default                                                                        | `TRANSACTION`                                                                                                   |
+|:---------------------------------|:-------------------------------------------------------------------------------------------------|:----------------------------------------------------------------------------------------------------------------|
+| Sent when the transaction begins | `SET LOCAL statement_timeout`                                                                    | `SET LOCAL transaction_timeout`                                                                                 |
+| A statement that runs past it    | Cancelled: `ExecutionAbortedException`, and the connection stays                 | The server ends the session: `SessionTerminatedException(TRANSACTION_TIMEOUT)`, and the connection goes with it |
+| Time between statements          | Kept by Spring: a template block started past the deadline throws `TransactionTimedOutException` | Kept by the server as well: at the deadline it ends the session, even while your code is busy elsewhere         |
+
+**`STATEMENT` is the default because it is what a timeout has always meant in Spring's JDBC stack.** `JdbcTemplate` turns it into a query timeout on each statement and checks the deadline before each one: a timeout there cancels a statement, and never costs a connection. Here the server holds each statement to the timeout, and `OctaviusTemplate` checks Spring's deadline before each block — the unit it sees. One difference remains: each statement is given the whole timeout rather than what is left of it, since telling the server how much is left would cost a round trip per block. A transaction can therefore run past its deadline for as long as the block that started last takes, every statement in it still held to the timeout.
+
+**`TRANSACTION` is the hard bound.** The server keeps the time, so nothing outlives it — an application thread that holds the transaction open, locks and all, while it waits on something else included. A transaction that ran out while nobody was talking to it is found by whatever touches it next: the next block, or the commit, which then raises `OctaviusDataAccessException` over `SessionTerminatedException(TRANSACTION_TIMEOUT)` instead of committing. The price is the connection. `transaction_timeout` ends the session rather than the transaction, so every transaction that runs out costs the pool a connection and the server a new backend — and timeouts come in crowds exactly when a database is struggling. Choose it where a lock held past its time is worse than a reconnect.
+
+A customizer switches it without giving up the auto-configured manager:
+
+```kotlin
+@Bean
+fun wholeTransactionTimeouts() = TransactionManagerCustomizer<OctaviusJdbcTransactionManager> {
+    it.timeoutScope = TransactionTimeoutScope.TRANSACTION
+}
+```
+
+Boot's customizers reach the auto-configured manager as they reach the one Boot would have made, which is also what brings `spring.transaction.default-timeout` to every transaction without a timeout of its own. Declaring an `OctaviusJdbcTransactionManager` yourself and setting `timeoutScope` on it works as well.
+
+Only a transaction the manager begins gets a timeout — Spring's rule, not this module's: a method that joins a running transaction, or takes a savepoint under `NESTED`, keeps the terms already in force. A transaction without a timeout sends nothing, and runs under whatever the server is configured with.
+
 ### Read-only and isolation
 
 `@Transactional(readOnly = true)` and `@Transactional(isolation = ...)` reach the connection through the JDBC setters Octavius implements, and HikariCP restores both when the connection goes back to the pool.
@@ -258,12 +287,14 @@ The full hierarchy, the reason enums worth branching on, and a longer `@Controll
 
 A connection can leave in the middle of a transaction — the driver aborts one whose stream is broken or that was left mid-`COPY`, and `session.abort()` does it on request. The pool evicts it, and from then on its proxy answers everything with a bare `SQLException` that carries neither SQLState nor cause, so there is nothing left for an exception translator to recognize.
 
-The auto-configured `OctaviusJdbcTransactionManager` answers for that case, and treats the two paths differently:
+The server can end it as well — a `transaction_timeout` running out, `pg_terminate_backend()`, a shutdown — and then it says why before it closes. A session ended while nothing was running on it is found by whatever touches it next, which at the end of a transaction is the commit or the rollback itself.
 
-| Path         | What happens                                                                                            |
-|:-------------|:--------------------------------------------------------------------------------------------------------|
-| **Commit**   | Raises `OctaviusDataAccessException` wrapping `NetworkException(CONNECTION_ABORTED)`.                   |
-| **Rollback** | Stays quiet. The server discarded the transaction along with the connection, so there is nothing to do. |
+The auto-configured `OctaviusJdbcTransactionManager` answers for all of it, and treats the two paths differently:
+
+| Path         | What happens                                                                                                                                                                                                              |
+|:-------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Commit**   | Raises `OctaviusDataAccessException` — over the server's reason, `SessionTerminatedException`, where the server ended the session, and over `NetworkException(CONNECTION_ABORTED)` where the connection had already left. |
+| **Rollback** | Stays quiet, including when the rollback is what found the connection gone. The server discarded the transaction along with the connection, so there is nothing to do.                                                    |
 
 The asymmetry is the point. A commit that did not happen must be reported, or the caller is told its work is durable when it is not. A rollback, on the other hand, has already got what it asked for — and raising there would replace the exception that *caused* the rollback with one about the cleanup. Without this, an aborted connection turned every such failure into `TransactionSystemException: JDBC commit failed`, and Spring logged `Application exception overridden by rollback exception` over the diagnostic you actually needed.
 
