@@ -275,6 +275,12 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
         stream.lock.lock()
         try {
             if (!isActive) return
+            if (stream.isBroken) {
+                // Nothing left to cancel: the server discarded the transfer along with the connection. Trying
+                // would only raise about the connection, over whatever failure brought the caller here.
+                isActive = false
+                return
+            }
             stream.sendMessage(FrontendCopyFailMessage("Copy operation cancelled by user."))
             stream.flush()
             isActive = false
@@ -364,6 +370,8 @@ class CopyOut internal constructor(private val stream: PgStream) : CopyOperation
         try {
             if (!isActive) return
             isActive = false
+            // Nothing left to drain on a connection that is gone; see CopyIn.cancelCopy.
+            if (stream.isBroken) return
             logger.debug { "[PID: ${stream.processId}] COPY OUT cancelled" }
             // Wait for ReadyForQuery
             while (true) {

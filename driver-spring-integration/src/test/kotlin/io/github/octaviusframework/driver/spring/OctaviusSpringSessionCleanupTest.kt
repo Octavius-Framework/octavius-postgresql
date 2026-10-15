@@ -28,7 +28,7 @@ import org.springframework.transaction.annotation.Transactional
 @SpringBootTest(
     classes = [CleanupTestApplication::class, OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class],
     properties = [
-        "spring.datasource.url=${TestDatabase.URL}",
+        TEST_DATASOURCE_URL,
         "spring.datasource.username=${TestDatabase.USER}",
         "spring.datasource.password=${TestDatabase.PASSWORD}",
         "spring.datasource.driver-class-name=io.github.octaviusframework.driver.jdbc.OctaviusDriver",

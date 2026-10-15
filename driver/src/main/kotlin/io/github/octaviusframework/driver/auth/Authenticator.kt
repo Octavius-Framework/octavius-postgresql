@@ -72,7 +72,7 @@ internal object Authenticator {
                 }
 
                 is ErrorOrNoticeMessage -> {
-                    throw ExceptionTranslator.translate(msg)
+                    throw ExceptionTranslator.translateRefusal(msg)
                 }
 
                 is NegotiateProtocolVersionMessage -> {

@@ -67,9 +67,11 @@ yours to issue.
 ## What is thrown and what is returned
 
 SQL the server would not parse, a row that does not fit the class it was asked for, a type the registry has
-never heard of, a session that could not be obtained: thrown, being the same on every run. A violated
-constraint, a deadlock, a serialization failure, a `RAISE EXCEPTION`, a statement that ran out of time: those
-become a `Failure` once you have asked for one.
+never heard of: thrown, being the same on every run. So is a session that could not be obtained — a refused
+login, a pool with none to give — which fails before there is an operation for a result to describe. A
+violated constraint, a deadlock, a serialization failure, a `RAISE EXCEPTION`, a statement that ran out of
+time, a session the server ended, a connection lost on the way: those become a `Failure` once you have asked
+for one.
 
 A `fetch*Strict` that found no row is thrown, and so is a non-nullable `T` over a `NULL`. Both are assertions
 the calling code made about its own data. A lookup allowed to find nothing says so in its type instead —

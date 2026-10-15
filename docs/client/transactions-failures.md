@@ -149,7 +149,10 @@ block's first statement: `SET TRANSACTION` for isolation and `readOnly`, `SET LO
 round trip of their own. Nothing is left on the connection when the transaction ends, so nothing follows it
 back into the pool.
 `statementTimeout` bounds any one statement; `transactionTimeout` bounds how long the whole thing may stay
-open. `null` leaves the server's own setting alone, and asking for none of them sends nothing at all.
+open. They fail differently: a statement past `statementTimeout` is cancelled and the session goes on, while
+`transactionTimeout` running out ends the session, connection and all — see
+[Terms for one transaction](../driver/transactions.md#terms-for-one-transaction). `null` leaves the server's own
+setting alone, and asking for none of them sends nothing at all.
 
 The rule and the warning both live in the driver's `TransactionManager`, which this delegates to — see
 [Terms for one transaction](../driver/transactions.md#terms-for-one-transaction).
@@ -172,8 +175,8 @@ two reasons on one, which is what lets them land on opposite sides of this table
 | A type the registry has never heard of             | A serialization failure                                   |
 | A value no codec would encode                      | A routine's `RAISE EXCEPTION` — a business rule saying no |
 | An operation the session's state forbids           | A statement that ran out of time                          |
-| A transaction whose state forbids the statement    | Anything the driver gains later                           |
-| A routine's own assertion, falsified by the data   |                                                           |
+| A transaction whose state forbids the statement    | A session the server ended                                |
+| A routine's own assertion, falsified by the data   | Anything the driver gains later                           |
 | A session that could not be obtained at all        |                                                           |
 
 Everything on the left is a defect rather than an outcome — most of it the same on every run, the rest for the

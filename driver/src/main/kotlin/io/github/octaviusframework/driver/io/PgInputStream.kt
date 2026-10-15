@@ -63,6 +63,15 @@ internal class PgInputStream(private var inputStream: InputStream) {
         limit = read
     }
 
+    /**
+     * Whether a read would find something without waiting: bytes left in the buffer, or bytes the underlying
+     * stream already holds.
+     *
+     * The underlying stream's own count is what `available()` makes of it - on a plain socket what the kernel
+     * has received, on a TLS one only what has already been decrypted.
+     */
+    fun hasPending(): Boolean = position < limit || inputStream.available() > 0
+
     /** Reads one byte, refilling the buffer if it is spent. */
     fun readByte(): Byte {
         if (position >= limit) {

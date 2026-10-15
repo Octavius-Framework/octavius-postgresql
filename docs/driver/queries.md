@@ -245,7 +245,7 @@ Three things about that loop are worth knowing before you rely on it.
 **The whole iteration is one statement, for as long as it takes.** The driver keeps the result open across batches without closing the exchange, so the server treats it as a single running statement from the first batch to the last. Whatever your block does — writing files, calling services — happens inside that statement's lifetime.
 
 > [!WARNING]
-> **`statement_timeout` covers the entire loop, including time spent in your block.** With `statement_timeout = 1s` and a block taking 200 ms per row, an iteration was cancelled after 10 rows and surfaced as `ExecutionAbortedException(QUERY_CANCELED)`. The session recovers and stays usable, but the rest of the rows are gone. If a slow block is unavoidable, either raise the timeout for that session or collect the rows first and do the slow work afterwards.
+> **`statement_timeout` covers the entire loop, including time spent in your block.** With `statement_timeout = 1s` and a block taking 200 ms per row, an iteration was cancelled after 10 rows and surfaced as `ExecutionAbortedException`. The session recovers and stays usable, but the rest of the rows are gone. If a slow block is unavoidable, either raise the timeout for that session or collect the rows first and do the slow work afterwards.
 
 **The session is busy for the duration.** Your block runs while the driver is still reading the result, so it must not touch that same session — see [below](#do-not-re-enter-the-session-while-rows-are-being-read).
 
@@ -322,7 +322,7 @@ val work = OctaviusDispatchers.VirtualExecutor.submit {
 session.cancelQuery()
 ```
 
-The blocked call then fails with `ExecutionAbortedException(QUERY_CANCELED)` (SQLSTATE `57014`), the session stays usable, and the next statement runs normally.
+The blocked call then fails with `ExecutionAbortedException` (SQLSTATE `57014`), the session stays usable, and the next statement runs normally.
 
 Two things it does not promise. **It never throws** — if the cancel request cannot be delivered, the failure is swallowed and the query simply keeps running, so a return means "asked", not "stopped".
 
