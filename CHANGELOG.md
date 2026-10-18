@@ -112,6 +112,11 @@
   `INVALID_ARGUMENT` rather than `FEATURE_NOT_SUPPORTED` - fail the same way, and so does `OctaviusDataSource.unwrap`.
   **A `catch` of the driver's exception around those calls no longer sees it; `wrappedException` holds it.**
 
+- **A server certificate signed with RSASSA-PSS is hashed for channel binding with the digest in the signature's
+  parameters**, as the server hashes it. The driver hashed every such certificate with SHA-256, so over SHA-384 or
+  SHA-512 a login under the default `channelBinding=prefer` failed with `SERVER_REJECTED_CREDENTIALS` - the
+  server's `SCRAM channel binding check failed` - where `libpq` logs in.
+
 ### Client
 
 #### Changed

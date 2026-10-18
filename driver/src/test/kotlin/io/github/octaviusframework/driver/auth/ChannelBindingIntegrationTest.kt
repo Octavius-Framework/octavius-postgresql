@@ -25,6 +25,9 @@ class ChannelBindingIntegrationTest {
     // The CI job runs its TLS server on the default port; a throwaway local instance rarely can.
     private val url = "jdbc:octavius://localhost:5433/octavius_test"
 
+    // The same certificate signed with RSASSA-PSS over SHA-384, on a server of its own.
+    private val rsaPssUrl = "jdbc:octavius://localhost:5436/octavius_test"
+
     private fun properties(block: OctaviusProperties.() -> Unit) = OctaviusProperties().apply {
         user = "postgres"
         password = "1234"
@@ -59,6 +62,17 @@ class ChannelBindingIntegrationTest {
         } finally {
             session.close()
         }
+    }
+
+    @Test
+    fun `binds to a certificate signed with RSASSA-PSS`() {
+        // The name RSASSA-PSS carries no digest. The server reads SHA-384 out of the signature's
+        // parameters and hashes its certificate with it, so the login goes through only where the
+        // driver did the same.
+        getOctaviusSession(rsaPssUrl, properties {
+            sslMode = SslMode.REQUIRE
+            channelBinding = ChannelBinding.REQUIRE
+        }).close()
     }
 
     @Test

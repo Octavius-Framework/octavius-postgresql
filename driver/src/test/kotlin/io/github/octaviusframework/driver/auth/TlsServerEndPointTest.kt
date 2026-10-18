@@ -47,4 +47,32 @@ class TlsServerEndPointTest {
         // instead - which is why this differs from the SHA-1 of the certificate.
         assertEquals("X15PMexD/8hx+ptNQ0sEptqE7H3+cibkLUL4uDnI8b8=", hashOf("cert-sha1.pem"))
     }
+
+    @Test
+    fun `reads the digest of an RSASSA-PSS signature from its parameters`() {
+        // The name is RSASSA-PSS whatever the digest. SHA-384 is in the parameters, and that is
+        // where the server's OpenSSL reads it from.
+        assertEquals(
+            "+bFn/O05XsOY2qZaUl6oU4FAQfpCiVpqvb3/2t6O+E9XacTVGhtHztlnBMT4Zamq",
+            hashOf("cert-rsapss-sha384.pem")
+        )
+    }
+
+    @Test
+    fun `promotes an RSASSA-PSS signature over SHA-1 to SHA-256`() {
+        // Parameters left empty, which RFC 4055 reads as SHA-1 - and then the same promotion as for
+        // a SHA-1 signature by name.
+        assertEquals("XM2GiVjJ3Pc32fTyeR4bgil6m4S0HwlIIRBblKe4ke0=", hashOf("cert-rsapss-sha1.pem"))
+    }
+
+    @Test
+    fun `follows a SHA-3 signature to its own digest`() {
+        // SHA3-384withRSA hashes with SHA3-384, hyphen and all. No TLS signature scheme uses SHA-3,
+        // so JSSE refuses such a certificate in the handshake and no login gets this far - but the
+        // server binds to it with SHA3-384 when a client does.
+        assertEquals(
+            "B9OvAdDfHLzVwetqPnr00CV9uMRB/h8aJ0+VG1hJDCk6fVvVFGAIgMG/BHLWBUaz",
+            hashOf("cert-sha3-384.pem")
+        )
+    }
 }

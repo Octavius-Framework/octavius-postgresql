@@ -99,9 +99,14 @@ jobs:
 
           # 6. The RSA client key again, encrypted, for the sslpassword test - same certificate.
           openssl pkcs8 -topk8 -inform PEM -outform PEM -in client.key -out client-enc.key -passout pass:senatus
+
+          # 7. The server certificate signed again, with RSASSA-PSS over SHA-384, for a server of its own. The
+          #    name of that signature carries no digest, and channel binding has to find it in the parameters.
+          openssl x509 -req -in server.csr -days 365 -CA ca.crt -CAkey ca.key -CAcreateserial \
+            -sha384 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest -out server-rsapss.crt
           
           chmod 600 server.key ca.key client.key client-ec.key client-enc.key
-          sudo chown 999:999 server.key server.crt ca.crt
+          sudo chown 999:999 server.key server.crt server-rsapss.crt ca.crt
           cd ..
           
           docker run -d --name postgres-ssl \
@@ -121,6 +126,17 @@ jobs:
           HBA=$(docker exec postgres-ssl psql -U postgres -tAc "SHOW hba_file")
           docker exec postgres-ssl bash -c "{ echo 'hostssl all cleartext_user all password'; echo 'host all cleartext_user all password'; cat $HBA; } > /tmp/hba && cp /tmp/hba $HBA"
           docker exec postgres-ssl psql -U postgres -c "SELECT pg_reload_conf()"
+
+          # The same server again, presenting the RSASSA-PSS certificate - a server presents one.
+          docker run -d --name postgres-ssl-rsapss \
+            -e POSTGRES_PASSWORD=1234 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_DB=octavius_test \
+            -p 5436:5432 \
+            -v ${{ github.workspace }}/.ssl:/etc/ssl/postgres \
+            postgres:18 -c ssl=on -c ssl_cert_file=/etc/ssl/postgres/server-rsapss.crt -c ssl_key_file=/etc/ssl/postgres/server.key
+
+          until docker exec postgres-ssl-rsapss pg_isready -h localhost; do sleep 1; done
 
       - name: Run SSL Tests
         env:
