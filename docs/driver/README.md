@@ -118,10 +118,11 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 ### Error Handling
 - [The Base Class](exceptions.md#the-base-class) — `OctaviusException` and the context it carries
 - [From Wire to Exception](exceptions.md#from-wire-to-exception) — Server errors, mapping errors, and errors that never left the JVM
+- [A `FATAL`: the Server Ending the Session](exceptions.md#a-fatal-the-server-ending-the-session) — Why the reason survives the close, and where it still cannot
 - [Message Format and Logging](exceptions.md#message-format-and-logging) — What a thrown exception prints
 - [Query Context](exceptions.md#query-context) — The SQL and parameters your application sent
 - [SQLSTATE Routing](exceptions.md#sqlstate-routing) — Which code becomes which class
-- [Exception Reference](exceptions.md#exception-reference) — All seventeen types, one by one
+- [Exception Reference](exceptions.md#exception-reference) — All eighteen types, one by one
 - [Catching at the Right Altitude](exceptions.md#catching-at-the-right-altitude) — Including retrying concurrency failures
 - [Crossing into JDBC and Spring](exceptions.md#crossing-into-jdbc-and-spring) — `SQLExceptionWrapper`, `OctaviusDataAccessException`, and unwrapping a pool's own exception
 
@@ -143,6 +144,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Using `OctaviusTemplate`](spring-integration.md#using-octaviustemplate) — The template API and connection lifetime
 - [Registering Types at Startup](spring-integration.md#registering-types-at-startup) — Enums and composites in a Spring context
 - [Transaction Management](spring-integration.md#transaction-management) — `@Transactional`, read-only, isolation, nesting
+- [Timeouts](spring-integration.md#timeouts) — `@Transactional(timeout)` per statement or per transaction, and what each costs
 - [Exceptions](spring-integration.md#exceptions) — Translation into Spring's `DataAccessException`
 - [What Else in Spring Works](spring-integration.md#what-else-in-spring-works) — And what cannot, including Actuator's health check
 

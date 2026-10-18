@@ -1,3 +1,107 @@
+## Version 2.6.0 (v2.6.0)
+
+### Driver
+
+#### Added
+
+- **`SessionTerminatedException`: a session the server ended arrives as the reason the server gave.** Any `FATAL`
+  or `PANIC` once the session is open, whatever its SQLSTATE - `TRANSACTION_TIMEOUT` (`25P04`, and `25P03` for
+  `idle_in_transaction_session_timeout`), `IDLE_SESSION_TIMEOUT` (`57P05`), `ADMINISTRATOR_COMMAND` (`57P01`:
+  `pg_terminate_backend()` or a shutdown), and `UNKNOWN` for the rest. The connection is gone with it: the next
+  call on the session names the server's reason, and a pool evicts the connection.
+
+- **`@Transactional(timeout = …)` is enforced by `OctaviusJdbcTransactionManager`**, and so are a
+  `TransactionTemplate`'s timeout and `spring.transaction.default-timeout`; it did nothing before, being
+  `JdbcTemplate`'s to apply. `timeoutScope` decides how, each scope being one PostgreSQL setting. `STATEMENT`, the
+  default, sends `SET LOCAL statement_timeout`: a statement past it is cancelled and the connection stays. It holds
+  each statement to the timeout, not their sum, where `JdbcTemplate` gives each what is left of it. `TRANSACTION`
+  sends `SET LOCAL transaction_timeout`, which bounds the whole transaction on the server and ends the session when
+  it runs out. Either goes out as the transaction begins, and takes with it the `BEGIN` the driver would
+  otherwise hold back for the first statement - a round trip more for a transaction with a timeout, and none for
+  one without.
+
+- **The auto-configured transaction manager takes Boot's transaction manager customizers**, as the one Boot makes
+  does: `spring.transaction.default-timeout`, `spring.transaction.rollback-on-commit-failure` and a
+  `TransactionManagerCustomizer<OctaviusJdbcTransactionManager>` bean all reach it.
+
+#### Changed
+
+- **`ExecutionAbortedExceptionReason` is gone, and `ExecutionAbortedException.reason` with it: `25P03` and `25P04`
+  are `SessionTerminatedException(TRANSACTION_TIMEOUT)`.** Both end the session where `57014` ends a statement, and
+  a `catch` of `ExecutionAbortedException` that retried on the same session retried on one that no longer existed.
+  That left `QUERY_CANCELED` as the only reason, which the type already says. **A `when` over
+  `ExecutionAbortedExceptionReason`, or code reading `reason`, stops compiling, and code that caught
+  `ExecutionAbortedException` for either timeout no longer sees it.**
+
+- **A `FATAL` is `SessionTerminatedException` whatever its SQLSTATE**, where an `ERROR` with the same code routes
+  as before: `FATAL 57P01` is an administrator ending the session rather than a `DatabaseSystemException`, and
+  `FATAL 40001` - a standby ending a session over a recovery conflict - is not a `ConcurrencyException` to retry on
+  that session.
+
+- **A login the server refuses is `InitializationException`, whatever its SQLSTATE.** Class `28` keeps
+  `SERVER_REJECTED_CREDENTIALS`, and anything else is `CONNECTION_ERROR` with the code in `sqlState`. A database
+  that does not exist (`3D000`) was a `StatementException`, and too many connections (`53300`) or a server starting
+  up (`57P03`) a `DatabaseSystemException`. **A `catch` of those around connecting no longer sees them.**
+
+- **A `SQLExceptionWrapper` over a terminated session chains a next exception with SQLSTATE `08006`**, so a pool
+  evicts the connection at once rather than at its next validation - HikariCP reads neither `25P04` nor `57P05` as
+  a lost connection.
+
+- **Each exchange reads what the server sent since the last one before writing anything.** On a plain connection
+  that costs one look at the socket; on a TLS one it reaches only what the TLS layer has already decrypted.
+  Notifications, notices and parameter changes are taken in as they always were, and a `FATAL` among them is
+  reported without the statement being sent - which is what keeps it on a Windows client, where a reset provoked by
+  sending it discards whatever had not been read. A stock PostgreSQL server on Windows sends that reset by itself as
+  the backend exits, and there the `FATAL` is lost regardless.
+
+- **`OctaviusJdbcTransactionManager` stays quiet on a rollback that finds the connection gone**, as it already did
+  on one known to be gone beforehand. A session the server ended while nothing ran on it is found by the
+  `ROLLBACK`, and that failure replaced the application's exception. Its debug lines print their message now,
+  rather than the lambda meant to produce it.
+
+- **`writeToCopy` reports a row the server rejected rather than sending the next chunk.** The server ends a `COPY`
+  the moment it rejects a row it can check as it reads it - a value that does not parse, a wrong column count,
+  `NOT NULL`, `CHECK` - and drops whatever data still arrives. `writeToCopy` reads that before writing, raises the
+  rejection and finishes the handle, where it went on sending until `endCopy()` collected the error, and the
+  `InputStream` overload of `copyIn` stops reading its input there. Foreign keys, checked when the statement ends,
+  still come from `endCopy()`, and a duplicate key whenever the server writes out the rows it has buffered. A
+  `FATAL` is caught the same way, before the chunk whose reset would make a Windows client discard it - where the
+  server closes gracefully, which a stock PostgreSQL on Windows does not. **A `catch` around `endCopy()` alone no
+  longer sees a row rejected mid-transfer.**
+
+#### Fixed
+
+- **A `FATAL` is reported as itself, not as the closed connection after it.** The driver kept reading for a
+  `ReadyForQuery` that never follows one and reported what came instead - `CONNECTION_CLOSED_BY_PEER`, or
+  `CONNECTION_ERROR` over a reset - or, where the connection stayed open, waited for the close as long as the
+  socket timeout allowed, which by default is for good. A write that fails on a session the server ended reports
+  the `FATAL` waiting in the input too, on a plain connection: a `COPY IN` streaming into a transaction
+  `transaction_timeout` ended says so, instead of `Broken pipe`. Listener loops the server ends report it the same
+  way.
+
+- **A pooled session closed over a broken connection gives the connection up.** Closing it aborted a connection
+  that had already latched itself closed, the abort returned without the exception a pool evicts on, and the pool
+  counted the connection as borrowed for good - a single socket timeout exhausted a pool of one. The socket of
+  such a connection is closed now too, where it was left for the collector.
+
+- **`cancelCopy()` on a connection that has gone does nothing**, so the `copyIn`/`copyOut` overloads that cancel on
+  failure report the failure, not the cancel's own on a dead socket.
+
+- **A `transactionTimeout` holds where the server has a `transaction_timeout` of its own.** PostgreSQL starts a
+  transaction's clock with the value in force when the transaction begins - a database, role or session default -
+  and a later value leaves the running clock as it is, `SHOW` reporting the new one all the same. Wherever such a
+  default was set, a `transactionTimeout` was ignored, shorter and longer alike. The driver now stops the running
+  clock before starting its own.
+
+### Client
+
+#### Changed
+
+- **A login the server refuses is thrown under `dbResult`, `transactionResult` and `asResult`, as every session
+  that could not be obtained is.** Too many connections (`53300`) and a server starting up (`57P03`) were
+  `DatabaseSystemException`, and so a `Failure`; they are `InitializationException` now. **A `Failure` branch
+  that handled them no longer sees them.**
+
 ## Version 2.5.0 (v2.5.0)
 
 ### Driver

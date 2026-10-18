@@ -13,8 +13,9 @@ interface CopyOperation : AutoCloseable {
     /**
      * Abandons the transfer and returns the connection to a usable state.
      *
-     * Does nothing if the transfer has already finished. For a COPY IN this discards everything already
-     * written; the server never commits a partial copy.
+     * Does nothing if the transfer has already finished, or if the connection has already gone - the server
+     * discarded the transfer along with it. For a COPY IN this discards everything already written; the
+     * server never commits a partial copy.
      */
     fun cancelCopy()
 

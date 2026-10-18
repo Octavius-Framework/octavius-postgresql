@@ -1,7 +1,6 @@
 package io.github.octaviusframework.driver.initialization
 
 import io.github.octaviusframework.driver.exception.ExecutionAbortedException
-import io.github.octaviusframework.driver.exception.ExecutionAbortedExceptionReason
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
@@ -130,7 +129,7 @@ class PgBouncerIntegrationTest : AbstractIntegrationTest() {
                     session.createNativeQuery("SELECT pg_sleep(5)").fetchRowStrict()
                 }
 
-                assertEquals(ExecutionAbortedExceptionReason.QUERY_CANCELED, ex.reason)
+                assertEquals("57014", ex.sqlState)
                 assertEquals(1, session.createNativeQuery("SELECT 1").fetchField<Int>())
             } finally {
                 executor.shutdown()

@@ -173,7 +173,7 @@ internal object ScramSha256Authenticator {
      */
     private inline fun <reified T : AuthenticationMessage> expect(stream: PgStream): T {
         val message = stream.receiveMessage()
-        if (message is ErrorOrNoticeMessage) throw ExceptionTranslator.translate(message)
+        if (message is ErrorOrNoticeMessage) throw ExceptionTranslator.translateRefusal(message)
         return message as? T ?: throw InitializationException(
             InitializationExceptionReason.PROTOCOL_VIOLATION,
             details = "Expected ${T::class.simpleName}, got: $message"

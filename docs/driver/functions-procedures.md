@@ -177,7 +177,7 @@ catch (e: RoutineAssertionException) {
 }
 ```
 
-`where` is what makes both genuinely debuggable — it names the routine and the line, not just the statement you sent. The full tables live in [Error Handling and Exceptions](exceptions.md#9-routineraiseexception).
+`where` is what makes both genuinely debuggable — it names the routine and the line, not just the statement you sent. The full tables live in [Error Handling and Exceptions](exceptions.md#10-routineraiseexception).
 
 ## Summary
 

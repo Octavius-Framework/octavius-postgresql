@@ -2,12 +2,15 @@ package io.github.octaviusframework.driver.spring
 
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.spring.exception.OctaviusExceptionTranslator
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 import org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration
 import org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration
+import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizationAutoConfiguration
+import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizers
 import org.springframework.context.annotation.Bean
 import org.springframework.transaction.PlatformTransactionManager
 import javax.sql.DataSource
@@ -15,13 +18,14 @@ import javax.sql.DataSource
 /**
  * Spring Boot auto-configuration for the Octavius driver.
  *
- * Runs after Spring's own `DataSourceAutoConfiguration` and before Boot's `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`
- * Contributes an [OctaviusTemplate] and a
- * [PlatformTransactionManager], each only when the application context does not already declare one
- * of its own. Declaring either bean yourself takes precedence over everything here.
+ * Runs after Spring's own `DataSourceAutoConfiguration`, and after Boot's
+ * `TransactionManagerCustomizationAutoConfiguration`, whose customizers its transaction manager takes; and before
+ * Boot's `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`. Contributes an
+ * [OctaviusTemplate] and a [PlatformTransactionManager], each only when the application context does not already
+ * declare one of its own. Declaring either bean yourself takes precedence over everything here.
  */
 @AutoConfiguration(
-    after = [DataSourceAutoConfiguration::class],
+    after = [DataSourceAutoConfiguration::class, TransactionManagerCustomizationAutoConfiguration::class],
     before = [DataSourceTransactionManagerAutoConfiguration::class, TransactionAutoConfiguration::class]
 )
 @ConditionalOnClass(OctaviusSession::class, DataSource::class)
@@ -48,14 +52,27 @@ open class OctaviusSpringAutoConfiguration {
      * raw `SQLException`, and it has nested transactions enabled, which is what makes
      * `@Transactional(propagation = NESTED)` resolve to a savepoint instead of being rejected. What it
      * adds over `JdbcTransactionManager` is the driver's exception for a transaction that never got a
-     * connection, and an answer for one whose connection has already left - see the class for which
-     * way each of commit and rollback goes, and why they differ.
+     * connection, an answer for one whose connection has already left - see the class for which
+     * way each of commit and rollback goes, and why they differ - and a transaction timeout that is
+     * enforced.
+     *
+     * Boot's transaction manager customizers are applied to it, as they are to the one Boot would have
+     * made: `spring.transaction.default-timeout` and `spring.transaction.rollback-on-commit-failure` reach
+     * it, and so does a `TransactionManagerCustomizer<OctaviusJdbcTransactionManager>` bean - the way to
+     * change its [OctaviusJdbcTransactionManager.timeoutScope] without declaring the manager yourself.
      *
      * @param dataSource the underlying data source to use
+     * @param customizers Boot's transaction manager customizers, where Boot's transaction auto-configuration
+     *   provides them
      * @return a new instance of [PlatformTransactionManager]
      */
     @Bean
     @ConditionalOnMissingBean
-    open fun transactionManager(dataSource: DataSource): PlatformTransactionManager =
-        OctaviusJdbcTransactionManager(dataSource)
+    open fun transactionManager(
+        dataSource: DataSource,
+        customizers: ObjectProvider<TransactionManagerCustomizers>
+    ): PlatformTransactionManager =
+        OctaviusJdbcTransactionManager(dataSource).also { manager ->
+            customizers.ifAvailable { it.customize(manager) }
+        }
 }

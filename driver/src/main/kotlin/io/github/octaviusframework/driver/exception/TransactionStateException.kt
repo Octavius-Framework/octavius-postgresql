@@ -34,8 +34,8 @@ enum class TransactionStateExceptionReason {
  * inside an explicit transaction PostgreSQL discards the work and rejects every further command until a
  * `ROLLBACK` arrives. The failure to read is the *first* one; this one only says the session never left it.
  *
- * The two class-25 timeouts, `25P03` and `25P04`, are not here - a transaction the server aborted on a timer
- * is [ExecutionAbortedException] with `TRANSACTION_TIMEOUT`, alongside the statement timeout it belongs with.
+ * The two class-25 timeouts, `25P03` and `25P04`, are not here - they end the session rather than refuse a
+ * statement, and a session the server ended is [SessionTerminatedException].
  *
  * @property reason The transaction state that refused the statement.
  * @property dbMessage The primary error message the server raised.

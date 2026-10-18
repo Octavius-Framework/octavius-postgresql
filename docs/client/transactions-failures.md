@@ -149,7 +149,10 @@ block's first statement: `SET TRANSACTION` for isolation and `readOnly`, `SET LO
 round trip of their own. Nothing is left on the connection when the transaction ends, so nothing follows it
 back into the pool.
 `statementTimeout` bounds any one statement; `transactionTimeout` bounds how long the whole thing may stay
-open. `null` leaves the server's own setting alone, and asking for none of them sends nothing at all.
+open. They fail differently: a statement past `statementTimeout` is cancelled and the session goes on, while
+`transactionTimeout` running out ends the session, connection and all — see
+[Terms for one transaction](../driver/transactions.md#terms-for-one-transaction). `null` leaves the server's own
+setting alone, and asking for none of them sends nothing at all.
 
 The rule and the warning both live in the driver's `TransactionManager`, which this delegates to — see
 [Terms for one transaction](../driver/transactions.md#terms-for-one-transaction).
@@ -172,8 +175,8 @@ two reasons on one, which is what lets them land on opposite sides of this table
 | A type the registry has never heard of             | A serialization failure                                   |
 | A value no codec would encode                      | A routine's `RAISE EXCEPTION` — a business rule saying no |
 | An operation the session's state forbids           | A statement that ran out of time                          |
-| A transaction whose state forbids the statement    | Anything the driver gains later                           |
-| A routine's own assertion, falsified by the data   |                                                           |
+| A transaction whose state forbids the statement    | A session the server ended                                |
+| A routine's own assertion, falsified by the data   | Anything the driver gains later                           |
 | A session that could not be obtained at all        |                                                           |
 
 Everything on the left is a defect rather than an outcome — most of it the same on every run, the rest for the
@@ -292,7 +295,9 @@ class SpringSessionProvider(
         }
         val timeouts = listOfNotNull(
             definition.statementTimeout?.let { "SET LOCAL statement_timeout = ${it.inWholeMilliseconds}" },
-            definition.transactionTimeout?.let { "SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}" }
+            definition.transactionTimeout?.let {
+                "SET LOCAL transaction_timeout = 0; SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}"
+            }
         )
 
         return TransactionTemplate(transactionManager, spring).execute { status ->
@@ -307,12 +312,18 @@ class SpringSessionProvider(
 
 `execute` is a single line of delegation, the template already taking the receiver-lambda the interface asks
 for, and isolation maps straight across because `TransactionIsolationLevel.jdbcValue` *is* Spring's
-`ISOLATION_*` constant. What is not delegation is the timeouts: Spring has one, it means the transaction rather
-than the statement, and it enforces it itself — so both `SET LOCAL`s are yours to issue, and they account for
+`ISOLATION_*` constant. What is not delegation is the timeouts: Spring has one where the client has two, and
+`OctaviusJdbcTransactionManager` sends Spring's as whichever of the two settings its `timeoutScope` names — so the
+client's pair, which a Spring definition has no room for, are yours to issue as `SET LOCAL`s, and they account for
 about a third of the class. They go in one statement for the same reason the driver's own `required` sends them
 that way: a script separated by `;` is one round trip, and there is nothing here to bind. And they go only where
 `isNewTransaction` says this call began the transaction — [the rule above](#isolation-read-only-and-timeouts):
 joined, or under a savepoint, a `SET LOCAL` would stand over the rest of the outer transaction.
+
+`transaction_timeout` goes out as `0` first. PostgreSQL starts a transaction's clock with the value in force when
+the transaction begins — a database or role default, or Spring's own timeout under `timeoutScope = TRANSACTION`
+— and a later value leaves that clock running, `SHOW` reporting the new one all the same. `0` stops it, and the
+client's value starts it again. `statement_timeout` needs none of this: it is read as each statement starts.
 
 That is the whole of what a `client-spring-integration` module would contain, which is why there is not one.
 See [Spring Integration](../driver/spring-integration.md) for what the driver's own module wires up.

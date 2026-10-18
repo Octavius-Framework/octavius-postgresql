@@ -42,6 +42,16 @@ internal class OctaviusConnection(
     @Volatile
     var isClosedFlag: Boolean = false
 
+    /**
+     * Whether [close] or [abort] has run, as opposed to [isClosedFlag], which a broken stream latches as well.
+     *
+     * The two part ways at [abort]. A second abort is the no-op JDBC says it is, but the first one on a
+     * connection whose stream broke underneath is not a second one: the pool still holds it as borrowed, and
+     * the exception an abort raises is the only thing that tells the pool to let it go.
+     */
+    @Volatile
+    private var closeRequested: Boolean = false
+
     private inline fun <T> wrapSqlException(block: () -> T): T {
         try {
             return block()
@@ -71,13 +81,20 @@ internal class OctaviusConnection(
      * than by asking a socket that is already gone.
      *
      * @throws NetworkException `CONNECTION_CLOSED` (`08003`) if it was closed, `CONNECTION_ERROR` (`08006`)
-     *   if the stream broke.
+     *   if the stream broke - with the server's own reason in `details` where it was the server that ended
+     *   the session.
      */
     fun checkClosed() {
         if (isClosedFlag) throw NetworkException(NetworkExceptionReason.CONNECTION_CLOSED, sqlState = "08003")
         if (stream.isBroken) {
             isClosedFlag = true
-            throw NetworkException(NetworkExceptionReason.CONNECTION_ERROR, details = "Underlying stream is broken", sqlState = "08006")
+            val terminatedBy = stream.terminatedBy
+            val details = if (terminatedBy != null) {
+                "The server ended this session (${terminatedBy.code}): ${terminatedBy.message}"
+            } else {
+                "Underlying stream is broken"
+            }
+            throw NetworkException(NetworkExceptionReason.CONNECTION_ERROR, details = details, sqlState = "08006")
         }
     }
 
@@ -94,8 +111,10 @@ internal class OctaviusConnection(
     override fun nativeSQL(sql: String?): String = sql?.let { SqlParameterParser.parse(sql).transformedSql } ?: ""
 
     override fun close() {
-        if (!isClosedFlag) {
+        if (!closeRequested) {
+            closeRequested = true
             isClosedFlag = true
+            // Also on a stream that broke: a socket a read timed out on is still open until this closes it.
             stream.close()
         }
     }
@@ -174,7 +193,10 @@ internal class OctaviusConnection(
             details = "Executor cannot be null"
         )
         
-        if (isClosedFlag) return
+        // Not isClosedFlag: a stream that broke latches that too, and a connection a pool still holds as
+        // borrowed has to raise below, or the pool never learns to let it go - see closeRequested.
+        if (closeRequested) return
+        closeRequested = true
         isClosedFlag = true
 
         logger.debug { "$pid Connection aborted" }
@@ -215,7 +237,7 @@ internal class OctaviusConnection(
      * Failing to open that second connection is not reported: there was nothing to clean up and the query
      * carries on. A cancelled query surfaces at whoever is running it, as
      * [ExecutionAbortedException][io.github.octaviusframework.driver.exception.ExecutionAbortedException]
-     * (`QUERY_CANCELED`, SQLSTATE `57014`) — the same one a `statement_timeout` produces, since the server
+     * (SQLSTATE `57014`) — the same one a `statement_timeout` produces, since the server
      * reports both the same way.
      *
      * @throws NetworkException if this connection is already closed or broken.

@@ -6,10 +6,14 @@ import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
+import io.github.octaviusframework.driver.exception.SessionTerminatedException
+import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionReason
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.testsupport.TestDatabase
+import io.github.octaviusframework.testsupport.assumeUnreadFatalSurvives
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertInstanceOf
@@ -18,6 +22,7 @@ import java.net.ServerSocket
 import java.sql.SQLException
 import java.sql.SQLFeatureNotSupportedException
 import java.sql.SQLTransientConnectionException
+import java.util.concurrent.TimeUnit
 
 /**
  * A pool reports its own failures as `java.sql.SQLException` - a borrow that timed out, a pool that
@@ -95,6 +100,81 @@ class PooledSessionExceptionTest {
             // The one the driver raised on the refused connect, not one restated over the pool's
             // timeout - so what it says is why the server could not be reached.
             assertFalse(ex.cause is SQLException, "expected the driver's own exception, got ${ex.cause}")
+        }
+    }
+
+    /** Waits until the backend has left `pg_stat_activity` - by then it has sent its FATAL. */
+    private fun awaitGone(pid: Int) {
+        TestDatabase.openSession().use { observer ->
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (observer.createNativeQuery("SELECT count(*) FROM pg_stat_activity WHERE pid = $1").fetchFieldStrict<Long>(pid) > 0) {
+                check(System.nanoTime() < deadline) { "backend $pid never went away" }
+                Thread.sleep(20)
+            }
+        }
+    }
+
+    @Test
+    fun `should give up a connection whose session the server ended, and hand out a working one`() {
+        assumeUnreadFatalSurvives()
+        pool().use { ds ->
+            val pid = ds.getOctaviusSession().use { session ->
+                val pid = session.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict<Int>()
+                TestDatabase.openSession().use {
+                    it.createNativeQuery("SELECT pg_terminate_backend($1)").fetchFieldStrict<Boolean>(pid)
+                }
+                awaitGone(pid)
+
+                val ex = assertThrows<SessionTerminatedException> { session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>() }
+                assertEquals(SessionTerminatedExceptionReason.ADMINISTRATOR_COMMAND, ex.reason)
+                pid
+            }
+
+            // Closing the session gave the connection up rather than back, so the pool opened another
+            ds.getOctaviusSession().use { session ->
+                assertNotEquals(pid, session.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict<Int>())
+            }
+        }
+    }
+
+    @Test
+    fun `should give up a connection whose stream broke rather than keep it borrowed`() {
+        pool {
+            jdbcUrl = "${TestDatabase.URL}?socketTimeout=1"
+            connectionTimeout = 5_000
+        }.use { ds ->
+            ds.getOctaviusSession().use { session ->
+                assertThrows<NetworkException> { session.createNativeQuery("SELECT pg_sleep(2)").fetchRows() }
+            }
+
+            // A broken stream latches the connection closed, and the abort that closing the session sends has
+            // to raise all the same - it is the pool's only signal to evict. Swallowed, the pool of one would
+            // count the connection borrowed for good and this borrow would time out.
+            ds.getOctaviusSession().use { session ->
+                assertEquals(1, session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>())
+            }
+        }
+    }
+
+    @Test
+    fun `should have the pool evict a connection the server ended, whatever code it ended it with`() {
+        assumeUnreadFatalSurvives()
+        pool().use { ds ->
+            ds.connection.use { connection ->
+                connection.createStatement().use { it.execute("SET idle_session_timeout = '100ms'") }
+                val pid = connection.getOctaviusSession(ownsConnection = false).use {
+                    it.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict<Int>()
+                }
+                awaitGone(pid)
+
+                // 57P05 is not among the codes HikariCP reads as a lost connection; the 08006 chained behind
+                // it is, so the pool learns now rather than at its next validation. A session setting, because
+                // it goes to the server through the pool's own proxy, where the pool can see what it raises.
+                val ex = assertThrows<SQLException> { connection.isReadOnly = true }
+                assertEquals("57P05", ex.sqlState)
+                assertEquals("08006", ex.nextException?.sqlState)
+                assertTrue(connection.isClosed, "the pool's proxy should have evicted the connection")
+            }
         }
     }
 

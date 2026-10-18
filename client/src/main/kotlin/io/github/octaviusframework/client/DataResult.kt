@@ -7,8 +7,9 @@ import io.github.octaviusframework.driver.exception.OctaviusException
  *
  * Every terminal method on a client query returns one of these rather than throwing, for the class of
  * failures the database itself reports: a constraint the row violated, a deadlock, a `RAISE EXCEPTION`
- * from a routine, a statement that ran out of time. Those are conditions an application is expected to
- * have an answer for, and a return type says so where a `catch` two frames up does not.
+ * from a routine, a statement that ran out of time, a session the server ended. Those are conditions an
+ * application is expected to have an answer for, and a return type says so where a `catch` two frames up
+ * does not.
  *
  * It does not cover every way a call can fail. A query the database refused to parse, a row that does
  * not fit the class it was asked for, a type the registry has never heard of - those are bugs in the

@@ -27,6 +27,9 @@ benchmarks/logs/
 ### Throwaway TLS server from scripts/ssl-test-server.ps1 ###
 .ssl-test/
 
+### Throwaway servers from scripts/test-server.ps1 ###
+.test-server/
+
 ### Throwaway primary, standby and foreign server from scripts/replication-test-servers.ps1 ###
 .replication-test/
 

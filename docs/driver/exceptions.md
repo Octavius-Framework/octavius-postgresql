@@ -10,7 +10,7 @@ Octavius builds its error handling around a single base class — `OctaviusExcep
 Three things are worth internalizing before the details:
 
 * **The reason enum is a convenience layer, not a lossy one.** Most exceptions carry an enum identifying the exact reason for the failure, so you don't hand-parse `SQLSTATE` codes yourself. But nothing the server said is thrown away: `serverErrorMessage` still holds the complete parsed `ErrorResponse`.
-* **A rejected statement does not desynchronize the connection.** When the *server* reports an error, the driver keeps reading the protocol stream until `ReadyForQuery`, *then* throws — so the session is still usable afterwards. The exception is I/O failure: a `NetworkException` means the socket itself is gone, and that connection is finished.
+* **A rejected statement does not desynchronize the connection.** When the *server* reports an error, the driver keeps reading the protocol stream until `ReadyForQuery`, *then* throws — so the session is still usable afterwards. The exceptions are the two ways a connection ends: a `NetworkException` means the socket itself is gone, and a `SessionTerminatedException` means the server ended the session — a `FATAL`, which nothing follows but the close. Either way that connection is finished.
 * **Which type you catch depends on the door you came in through.** The native session API throws `OctaviusException` subclasses, the raw JDBC surface throws `SQLExceptionWrapper`, Spring's `OctaviusTemplate` throws `OctaviusDataAccessException`. See [Crossing into JDBC and Spring](#crossing-into-jdbc-and-spring).
 
 Contents:
@@ -52,7 +52,7 @@ abstract class OctaviusException(
 
 `serverErrorMessage` is a plain data class mirroring the wire message field for field: `severity`, `code`, `message`, `detail`, `hint`, `position`, `internalPosition`, `internalQuery`, `where`, `schema`, `table`, `column`, `datatype`, `constraint`, `file`, `line`, `routine`. Most subclasses re-expose the fields that matter for their category as first-class properties (`constraint` on a constraint violation, `routine` on a permission denial), but the raw object is always there when you need something they don't surface.
 
-The hierarchy is flat — fifteen concrete subclasses directly under `OctaviusException`, no intermediate layers to reason about.
+The hierarchy is flat — eighteen concrete subclasses directly under `OctaviusException`, no intermediate layers to reason about.
 
 ## From wire to exception
 
@@ -66,7 +66,30 @@ When PostgreSQL rejects something, it sends an `ErrorResponse` message. What hap
 4. **The query layer attaches context.** `Query.withQueryContext` wraps every execution method; on the way out it catches the `OctaviusException` and fills in `queryContext` — *only if it is still null*, so the innermost frame that knows the real SQL wins and outer frames don't overwrite it.
 5. **It surfaces.** Which type you actually catch depends on the API you entered through — see [Crossing into JDBC and Spring](#crossing-into-jdbc-and-spring).
 
-This is what the server-error path buys you: a `ConstraintViolationException` leaves the connection as clean as a successful `INSERT` would. It says nothing about the I/O path — if the socket dies mid-drain, the loop never reaches step 2, `PgStream` latches `isBroken`, and a `NetworkException` propagates out of an unfinished exchange. That connection is done.
+This is what the server-error path buys you: a `ConstraintViolationException` leaves the connection as clean as a successful `INSERT` would. It says nothing about the I/O path — if the socket dies mid-drain, the loop never reaches step 2, and a `NetworkException` propagates out of an unfinished exchange. That connection is done, and every later call on it fails at once.
+
+### A `FATAL`: the server ending the session
+
+One kind of `ErrorResponse` is not drained, because there is nothing after it to drain. A `FATAL` — or a `PANIC`, which ends every session on the server — is the server's last word: no `ReadyForQuery` follows, only the connection closing. So the driver acts on the message itself: the connection is closed there and then, and whatever was reading — a statement, a transfer, a listener loop — throws a `SessionTerminatedException` carrying what the server said.
+
+Acting on the message rather than on the close is the point. Read on past it and what reaches the caller is the close — a `NetworkException` about a peer that hung up, or about a connection reset — with the reason that explained it gone. It also means nothing waits on the close arriving at all.
+
+Most of these do not arrive during a statement. `idle_in_transaction_session_timeout`, `idle_session_timeout`, a `transaction_timeout` that runs out between statements, and `pg_terminate_backend()` on an idle session all reach a connection nobody is reading. So each exchange starts by reading what has already arrived, before anything is written: a notification, a notice, a parameter that changed — and a `FATAL`, which is then reported by the statement that found it, without that statement having been sent. Sending it would reach a backend that has already exited; its host answers with a reset, and a reset is allowed to discard whatever the client had not read yet. Only what is already there is read, so an idle connection the server has told nothing costs one look at the socket.
+
+Where the write happens first anyway — a statement's parameters still going out when the server ends the session — the write is what fails, and the driver reads what arrived before reporting it: a `FATAL` waiting there is thrown in place of the failed write, which rides along as a suppressed exception. A `COPY IN` looks before each chunk it sends, the way an exchange looks before it starts.
+
+> [!NOTE]
+> **The reason can still be lost, and then it is a `NetworkException`.** What decides it is not the driver's.
+> A Windows client discards unread data when a reset arrives, so one that writes before it reads can find the reset
+> where the `FATAL` was — the look before each exchange is what keeps an idle session's reason, but it cannot help a
+> `FATAL` that arrives while a write is under way. A stock PostgreSQL server on Windows sends that reset by itself as
+> a backend exits, so there a Windows client loses the reason without writing anything, unless the look happens to
+> come first. And on a TLS connection the look reaches only what the TLS layer has already decrypted, while a failed
+> write shuts the TLS layer down: there the reason is read after the next write, as any reply is — which Linux keeps
+> readable and Windows may not. Wherever the reason does not survive, the connection is still reported as gone, as a
+> `NetworkException` — never as usable.
+
+Login is the exception. Every refusal arrives as a `FATAL` there, and there is no session yet to end, so a bad password is still an `InitializationException` and the rest of the login failures still go through the [routing table](#sqlstate-routing).
 
 ### Errors raised during row mapping
 
@@ -221,6 +244,8 @@ The statement survives, which is usually what makes the entry worth keeping; onl
 
 `ExceptionTranslator` is a single ordered `when` over the SQLSTATE string. Order matters: the first matching branch wins, which is how the specific codes (`40002`, `42501`, `55P03`, `57014`) escape their class-wide defaults.
 
+**Severity comes first.** A `FATAL` or `PANIC` in an open session never reaches the table: whatever its code, the server has [ended the session](#a-fatal-the-server-ending-the-session), so it is `SessionTerminatedException`, with the reason taken from the code where it names one and `UNKNOWN` where it does not. A `FATAL 57P01` is an administrator ending the session, not a server in trouble, and a `FATAL 40001` — a standby ending a session over a recovery conflict — is not a serialization failure to retry on a session that no longer exists. The table is for every `ERROR`. A `FATAL` at login is the server refusing the connection, and is [`InitializationException`](#4-initializationexception) whatever its code.
+
 | #  | SQLSTATE                   | Becomes                                                   |
 |:---|:---------------------------|:----------------------------------------------------------|
 | 1  | `08*`                      | `NetworkException(CONNECTION_ERROR)`                      |
@@ -228,20 +253,19 @@ The statement survives, which is usually what makes the entry worth keeping; onl
 | 3  | `28*`                      | `InitializationException(SERVER_REJECTED_CREDENTIALS)`    |
 | 4  | `21*`, `0A*`, `3D*`, `3F*` | `StatementException(INVALID_DEFINITION)`                  |
 | 5  | `23*`                      | `ConstraintViolationException` — reason per code          |
-| 6  | `25P03`, `25P04`           | `ExecutionAbortedException(TRANSACTION_TIMEOUT)`          |
-| 7  | `25*` (everything else)    | `TransactionStateException` — reason per code             |
-| 8  | `40002`                    | `ConstraintViolationException(UNKNOWN)`                   |
-| 9  | `40*` (everything else)    | `ConcurrencyException` — `40001`, `40P01`, else `UNKNOWN` |
-| 10 | `42501`                    | `PermissionDeniedException`                               |
-| 11 | `42*` (everything else)    | `StatementException` — reason per code, see below         |
-| 12 | `54*`                      | `StatementException(SYNTAX_ERROR)`                        |
-| 13 | `55P03`                    | `ConcurrencyException(LOCK_NOT_AVAILABLE)`                |
-| 14 | `55*` (everything else)    | `DatabaseSystemException`                                 |
-| 15 | `57014`                    | `ExecutionAbortedException(QUERY_CANCELED)`               |
-| 16 | `57*`, `53*`, `58*`, `XX*` | `DatabaseSystemException`                                 |
-| 17 | `P0002`, `P0003`, `P0004`  | `RoutineAssertionException` — reason per code             |
-| 18 | `P0*` (everything else)    | `RoutineRaiseException`                                   |
-| 19 | anything else              | `UncategorizedDatabaseException`                          |
+| 6  | `25*`                      | `TransactionStateException` — reason per code             |
+| 7  | `40002`                    | `ConstraintViolationException(UNKNOWN)`                   |
+| 8  | `40*` (everything else)    | `ConcurrencyException` — `40001`, `40P01`, else `UNKNOWN` |
+| 9  | `42501`                    | `PermissionDeniedException`                               |
+| 10 | `42*` (everything else)    | `StatementException` — reason per code, see below         |
+| 11 | `54*`                      | `StatementException(SYNTAX_ERROR)`                        |
+| 12 | `55P03`                    | `ConcurrencyException(LOCK_NOT_AVAILABLE)`                |
+| 13 | `55*` (everything else)    | `DatabaseSystemException`                                 |
+| 14 | `57014`                    | `ExecutionAbortedException`                               |
+| 15 | `57*`, `53*`, `58*`, `XX*` | `DatabaseSystemException`                                 |
+| 16 | `P0002`, `P0003`, `P0004`  | `RoutineAssertionException` — reason per code             |
+| 17 | `P0*` (everything else)    | `RoutineRaiseException`                                   |
+| 18 | anything else              | `UncategorizedDatabaseException`                          |
 
 **Class 22 (data) → `DataExceptionReason`**
 
@@ -330,19 +354,19 @@ Every reason here is about the statement itself, and `position` is the evidence 
 ### 4. `InitializationException`
 
 **Thrown when:** no session could be obtained at all — the driver failed to establish a connection or authenticate, or a `DataSource` would not hand one over.
-**Raised by:** `OctaviusConnectionFactory`, `Authenticator`, `SslNegotiator`, `PgStream` — by the translator for any SQLSTATE class `28`, and by `getOctaviusSession()` for anything a `DataSource` refuses.
+**Raised by:** the driver while it connects; the server refusing the login — a `FATAL` before the session is open, whatever its SQLSTATE; and `getOctaviusSession()` for anything a `DataSource` refuses.
 **Properties:** `reason`, `details`, `cause`.
 
 | Reason (`InitializationExceptionReason`) | Description                                                                                                                                                                                                  |
 |:-----------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password.                                                                                                                                                                                |
+| `SERVER_REJECTED_CREDENTIALS`            | Invalid username or password — the server refused the login with SQLSTATE class `28`.                                                                                                                       |
 | `UNSUPPORTED_MECHANISM`                  | No mechanism the driver implements, or channel binding was unavailable.                                                                                                                                      |
 | `UNSUPPORTED_PASSWORD_ENCRYPTION`        | Server requested cleartext or MD5 rather than SCRAM-SHA-256.                                                                                                                                                 |
 | `PROTOCOL_VIOLATION`                     | Unexpected message received during login, a protocol other than 3.0–3.2 offered in its place among them.                                                                                                     |
 | `MISSING_PROTOCOL_PARAMETER`             | A required field was missing from what the server sent at login — its authentication challenge, a `search_path` a pooler did not pass on, or the `in_hot_standby` that `target_session_attrs` is decided by. |
 | `SSL_ERROR`                              | TLS negotiation failed, or the server does not support it.                                                                                                                                                   |
 | `UNSUPPORTED_SERVER_VERSION`             | PostgreSQL older than 18, by the `server_version` it reports at login.                                                                                                                                       |
-| `CONNECTION_ERROR`                       | General connection failure before authentication could begin — and the catch-all for a `DataSource` that could not open one, and for a list of servers none of which could be used, each named in `details`. |
+| `CONNECTION_ERROR`                       | General connection failure before authentication could begin; the server refusing the login for anything but the credentials — too many connections (`53300`), a database that does not exist (`3D000`), a server starting up (`57P03`) — with the code in `sqlState`; and the catch-all for a `DataSource` that could not open one, and for a list of servers none of which could be used, each named in `details`. |
 | `CONNECTION_UNAVAILABLE`                 | The data source had none to give rather than failing to open one — a pool that ran out of time waiting for a free one. Nothing reached the server.                                                           |
 
 > [!NOTE]
@@ -371,7 +395,7 @@ Every reason here is about the statement itself, and `position` is the evidence 
 ### 5. `NetworkException`
 
 **Thrown when:** a physical network error disrupts communication, or you touch a connection that is already gone.
-**Raised by:** `PgStream` (socket layer), `OctaviusConnection.checkClosed()`, and the translator for SQLSTATE class `08`.
+**Raised by:** the socket — a read or a write that fails, a timeout, a peer that hangs up; any call on a connection that is already gone; and the server, SQLSTATE class `08`.
 **Properties:** `reason`, `details`, `cause` (usually the original `IOException` / `SocketTimeoutException` / `EOFException`).
 
 | Reason (`NetworkExceptionReason`) | Typical SQLSTATE | Description                                                |
@@ -382,7 +406,9 @@ Every reason here is about the statement itself, and `position` is the evidence 
 | `CONNECTION_CLOSED`               | `08003`          | Operation attempted on an already-closed connection.       |
 | `CONNECTION_ABORTED`              | `08000`          | Connection explicitly aborted by the client.               |
 
-Once the socket breaks, `PgStream.isBroken` latches. The next `checkClosed()` flips the connection to closed and throws, which is exactly the signal HikariCP needs to evict it from the pool instead of handing it to the next caller.
+Once the socket breaks, the connection is finished: the next call on it throws, and the connection counts as closed from then on — exactly the signal HikariCP needs to evict it from the pool instead of handing it to the next caller. Where it was the server that ended the session, that throw is `CONNECTION_ERROR` with the server's reason in `details` — the [`SessionTerminatedException`](#8-sessionterminatedexception) that reported it came first.
+
+A session closed over a broken connection aborts it rather than returning it, and the abort raises for the same reason: it is how a pool learns to evict a connection when nothing went through the pool's own proxy to tell it.
 
 ### 6. `ConcurrencyException`
 
@@ -401,16 +427,30 @@ This is the one category that is routinely **retryable** — see the retry loop 
 
 ### 7. `ExecutionAbortedException`
 
-**Thrown when:** execution is stopped by the server rather than failing on its own merits.
-**Raised by:** the server, `25P03` / `25P04` / `57014`.
-**Properties:** `reason`.
+**Thrown when:** the server stops a statement before it finishes, rather than the statement failing on its own merits — a `statement_timeout`, or `session.cancelQuery()`.
+**Raised by:** the server, `57014`.
+**Properties:** none of its own; there is one way to be cancelled, so no reason enum.
 
-| Reason (`ExecutionAbortedExceptionReason`) | SQLSTATE         | Description                                                           |
-|:-------------------------------------------|:-----------------|:----------------------------------------------------------------------|
-| `TRANSACTION_TIMEOUT`                      | `25P03`, `25P04` | `idle_in_transaction_session_timeout` or `transaction_timeout` fired. |
-| `QUERY_CANCELED`                           | `57014`          | Cancelled via `statement_timeout` or `session.cancelQuery()`.         |
+What ends is the statement, not the session: the next statement runs normally, and inside a transaction the transaction is doomed as after any other error until it is rolled back. A timeout that ends the session itself is the next section's.
 
-### 8. `TransactionStateException`
+### 8. `SessionTerminatedException`
+
+**Thrown when:** the server ends the session — it sends a `FATAL` or a `PANIC` and closes the connection behind it.
+**Raised by:** the server, any `FATAL` or `PANIC` once the session is open, whatever its SQLSTATE — see [A `FATAL`: the server ending the session](#a-fatal-the-server-ending-the-session).
+**Properties:** `reason`, `dbMessage`.
+
+| Reason (`SessionTerminatedExceptionReason`) | SQLSTATE          | Description                                                                                     |
+|:--------------------------------------------|:------------------|:------------------------------------------------------------------------------------------------|
+| `TRANSACTION_TIMEOUT`                       | `25P04`, `25P03`  | The transaction ran past `transaction_timeout`, or sat open with nothing running past `idle_in_transaction_session_timeout`. |
+| `IDLE_SESSION_TIMEOUT`                      | `57P05`           | The session sat idle outside a transaction longer than `idle_session_timeout`.                  |
+| `ADMINISTRATOR_COMMAND`                     | `57P01`           | `pg_terminate_backend()`, or the server shutting down.                                          |
+| `UNKNOWN`                                   | any other `FATAL` | `sqlState` and `serverErrorMessage` say which — a recovery conflict on a standby, among others. |
+
+The session goes with it: nothing sent on it afterwards reaches a server, whatever the transaction had not committed is gone, and a pool evicts the connection. Retrying means starting again on a new session — which a retry around the frame that borrows it does, and one around a `required { }` on the same session does not. A statement the server cancels is `ExecutionAbortedException` instead, and leaves the session usable.
+
+Its type comes from the severity, not the code: `57P01` or `40001` as an `ERROR` routes through the table like any other, and only the `FATAL` is this. The first statement to touch the session afterwards gets a `NetworkException` naming the server's reason in `details`, and every one after that `CONNECTION_CLOSED`.
+
+### 9. `TransactionStateException`
 
 **Thrown when:** the statement is fine and the transaction it arrived in is not — one an earlier error already doomed, one declared `READ ONLY`, one open where the command forbids it, or none open where the command needs one.
 **Raised by:** the server, SQLSTATE class `25` apart from `25P03` / `25P04`.
@@ -428,9 +468,9 @@ There is no `position` here, and that is the whole reason this is not a `Stateme
 
 `IN_FAILED_TRANSACTION` is a consequence rather than a cause. After any error inside an explicit transaction PostgreSQL discards the work and refuses every further command until a `ROLLBACK` arrives, so this exception only says the session never left that state — **the failure worth reading is the earlier one**. See [One failed statement poisons the whole transaction](#practical-rules-and-gotchas).
 
-The two class-25 timeouts are elsewhere: a transaction the server ended on a timer is `ExecutionAbortedException(TRANSACTION_TIMEOUT)`, alongside the statement timeout it belongs with.
+The two class-25 timeouts are elsewhere: `25P03` and `25P04` end the session rather than refuse a statement, and are [`SessionTerminatedException`](#8-sessionterminatedexception).
 
-### 9. `RoutineRaiseException`
+### 10. `RoutineRaiseException`
 
 **Thrown when:** a PL/pgSQL routine raises an error of its own — `RAISE EXCEPTION`, which is usually your own business rules expressed where the data is.
 **Raised by:** the server, SQLSTATE `P0001`, `P0000`, and anything else in class `P0` that is not an assertion failure.
@@ -444,7 +484,7 @@ There is no reason enum because there is nothing to tell apart. A plain `RAISE E
 > `RAISE EXCEPTION` accepts `USING ERRCODE = '...'`. Raise a domain-specific SQLSTATE and it routes through the normal
 > table — `ERRCODE = '23505'` will reach your application as a `ConstraintViolationException`, not as this.
 
-### 10. `RoutineAssertionException`
+### 11. `RoutineAssertionException`
 
 **Thrown when:** an assertion inside a PL/pgSQL routine turns out to be false — an `INTO STRICT` that matched no row or several, or an `ASSERT` that did not hold.
 **Raised by:** the server, SQLSTATE `P0002`, `P0003`, `P0004`.
@@ -460,7 +500,7 @@ Separate from `RoutineRaiseException` because it says something different. A `RA
 
 See [Functions and Procedures](functions-procedures.md) for calling conventions.
 
-### 11. `PermissionDeniedException`
+### 12. `PermissionDeniedException`
 
 **Thrown when:** the database user lacks the privileges for an action or object.
 **Raised by:** the server, SQLSTATE `42501`.
@@ -468,7 +508,7 @@ See [Functions and Procedures](functions-procedures.md) for calling conventions.
 
 The object-identifying fields come straight from the server's error message, so they pinpoint what was refused rather than making you parse `permission denied for table ...`.
 
-### 12. `InvalidOperationException`
+### 13. `InvalidOperationException`
 
 **Thrown when:** the driver is asked to do something not allowed in its current state. Purely client-side — no `sqlState`, no `serverErrorMessage`.
 **Raised by:** `OctaviusConnection`, `OctaviusStatement`, `OctaviusSavepoint`, `OctaviusDataSource`, `LargeObject`, `CopyManager`, `QueryExecutor`, `NamedParameterQuery`, `NativeQuery`.
@@ -488,7 +528,7 @@ The object-identifying fields come straight from the server's error message, so 
 | `INCORRECT_RESULT_SIZE`                    | `fetch*Strict` found 0 rows, or a single-row fetch found 2+ — which is why single-row fetches request `maxRows = 2`. The statement ran; the terminal chosen for it is what does not fit.                                                                                                   |
 | `CONNECTION_BUSY`                          | The connection is already carrying an exchange and can carry only one — a `COPY` still open, or a statement still being read, usually a query issued from a `forEach` block or a converter. `details` says which, and how to let it finish. See [COPY](copy.md) and [Queries](queries.md). |
 
-### 13. `TypeException`
+### 14. `TypeException`
 
 **Thrown when:** type resolution fails in the registry.
 **Raised by:** `TypeDictionary`, `ContainerFactory`, `ParameterSerializer`.
@@ -500,7 +540,7 @@ The object-identifying fields come straight from the server's error message, so 
 | `NOT_A_CONTAINER`                | The OID is not a composite/array/enum/range container.                                                                         |
 | `MISSING_CODEC`                  | The driver has no codec for that OID (see [Type System](type-system.md#base-types-the-driver-does-not-implement)).             |
 
-### 14. `CodecException`
+### 15. `CodecException`
 
 **Thrown when:** encoding or decoding a value against PostgreSQL's binary format fails. Every codec call is routed through `encodeSafely` / `decodeSafely`, which catch *anything* the codec throws and re-wrap it here with the original as `cause`.
 **Properties:** `action`, `value`, `name`, `schema`, `oid`, `kotlinClass`.
@@ -512,7 +552,7 @@ The object-identifying fields come straight from the server's error message, so 
 
 `value` is truncated before it is stored — a `ByteArray` is reported as `ByteArray(n bytes)` and decoding keeps at most the first 100 bytes; a `toString()` longer than 100 characters is cut with an ellipsis. Diagnostics stay readable and a 40 MB `bytea` never ends up in your log file.
 
-### 15. `MappingException`
+### 16. `MappingException`
 
 **Thrown when:** a conversion or object-mapping step fails, on either side of the wire.
 **Raised by:** `ResultMapper`, `ReflectionMappingUtils`, and the `PgComposite` / `PgRecord` / `PgArray` / `PgRange` accessors.
@@ -532,13 +572,13 @@ It runs the whole way down and the whole way up. The column is the outermost seg
 
 What gets no segment is a lookup that found nothing. `COLUMN_NOT_FOUND` — an index out of bounds, a name the composite does not carry — is not a location, and a path saying otherwise would read as though the driver had found something there and failed on it. The name you asked for is in the message instead.
 
-### 16. `DatabaseSystemException`
+### 17. `DatabaseSystemException`
 
 **Thrown when:** the database engine itself is in trouble rather than your query being wrong — out of memory, disk full, configuration limits, internal errors.
-**Raised by:** the server, SQLSTATE classes `53`, `55` (except `55P03`), `57` (except `57014`), `58`, `XX`.
+**Raised by:** the server, SQLSTATE classes `53`, `55` (except `55P03`), `57` (except `57014`), `58`, `XX`, as an `ERROR`. As a `FATAL` the same codes are [`SessionTerminatedException`](#8-sessionterminatedexception) in an open session and [`InitializationException`](#4-initializationexception) at login.
 **Properties:** `details` — a pre-formatted string that already includes the SQLSTATE and the server's message. No reason enum.
 
-### 17. `UncategorizedDatabaseException`
+### 18. `UncategorizedDatabaseException`
 
 **Thrown when:** a database error arrives with a SQLSTATE no branch of the routing table claims.
 **Properties:** `details`. No reason enum.
@@ -642,6 +682,12 @@ class SQLExceptionWrapper(val wrappedException: OctaviusException)
 
 The wrapper carries the message and SQLSTATE and nothing else: `wrapper.cause` is `null`, and it has no stack trace
 of its own. The typed exception, with its context and stack trace, is `wrapper.wrappedException`.
+
+One case adds to that. A `SessionTerminatedException` keeps the server's SQLSTATE on the wrapper, and `25P04` or
+`57P05` is not a code a pool reads as a lost connection — HikariCP evicts on class `08` and a short list of its own.
+So that wrapper chains a next exception, `SQLSTATE 08006`, without a stack trace: the first exception says why, the
+next says the connection is gone, the way a JDBC driver reports the I/O failure that followed a `FATAL`. The pool
+evicts the connection at once rather than at its next validation.
 
 Going the other way, `OctaviusSessionImpl` unwraps automatically: session-level operations that delegate to the JDBC
 connection (`autoCommit`, `commit()`, `rollback()`, `transactionIsolationLevel`, `networkTimeout`, …) catch
@@ -747,11 +793,18 @@ restates whatever a pool refuses a connection with, and the Spring translator al
   `forEachObject` / `forEachField` block comes back as `MappingException(BLOCK_FAILED)` with your exception as
   `cause`.
 
-* **A caught exception usually leaves the session alive — `NetworkException` does not.** For errors the server reported,
-  and for mapping failures, the protocol is drained to `ReadyForQuery` before the throw, so you can keep using the
-  connection. An I/O failure is the opposite case: there is nothing left to drain, `PgStream.isBroken` latches, and
-  every later call fails immediately with `CONNECTION_CLOSED` / `CONNECTION_ERROR`. Don't retry on that session — drop
-  it and take a fresh one from the pool.
+* **A caught exception usually leaves the session alive — `NetworkException` and `SessionTerminatedException` do not.**
+  For errors the server reported, and for mapping failures, the protocol is drained to `ReadyForQuery` before the
+  throw, so you can keep using the connection. An I/O failure is the opposite case: there is nothing left to drain,
+  and every later call fails immediately with `CONNECTION_CLOSED` / `CONNECTION_ERROR`.
+  A `FATAL` is the same end reached from the server's side. Don't retry on that session — drop it and take a fresh
+  one from the pool.
+
+* **A timeout is two different failures.** `statement_timeout` cancels a statement:
+  `ExecutionAbortedException`, and the session goes on. `transaction_timeout`,
+  `idle_in_transaction_session_timeout` and `idle_session_timeout` end the session:
+  `SessionTerminatedException`, and the connection is gone. Code that retries a timed-out statement on the session it
+  holds is right for the first and wrong for the rest.
 
 * **Retry concurrency failures, not constraint violations.** `SERIALIZATION_FAILURE` and `DEADLOCK_DETECTED` are timing
   artifacts; a `UNIQUE_CONSTRAINT_VIOLATION` will fail identically forever.
