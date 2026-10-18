@@ -321,7 +321,7 @@ Declaring a `TransactionManager` of your own replaces this.
 
 Reaching for anything else in the `No` rows does not produce a tidy Spring exception either. `prepareStatement` throws `InvalidOperationException(FEATURE_NOT_SUPPORTED)`, which is a `RuntimeException` that was never a `SQLException` — so there is nothing for the translator to translate, and `jdbcTemplate.queryForObject("SELECT 1", Int::class.java)` fails with the raw Octavius exception.
 
-Where a tool genuinely needs full JDBC — running Flyway migrations at startup, for instance — the practical answer is a second `DataSource` on `pgjdbc`, dedicated to that tool, with the Octavius one left to the application and marked `@Primary`, which is the one the [auto-configuration](#auto-configuration) builds on.
+Schema migrations need neither Flyway nor Liquibase: [`migrations`](../migrations/README.md) runs on the driver. Where a tool genuinely needs full JDBC all the same, the practical answer is a second `DataSource` on `pgjdbc`, dedicated to that tool, with the Octavius one left to the application and marked `@Primary`, which is the one the [auto-configuration](#auto-configuration) builds on.
 
 ### Replacing Actuator's database health check
 

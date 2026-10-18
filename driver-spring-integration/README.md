@@ -66,8 +66,9 @@ around: it labels its response with `getDatabaseProductName()` before checking a
 permanently `DOWN` in front of a connection that is fine. One bean replaces it, in
 [the documentation](../docs/driver/spring-integration.md#replacing-actuators-database-health-check).
 
-Where a tool genuinely needs full JDBC, the practical answer is a second `DataSource` on `pgjdbc` dedicated to
-it, with the Octavius one left to the application and marked `@Primary`.
+Schema migrations need neither Flyway nor Liquibase: [`migrations`](../docs/migrations/README.md) runs on the
+driver. Where a tool genuinely needs full JDBC all the same, the practical answer is a second `DataSource` on
+`pgjdbc` dedicated to it, with the Octavius one left to the application and marked `@Primary`.
 
 ## Requirements
 
