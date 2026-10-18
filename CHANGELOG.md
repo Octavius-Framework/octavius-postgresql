@@ -105,6 +105,13 @@
   before it.** It was declared as a `PlatformTransactionManager`, so by its own type it was found only once it
   existed.
 
+- **The JDBC `Statement` fails in a `SQLExceptionWrapper`, as the connection does**, so Spring's script runner
+  recognizes the failure: `spring.sql.init.continue-on-error` carries on past a statement the server rejects, and
+  without it the failure names its script and statement, where the driver's exception went past both. The
+  connection's `unwrap` to a type it is not, `isValid` with a negative timeout and `abort(null)` - now
+  `INVALID_ARGUMENT` rather than `FEATURE_NOT_SUPPORTED` - fail the same way, and so does `OctaviusDataSource.unwrap`.
+  **A `catch` of the driver's exception around those calls no longer sees it; `wrappedException` holds it.**
+
 ### Client
 
 #### Changed

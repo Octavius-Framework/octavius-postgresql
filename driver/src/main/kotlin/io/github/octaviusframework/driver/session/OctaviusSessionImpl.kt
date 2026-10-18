@@ -180,7 +180,11 @@ internal class OctaviusSessionImpl(
 
     // Answers rather than raises on a session already given up, the way JDBC has `isValid` answer
     // for a closed connection - a health check is the one question a dead session can still settle.
-    override fun isValid(timeout: Int): Boolean = !sessionClosed && rawConnection.isValid(timeout)
+    override fun isValid(timeout: Int): Boolean = !sessionClosed && try {
+        rawConnection.isValid(timeout)
+    } catch (e: SQLExceptionWrapper) {
+        throw e.wrappedException
+    }
 
     override fun commit() = unwrapSqlException { rawConnection.commit() }
 

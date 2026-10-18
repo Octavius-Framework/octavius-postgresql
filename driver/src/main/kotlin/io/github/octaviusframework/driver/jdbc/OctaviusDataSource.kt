@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.jdbc
 import io.github.octaviusframework.driver.auth.ChannelBinding
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.exception.wrapSqlException
 import io.github.octaviusframework.driver.properties.LoadBalanceHosts
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.properties.TargetSessionAttrs
@@ -259,10 +260,8 @@ class OctaviusDataSource : DataSource {
     override fun getParentLogger(): Logger = throw InvalidOperationException(InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED)
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T> unwrap(iface: Class<T>): T {
-        if (iface.isInstance(this)) {
-            return this as T
-        }
+    override fun <T> unwrap(iface: Class<T>): T = wrapSqlException {
+        if (iface.isInstance(this)) return@wrapSqlException this as T
         throw InvalidOperationException(InvalidOperationExceptionReason.UNWRAP_ERROR, "Cannot unwrap to ${iface.name}")
     }
 

@@ -673,7 +673,7 @@ The exception you catch depends on which door you came in through.
 
 ### `SQLExceptionWrapper`
 
-The JDBC surface must throw `SQLException` — connection pools depend on it to inspect SQLSTATE, evict dead connections, and decide what is recoverable. So `OctaviusConnection` wraps:
+The JDBC surface must throw `SQLException` — connection pools depend on it to inspect SQLSTATE, evict dead connections, and decide what is recoverable. So the connection, and the `Statement` it hands out, wrap:
 
 ```kotlin
 class SQLExceptionWrapper(val wrappedException: OctaviusException)

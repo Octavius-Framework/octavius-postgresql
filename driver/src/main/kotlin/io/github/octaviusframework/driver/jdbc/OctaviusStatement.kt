@@ -2,6 +2,8 @@ package io.github.octaviusframework.driver.jdbc
 
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.exception.SQLExceptionWrapper
+import io.github.octaviusframework.driver.exception.wrapSqlException
 import java.sql.Connection
 import java.sql.ResultSet
 import java.sql.SQLWarning
@@ -9,8 +11,12 @@ import java.sql.Statement
 
 /**
  * A stub implementation of java.sql.Statement.
- * It primarily exists to allow connection pools (such as HikariCP) to execute 
- * `connectionInitSql` or `connectionTestQuery` using standard JDBC calls.
+ * It primarily exists to allow connection pools (such as HikariCP) to execute `connectionInitSql`, and Spring's
+ * script runner the `spring.sql.init` scripts, using standard JDBC calls.
+ *
+ * What it implements fails as the connection does, in a [SQLExceptionWrapper]: a script runner told to carry on
+ * past a failed statement recognizes the failure only as a `SQLException`. What it does not implement throws the
+ * driver's own exception, as the connection's unsupported methods do.
  */
 internal class OctaviusStatement(private val connection: OctaviusConnection) : Statement {
     
@@ -23,24 +29,24 @@ internal class OctaviusStatement(private val connection: OctaviusConnection) : S
         )
     }
 
-    override fun execute(sql: String?): Boolean {
+    override fun execute(sql: String?): Boolean = wrapSqlException {
         checkClosed()
         if (sql == null) throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "SQL string passed to execute() cannot be null"
         )
         connection.queryExecutor.execute(sql)
-        return false // Return true only if the first result is a ResultSet
+        return@wrapSqlException false // Return true only if the first result is a ResultSet
     }
 
-    override fun executeUpdate(sql: String?): Int {
+    override fun executeUpdate(sql: String?): Int = wrapSqlException {
         checkClosed()
         if (sql == null) throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "SQL string passed to executeUpdate() cannot be null"
         )
         val affected = connection.queryExecutor.update(sql)
-        return affected.toInt()
+        return@wrapSqlException affected.toInt()
     }
 
     override fun close() {
@@ -66,7 +72,7 @@ internal class OctaviusStatement(private val connection: OctaviusConnection) : S
     override fun setEscapeProcessing(enable: Boolean) = unsupported()
     override fun getQueryTimeout(): Int = unsupported()
     override fun setQueryTimeout(seconds: Int) = unsupported()
-    override fun cancel() = connection.cancelQuery()
+    override fun cancel() = wrapSqlException { connection.cancelQuery() }
     override fun getWarnings(): SQLWarning? = null
     override fun clearWarnings() {}
     override fun setCursorName(name: String?) = unsupported()

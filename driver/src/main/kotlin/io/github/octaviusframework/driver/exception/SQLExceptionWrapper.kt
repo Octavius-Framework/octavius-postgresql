@@ -33,6 +33,18 @@ class SQLExceptionWrapper(val wrappedException: OctaviusException) :
 }
 
 /**
+ * Runs [block], restating any of the driver's exceptions it raises in a [SQLExceptionWrapper] - how every method the
+ * JDBC surface implements fails, where what it does not implement throws the driver's exception as it is.
+ */
+internal inline fun <T> wrapSqlException(block: () -> T): T {
+    try {
+        return block()
+    } catch (e: OctaviusException) {
+        throw SQLExceptionWrapper(e)
+    }
+}
+
+/**
  * The half of a terminated session a connection pool acts on, chained behind the wrapper that carries it.
  *
  * Without a stack trace for the wrapper's reason: a pool evicting over this logs it, and its frames would

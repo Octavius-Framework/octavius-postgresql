@@ -36,7 +36,7 @@ val session = dataSource.getOctaviusSession()
 
 Reaching for any of the following on the underlying JDBC connection — or on the `Statement` it hands out — throws an `InvalidOperationException` with reason `FEATURE_NOT_SUPPORTED`.
 
-That exception is **not** a `SQLException`. The methods Octavius does implement wrap their failures in [`SQLExceptionWrapper`](exceptions.md#sqlexceptionwrapper), because pools need to read SQLSTATE off something — but the unsupported ones throw the raw Octavius exception, an unchecked `RuntimeException`. A `catch (SQLException e)` inherited from legacy JDBC code will not catch it, and the failure sails past the handler that was written for exactly this case.
+That exception is **not** a `SQLException`. The methods Octavius does implement wrap their failures in [`SQLExceptionWrapper`](exceptions.md#sqlexceptionwrapper), because pools need to read SQLSTATE off something, and Spring's script runner carries on past a failed statement only when it is a `SQLException` — but the unsupported ones throw the raw Octavius exception, an unchecked `RuntimeException`. A `catch (SQLException e)` inherited from legacy JDBC code will not catch it, and the failure sails past the handler that was written for exactly this case.
 
 A further handful of methods neither work nor throw. They [answer quietly](#what-answers-quietly-instead-of-throwing), which is the half worth reading twice.
 

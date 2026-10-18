@@ -52,14 +52,6 @@ internal class OctaviusConnection(
     @Volatile
     private var closeRequested: Boolean = false
 
-    private inline fun <T> wrapSqlException(block: () -> T): T {
-        try {
-            return block()
-        } catch (e: OctaviusException) {
-            throw SQLExceptionWrapper(e)
-        }
-    }
-
     private var lastSearchPathString: String? = null
     private var cachedSearchPath: List<String>? = null
 
@@ -99,10 +91,8 @@ internal class OctaviusConnection(
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T> unwrap(iface: Class<T>): T {
-        if (iface.isInstance(this)) {
-            return this as T
-        }
+    override fun <T> unwrap(iface: Class<T>): T = wrapSqlException {
+        if (iface.isInstance(this)) return@wrapSqlException this as T
         throw InvalidOperationException(InvalidOperationExceptionReason.UNWRAP_ERROR, details = "Cannot unwrap to ${iface.name}")
     }
 
@@ -130,17 +120,17 @@ internal class OctaviusConnection(
     override fun clearWarnings() {} // required by Hikari
 
 
-    override fun isValid(timeout: Int): Boolean { // required by Hikari
+    override fun isValid(timeout: Int): Boolean = wrapSqlException { // required by Hikari
         if (timeout < 0) throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "Timeout for isValid() cannot be negative, was $timeout"
         )
-        if (isClosed()) return false
+        if (isClosed()) return@wrapSqlException false
 
         // The timeout is a property of the whole connection, so it is swapped under the same lock
         // that serializes exchanges - otherwise this would shorten the deadline of a query already
         // in flight on another thread, and kill a healthy connection with a read timeout.
-        return stream.lock.withLock {
+        stream.lock.withLock {
             val originalTimeout = try {
                 stream.networkTimeout
             } catch (e: NetworkException) {
@@ -187,15 +177,15 @@ internal class OctaviusConnection(
     override fun getClientInfo(): Properties = Properties()
 
 
-    override fun abort(executor: Executor?) {
+    override fun abort(executor: Executor?) = wrapSqlException {
         if (executor == null) throw InvalidOperationException(
-            InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED,
+            InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "Executor cannot be null"
         )
-        
+
         // Not isClosedFlag: a stream that broke latches that too, and a connection a pool still holds as
         // borrowed has to raise below, or the pool never learns to let it go - see closeRequested.
-        if (closeRequested) return
+        if (closeRequested) return@wrapSqlException
         closeRequested = true
         isClosedFlag = true
 
@@ -205,11 +195,11 @@ internal class OctaviusConnection(
             stream.close()
         }
         // Signal for Hikari to evict Connection
-        throw SQLExceptionWrapper(NetworkException(
+        throw NetworkException(
             NetworkExceptionReason.CONNECTION_ABORTED,
             details = "Connection explicitly aborted by Octavius",
             sqlState = "08000"
-        ))
+        )
     }
 
     override fun setNetworkTimeout(executor: Executor?, milliseconds: Int) = wrapSqlException { // required by Hikari
