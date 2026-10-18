@@ -87,6 +87,12 @@
 - **`cancelCopy()` on a connection that has gone does nothing**, so the `copyIn`/`copyOut` overloads that cancel on
   failure report the failure, not the cancel's own on a dead socket.
 
+- **A `transactionTimeout` holds where the server has a `transaction_timeout` of its own.** PostgreSQL starts a
+  transaction's clock with the value in force when the transaction begins - a database, role or session default -
+  and a later value leaves the running clock as it is, `SHOW` reporting the new one all the same. Wherever such a
+  default was set, a `transactionTimeout` was ignored, shorter and longer alike. The driver now stops the running
+  clock before starting its own.
+
 ### Client
 
 #### Changed

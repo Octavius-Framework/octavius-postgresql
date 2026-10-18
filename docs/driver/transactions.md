@@ -207,7 +207,9 @@ when that runs out the server ends the session rather than the transaction — w
 the block is busy elsewhere. It reaches you as `SessionTerminatedException(TRANSACTION_TIMEOUT)`, and the
 connection is gone with it. That is the one to reach for where the transaction must not outlast its time even
 while your code holds it open doing something else; `statementTimeout` is the one that costs nothing when it
-fires. See [Error Handling](exceptions.md#8-sessionterminatedexception).
+fires. See [Error Handling](exceptions.md#8-sessionterminatedexception). A `transactionTimeout` replaces any
+`transaction_timeout` the server would start the transaction with — set for the database, the role or the
+session — whether it is shorter or longer.
 
 All four end when the transaction ends. That is the difference from the session properties in the next
 section, and it is the reason to prefer this form: nothing is left on the connection, so there is nothing for

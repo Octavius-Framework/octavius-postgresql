@@ -295,7 +295,9 @@ class SpringSessionProvider(
         }
         val timeouts = listOfNotNull(
             definition.statementTimeout?.let { "SET LOCAL statement_timeout = ${it.inWholeMilliseconds}" },
-            definition.transactionTimeout?.let { "SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}" }
+            definition.transactionTimeout?.let {
+                "SET LOCAL transaction_timeout = 0; SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}"
+            }
         )
 
         return TransactionTemplate(transactionManager, spring).execute { status ->
@@ -317,6 +319,11 @@ about a third of the class. They go in one statement for the same reason the dri
 that way: a script separated by `;` is one round trip, and there is nothing here to bind. And they go only where
 `isNewTransaction` says this call began the transaction — [the rule above](#isolation-read-only-and-timeouts):
 joined, or under a savepoint, a `SET LOCAL` would stand over the rest of the outer transaction.
+
+`transaction_timeout` goes out as `0` first. PostgreSQL starts a transaction's clock with the value in force when
+the transaction begins — a database or role default, or Spring's own timeout under `timeoutScope = TRANSACTION`
+— and a later value leaves that clock running, `SHOW` reporting the new one all the same. `0` stops it, and the
+client's value starts it again. `statement_timeout` needs none of this: it is read as each statement starts.
 
 That is the whole of what a `client-spring-integration` module would contain, which is why there is not one.
 See [Spring Integration](../driver/spring-integration.md) for what the driver's own module wires up.

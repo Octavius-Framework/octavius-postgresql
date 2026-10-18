@@ -10,6 +10,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.exception.SQLExceptionWrapper
+import io.github.octaviusframework.driver.exception.SessionTerminatedException
+import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionReason
 import io.github.octaviusframework.driver.session.OctaviusSessionImpl
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.driver.session.TransactionIsolationLevel
@@ -18,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 class TransactionTest : AbstractIntegrationTest() {
@@ -523,6 +526,35 @@ class TransactionTest : AbstractIntegrationTest() {
         assertEquals("7s" to "30s", inside)
         assertEquals("0", setting("statement_timeout"))
         assertEquals("0", setting("transaction_timeout"))
+    }
+
+    // SHOW reports a transaction_timeout set after the clock started whether or not it took effect, so these two
+    // look at what the server does instead
+
+    @Test
+    fun `a transaction timeout longer than the one transactions start with is the one that holds`() {
+        // A default the server starts every transaction's clock with, as a role or a database setting gives it
+        session.createNativeQuery("SET transaction_timeout = '200ms'").execute()
+
+        val outcome = session.transaction.required(transactionTimeout = 5.seconds) {
+            createNativeQuery("SELECT pg_sleep(0.5)").fetchRows()
+            "still in the transaction"
+        }
+
+        assertEquals("still in the transaction", outcome)
+    }
+
+    @Test
+    fun `a transaction timeout shorter than the one transactions start with is the one that holds`() {
+        session.createNativeQuery("SET transaction_timeout = '30s'").execute()
+
+        val ex = assertThrows<SessionTerminatedException> {
+            session.transaction.required(transactionTimeout = 200.milliseconds) {
+                createNativeQuery("SELECT pg_sleep(5)").fetchRows()
+            }
+        }
+
+        assertEquals(SessionTerminatedExceptionReason.TRANSACTION_TIMEOUT, ex.reason)
     }
 
     @Test
