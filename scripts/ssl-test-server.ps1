@@ -8,9 +8,10 @@
     entirely inside `.ssl-test/` at the repository root, so nothing about an existing install is
     touched and `remove` really does remove all of it.
 
-    Beside it stands a server that differs from it only in its certificate, signed with RSASSA-PSS.
-    Channel binding hashes the certificate with the digest its signature was made with, and a
-    server presents one certificate, so each signature the tests bind to needs a server of its own.
+    Beside it stand two servers that differ from it only in their certificate, one signed with
+    RSASSA-PSS and one with Ed25519. Channel binding hashes the certificate with the digest its
+    signature was made with, and a server presents one certificate, so each signature the tests
+    bind to needs a server of its own.
 
     It is meant to be run for as long as the tests take and then thrown away - `remove` when you
     are done, so there are no servers left sitting in the background.
@@ -69,6 +70,7 @@ function New-Server {
 $servers = @(
     New-Server -Port 5433 -Cert 'server.crt' -Key 'server.key'
     New-Server -Name 'rsapss' -Port 5436 -Cert 'server-rsapss.crt' -Key 'server.key'
+    New-Server -Name 'ed25519' -Port 5437 -Cert 'server-ed25519.crt' -Key 'server-ed25519.key'
 )
 
 function Find-PostgresBin {
@@ -195,6 +197,21 @@ function New-RsaPssCertificate {
     }
 }
 
+# A server certificate signed with Ed25519, for a server of its own. That signature is made without a digest, so
+# channel binding has nothing to hash the certificate with, on either end. Self-signed, since only an Ed25519 key
+# makes an Ed25519 signature.
+function New-Ed25519Certificate {
+    $openssl = Find-OpenSsl
+
+    & $openssl req -new -x509 -days 3650 -nodes -newkey ed25519 `
+        -out (Join-Path $certDir 'server-ed25519.crt') -keyout (Join-Path $certDir 'server-ed25519.key') `
+        -subj '/CN=localhost' 2>$null
+
+    if (-not (Test-Path (Join-Path $certDir 'server-ed25519.crt'))) {
+        throw "Certificate generation failed - no server-ed25519.crt was produced."
+    }
+}
+
 function New-Instance {
     param([string]$Bin, $Server)
 
@@ -277,10 +294,14 @@ function Start-Instance {
     }
 
     $env:PGPASSWORD = $Password
+    # The bookkeeping below needs no TLS and goes without it: libpq, like the driver, cannot log in to the Ed25519
+    # server over TLS without turning channel binding off.
+    $env:PGSSLMODE = 'disable'
     $exists = & (Join-Path $Bin 'psql.exe') -h localhost -p $Server.Port -U postgres -d postgres -tAc `
         "SELECT 1 FROM pg_database WHERE datname = 'octavius_test'"
     if (-not $exists) {
         & (Join-Path $Bin 'createdb.exe') -h localhost -p $Server.Port -U postgres octavius_test
+        if ($LASTEXITCODE -ne 0) { throw "createdb failed with exit code $LASTEXITCODE." }
         Write-Host "Created database octavius_test."
     }
 
@@ -332,6 +353,7 @@ switch ($Action) {
     'start' {
         if (-not (Test-Path (Join-Path $certDir 'server.crt'))) { New-Certificates }
         if (-not (Test-Path (Join-Path $certDir 'server-rsapss.crt'))) { New-RsaPssCertificate }
+        if (-not (Test-Path (Join-Path $certDir 'server-ed25519.crt'))) { New-Ed25519Certificate }
         foreach ($server in $servers) {
             if (-not (Test-Path $server.Data)) { New-Instance -Bin $bin -Server $server }
             Start-Instance -Bin $bin -Server $server

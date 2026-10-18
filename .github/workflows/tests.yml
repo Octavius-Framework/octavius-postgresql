@@ -104,9 +104,14 @@ jobs:
           #    name of that signature carries no digest, and channel binding has to find it in the parameters.
           openssl x509 -req -in server.csr -days 365 -CA ca.crt -CAkey ca.key -CAcreateserial \
             -sha384 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest -out server-rsapss.crt
+
+          # 8. A server certificate signed with Ed25519, for a third server. That signature is made without a
+          #    digest, so channel binding has nothing to hash the certificate with, on either end.
+          openssl req -new -x509 -days 365 -nodes -newkey ed25519 \
+            -out server-ed25519.crt -keyout server-ed25519.key -subj "/CN=localhost"
           
-          chmod 600 server.key ca.key client.key client-ec.key client-enc.key
-          sudo chown 999:999 server.key server.crt server-rsapss.crt ca.crt
+          chmod 600 server.key server-ed25519.key ca.key client.key client-ec.key client-enc.key
+          sudo chown 999:999 server.key server.crt server-rsapss.crt server-ed25519.key server-ed25519.crt ca.crt
           cd ..
           
           docker run -d --name postgres-ssl \
@@ -127,7 +132,8 @@ jobs:
           docker exec postgres-ssl bash -c "{ echo 'hostssl all cleartext_user all password'; echo 'host all cleartext_user all password'; cat $HBA; } > /tmp/hba && cp /tmp/hba $HBA"
           docker exec postgres-ssl psql -U postgres -c "SELECT pg_reload_conf()"
 
-          # The same server again, presenting the RSASSA-PSS certificate - a server presents one.
+          # The same server twice more, presenting the RSASSA-PSS and the Ed25519 certificate - a server presents
+          # one.
           docker run -d --name postgres-ssl-rsapss \
             -e POSTGRES_PASSWORD=1234 \
             -e POSTGRES_USER=postgres \
@@ -136,7 +142,16 @@ jobs:
             -v ${{ github.workspace }}/.ssl:/etc/ssl/postgres \
             postgres:18 -c ssl=on -c ssl_cert_file=/etc/ssl/postgres/server-rsapss.crt -c ssl_key_file=/etc/ssl/postgres/server.key
 
+          docker run -d --name postgres-ssl-ed25519 \
+            -e POSTGRES_PASSWORD=1234 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_DB=octavius_test \
+            -p 5437:5432 \
+            -v ${{ github.workspace }}/.ssl:/etc/ssl/postgres \
+            postgres:18 -c ssl=on -c ssl_cert_file=/etc/ssl/postgres/server-ed25519.crt -c ssl_key_file=/etc/ssl/postgres/server-ed25519.key
+
           until docker exec postgres-ssl-rsapss pg_isready -h localhost; do sleep 1; done
+          until docker exec postgres-ssl-ed25519 pg_isready -h localhost; do sleep 1; done
 
       - name: Run SSL Tests
         env:

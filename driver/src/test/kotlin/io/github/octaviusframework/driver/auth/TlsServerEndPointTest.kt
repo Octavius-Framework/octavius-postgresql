@@ -1,6 +1,7 @@
 package io.github.octaviusframework.driver.auth
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
@@ -21,11 +22,11 @@ import java.util.*
  */
 class TlsServerEndPointTest {
 
-    private fun hashOf(fixture: String): String {
+    private fun hashOf(fixture: String): String? {
         val certificate = javaClass.getResourceAsStream("/channelbinding/$fixture").use {
             CertificateFactory.getInstance("X.509").generateCertificate(it) as X509Certificate
         }
-        return Base64.getEncoder().encodeToString(TlsServerEndPoint.hash(certificate))
+        return TlsServerEndPoint.hash(certificate)?.let { Base64.getEncoder().encodeToString(it) }
     }
 
     @Test
@@ -74,5 +75,13 @@ class TlsServerEndPointTest {
             "B9OvAdDfHLzVwetqPnr00CV9uMRB/h8aJ0+VG1hJDCk6fVvVFGAIgMG/BHLWBUaz",
             hashOf("cert-sha3-384.pem")
         )
+    }
+
+    @Test
+    fun `has no hash for a signature made without a digest`() {
+        // Ed25519 and Ed448 sign the message itself rather than a digest of it, and RFC 5929
+        // leaves the binding undefined there. The server has no digest to hash with either.
+        assertNull(hashOf("cert-ed25519.pem"))
+        assertNull(hashOf("cert-ed448.pem"))
     }
 }

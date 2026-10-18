@@ -24,11 +24,12 @@ internal object TlsServerEndPoint {
      * Hashes the DER encoding of [certificate] with the digest [digestFor] picks - the one the
      * server hashes its own certificate with, so that both ends arrive at the same bytes.
      *
+     * @return The hash, or null when the signature names no digest to hash with.
      * @throws InitializationException if the certificate cannot be encoded or the digest is
      *   unavailable in this JVM - either way there is nothing to bind to.
      */
-    fun hash(certificate: X509Certificate): ByteArray {
-        val algorithm = digestFor(certificate)
+    fun hash(certificate: X509Certificate): ByteArray? {
+        val algorithm = digestFor(certificate) ?: return null
         return try {
             MessageDigest.getInstance(algorithm).digest(certificate.encoded)
         } catch (e: GeneralSecurityException) {
@@ -42,7 +43,7 @@ internal object TlsServerEndPoint {
     }
 
     /**
-     * The digest PostgreSQL hashes its certificate with.
+     * The digest PostgreSQL hashes its certificate with, or null where it has none.
      *
      * The server asks OpenSSL's `X509_get_signature_info` which digest the certificate was signed
      * with and uses that one, except that MD5 and SHA-1 become SHA-256: RFC 5929 will not bind to a
@@ -50,10 +51,11 @@ internal object TlsServerEndPoint {
      * `SHA3-256withRSA` - so the name says it, except for RSASSA-PSS. That name is the same whatever
      * the digest, which sits in the parameters beside it, and OpenSSL reads it from there.
      *
-     * A name with no digest in it - Ed25519, Ed448 - gets SHA-256, which the server cannot match:
-     * it has no digest for such a signature and fails the login itself.
+     * A name with no digest in it - Ed25519, Ed448 - is a signature made without one, and RFC 5929
+     * leaves the binding undefined there. The server has nothing to hash with either, and fails a
+     * bound login with `could not find digest for NID UNDEF`.
      */
-    private fun digestFor(certificate: X509Certificate): String {
+    private fun digestFor(certificate: X509Certificate): String? {
         val signedWith = if (certificate.sigAlgOID == RSASSA_PSS) {
             pssDigest(certificate)
         } else {
@@ -62,7 +64,7 @@ internal object TlsServerEndPoint {
             if (with > 0) name.substring(0, with) else null
         }
         return when (val digest = signedWith?.let(::standardName)) {
-            null, "MD5", "SHA-1" -> "SHA-256"
+            "MD5", "SHA-1" -> "SHA-256"
             else -> digest
         }
     }

@@ -117,6 +117,13 @@
   SHA-512 a login under the default `channelBinding=prefer` failed with `SERVER_REJECTED_CREDENTIALS` - the
   server's `SCRAM channel binding check failed` - where `libpq` logs in.
 
+- **A server certificate signed with Ed25519 or Ed448 is refused before the SCRAM exchange, under
+  `channelBinding=prefer` as under `require`.** The refusal is `InitializationException(UNSUPPORTED_MECHANISM)`,
+  naming the signature and `channelBinding=disable`, which logs in unbound. Such a signature is made without a
+  digest, so neither end can hash the certificate: the login failed on the server's `could not find digest for NID
+  UNDEF`, as a `CONNECTION_ERROR`. `prefer` does not log in unbound past it, since an intermediary presenting such
+  a certificate of its own could relay that login.
+
 ### Client
 
 #### Changed
