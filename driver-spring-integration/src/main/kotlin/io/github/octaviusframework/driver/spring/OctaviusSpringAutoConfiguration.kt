@@ -6,13 +6,14 @@ import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
+import org.springframework.boot.autoconfigure.condition.ConditionalOnSingleCandidate
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 import org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration
 import org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration
 import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizationAutoConfiguration
 import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizers
 import org.springframework.context.annotation.Bean
-import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionManager
 import javax.sql.DataSource
 
 /**
@@ -21,14 +22,19 @@ import javax.sql.DataSource
  * Runs after Spring's own `DataSourceAutoConfiguration`, and after Boot's
  * `TransactionManagerCustomizationAutoConfiguration`, whose customizers its transaction manager takes; and before
  * Boot's `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`. Contributes an
- * [OctaviusTemplate] and a [PlatformTransactionManager], each only when the application context does not already
- * declare one of its own. Declaring either bean yourself takes precedence over everything here.
+ * [OctaviusTemplate] and an [OctaviusJdbcTransactionManager], each only when the application context does not
+ * already declare one of its own - any `TransactionManager` counting for the second. Declaring either bean yourself
+ * takes precedence over everything here.
+ *
+ * It stands back where Boot's own JDBC auto-configuration does: with several `DataSource` beans and none of them
+ * primary, there is no single one to build on, and it contributes nothing.
  */
 @AutoConfiguration(
     after = [DataSourceAutoConfiguration::class, TransactionManagerCustomizationAutoConfiguration::class],
     before = [DataSourceTransactionManagerAutoConfiguration::class, TransactionAutoConfiguration::class]
 )
 @ConditionalOnClass(OctaviusSession::class, DataSource::class)
+@ConditionalOnSingleCandidate(DataSource::class)
 open class OctaviusSpringAutoConfiguration {
 
     /**
@@ -44,8 +50,9 @@ open class OctaviusSpringAutoConfiguration {
     }
 
     /**
-     * Creates and registers a [PlatformTransactionManager] bean backed by an
-     * [OctaviusJdbcTransactionManager] if one is not already present in the application context.
+     * Creates and registers an [OctaviusJdbcTransactionManager] if the application context declares no
+     * `TransactionManager` of its own - JDBC, JPA or reactive alike, as for Boot's own. Declared as the class it
+     * is, so a bean created before it can inject it by that type.
      *
      * It carries an [OctaviusExceptionTranslator], so a failure raised while the manager itself is
      * committing or rolling back arrives in Spring's `DataAccessException` hierarchy rather than as a
@@ -64,14 +71,14 @@ open class OctaviusSpringAutoConfiguration {
      * @param dataSource the underlying data source to use
      * @param customizers Boot's transaction manager customizers, where Boot's transaction auto-configuration
      *   provides them
-     * @return a new instance of [PlatformTransactionManager]
+     * @return a new instance of [OctaviusJdbcTransactionManager]
      */
     @Bean
-    @ConditionalOnMissingBean
+    @ConditionalOnMissingBean(TransactionManager::class)
     open fun transactionManager(
         dataSource: DataSource,
         customizers: ObjectProvider<TransactionManagerCustomizers>
-    ): PlatformTransactionManager =
+    ): OctaviusJdbcTransactionManager =
         OctaviusJdbcTransactionManager(dataSource).also { manager ->
             customizers.ifAvailable { it.customize(manager) }
         }

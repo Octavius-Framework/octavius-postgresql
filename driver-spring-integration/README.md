@@ -21,7 +21,9 @@ class SenateService(private val octavius: OctaviusTemplate) {
 
 `OctaviusSpringAutoConfiguration` runs after Boot's `DataSourceAutoConfiguration`, before its
 `DataSourceTransactionManagerAutoConfiguration`, and contributes two beans — the `OctaviusTemplate` above and an
-`OctaviusJdbcTransactionManager`. Both are `@ConditionalOnMissingBean`, so declaring your own replaces them.
+`OctaviusJdbcTransactionManager`. A template of your own replaces the first, and any `TransactionManager` of your
+own the second. With several `DataSource` beans it builds on the `@Primary` one, and without one contributes
+nothing.
 
 ## What it does
 
@@ -65,7 +67,7 @@ permanently `DOWN` in front of a connection that is fine. One bean replaces it, 
 [the documentation](../docs/driver/spring-integration.md#replacing-actuators-database-health-check).
 
 Where a tool genuinely needs full JDBC, the practical answer is a second `DataSource` on `pgjdbc` dedicated to
-it, with the Octavius one left to the application.
+it, with the Octavius one left to the application and marked `@Primary`.
 
 ## Requirements
 

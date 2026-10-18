@@ -69,6 +69,10 @@
   server closes gracefully, which a stock PostgreSQL on Windows does not. **A `catch` around `endCopy()` alone no
   longer sees a row rejected mid-transfer.**
 
+- **The auto-configured transaction manager stands back from any `TransactionManager` the application declares, as
+  Boot's does**, a reactive one included, where only a `PlatformTransactionManager` made it stand back. **An
+  application with a reactive one that also used Octavius's has to declare Octavius's itself.**
+
 #### Fixed
 
 - **A `FATAL` is reported as itself, not as the closed connection after it.** The driver kept reading for a
@@ -92,6 +96,14 @@
   and a later value leaves the running clock as it is, `SHOW` reporting the new one all the same. Wherever such a
   default was set, a `transactionTimeout` was ignored, shorter and longer alike. The driver now stops the running
   clock before starting its own.
+
+- **With several `DataSource` beans the Spring auto-configuration builds on the `@Primary` one, and with none
+  primary contributes nothing**, as Boot's own JDBC beans do; it failed the startup on a `DataSource` it could not
+  pick.
+
+- **The auto-configured transaction manager can be injected as `OctaviusJdbcTransactionManager` by a bean created
+  before it.** It was declared as a `PlatformTransactionManager`, so by its own type it was found only once it
+  existed.
 
 ### Client
 

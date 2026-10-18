@@ -50,10 +50,10 @@ spring:
 `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`.
 It contributes two beans:
 
-| Bean                         | What it gives you                                                                                                                                                 |
-|:-----------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `OctaviusTemplate`           | Runs a block against an `OctaviusSession` on the current transaction's connection, translating exceptions on the way out.                                         |
-| `PlatformTransactionManager` | An `OctaviusJdbcTransactionManager`: exception translation, nested transactions, enforced timeouts, and a truthful answer when a connection dies mid-transaction. |
+| Bean                             | What it gives you                                                                                                                                              |
+|:---------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `OctaviusTemplate`               | Runs a block against an `OctaviusSession` on the current transaction's connection, translating exceptions on the way out.                                      |
+| `OctaviusJdbcTransactionManager` | The `PlatformTransactionManager`: exception translation, nested transactions, enforced timeouts, and a truthful answer when a connection dies mid-transaction. |
 
 Exception translation follows from that second bean and from the template, and the rule is one sentence: **if the
 failure came from Octavius, `octaviusException` hands you back the driver's own exception** — its type, its reason enum,
@@ -64,8 +64,8 @@ sit. A connection HikariCP could not hand over arrives as an `InitializationExce
 pool simply had none free. Genuinely foreign `SQLException`s go through Spring's `SQLStateSQLExceptionTranslator` and
 land in the standard `DataAccessException` hierarchy.
 
-Both beans are `@ConditionalOnMissingBean`, so declaring your own replaces them. That is the hook for a custom
-`SQLExceptionTranslator`:
+Declaring an `OctaviusTemplate` of your own replaces the first, and declaring any `TransactionManager` replaces the
+second, as it replaces Boot's. Declaring the template is the hook for a custom `SQLExceptionTranslator`:
 
 ```kotlin
 @Configuration
@@ -76,6 +76,9 @@ class OctaviusConfig {
         OctaviusTemplate(dataSource, MyExceptionTranslator())
 }
 ```
+
+With several `DataSource` beans the auto-configuration builds on the `@Primary` one, and where none is primary it
+contributes nothing — the rule Boot's own JDBC beans follow.
 
 ### Without Spring Boot
 
@@ -298,7 +301,7 @@ The auto-configured `OctaviusJdbcTransactionManager` answers for all of it, and 
 
 The asymmetry is the point. A commit that did not happen must be reported, or the caller is told its work is durable when it is not. A rollback, on the other hand, has already got what it asked for — and raising there would replace the exception that *caused* the rollback with one about the cleanup. Without this, an aborted connection turned every such failure into `TransactionSystemException: JDBC commit failed`, and Spring logged `Application exception overridden by rollback exception` over the diagnostic you actually needed.
 
-Declaring a `PlatformTransactionManager` of your own replaces this, as it replaces the rest of the auto-configuration.
+Declaring a `TransactionManager` of your own replaces this.
 
 ## What else in Spring works
 
@@ -318,7 +321,7 @@ Declaring a `PlatformTransactionManager` of your own replaces this, as it replac
 
 Reaching for anything else in the `No` rows does not produce a tidy Spring exception either. `prepareStatement` throws `InvalidOperationException(FEATURE_NOT_SUPPORTED)`, which is a `RuntimeException` that was never a `SQLException` — so there is nothing for the translator to translate, and `jdbcTemplate.queryForObject("SELECT 1", Int::class.java)` fails with the raw Octavius exception.
 
-Where a tool genuinely needs full JDBC — running Flyway migrations at startup, for instance — the practical answer is a second `DataSource` on `pgjdbc`, dedicated to that tool, with the Octavius one left to the application.
+Where a tool genuinely needs full JDBC — running Flyway migrations at startup, for instance — the practical answer is a second `DataSource` on `pgjdbc`, dedicated to that tool, with the Octavius one left to the application and marked `@Primary`, which is the one the [auto-configuration](#auto-configuration) builds on.
 
 ### Replacing Actuator's database health check
 

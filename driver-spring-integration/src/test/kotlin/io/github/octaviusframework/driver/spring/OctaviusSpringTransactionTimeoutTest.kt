@@ -13,12 +13,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertInstanceOf
 import org.junit.jupiter.api.fail
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizationAutoConfiguration
 import org.springframework.boot.transaction.autoconfigure.TransactionManagerCustomizer
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.annotation.EnableTransactionManagement
 import org.springframework.transaction.annotation.Transactional
@@ -38,8 +39,9 @@ private const val KEPT_OPEN = "spring.datasource.hikari.minimum-idle=1"
  * the timeout by the server and cancelled past it, the transaction as a whole is not, and the connection outlives
  * a cancelled statement.
  */
+@ImportAutoConfiguration(OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class)
 @SpringBootTest(
-    classes = [TimeoutTestApplication::class, OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class],
+    classes = [TimeoutTestApplication::class],
     properties = [DATASOURCE_URL, DATASOURCE_USERNAME, DATASOURCE_PASSWORD, DATASOURCE_DRIVER, ONE_CONNECTION, KEPT_OPEN]
 )
 class OctaviusSpringTransactionTimeoutTest {
@@ -108,13 +110,13 @@ class OctaviusSpringTransactionTimeoutTest {
  * [TransactionTimeoutScope.TRANSACTION], chosen through a customizer the way an application would keep the
  * auto-configured manager, with the timeout itself coming from `spring.transaction.default-timeout`.
  */
+@ImportAutoConfiguration(
+    TransactionManagerCustomizationAutoConfiguration::class,
+    OctaviusSpringAutoConfiguration::class,
+    DataSourceAutoConfiguration::class
+)
 @SpringBootTest(
-    classes = [
-        TransactionScopeTestApplication::class,
-        TransactionManagerCustomizationAutoConfiguration::class,
-        OctaviusSpringAutoConfiguration::class,
-        DataSourceAutoConfiguration::class
-    ],
+    classes = [TransactionScopeTestApplication::class],
     properties = [
         DATASOURCE_URL, DATASOURCE_USERNAME, DATASOURCE_PASSWORD, DATASOURCE_DRIVER, ONE_CONNECTION, KEPT_OPEN,
         "spring.transaction.default-timeout=2s"
@@ -172,13 +174,13 @@ class OctaviusSpringTransactionScopeTest {
  * [TransactionTimeoutScope.TRANSACTION] over connections that start every transaction with a `transaction_timeout`
  * of their own, as a database or role default would.
  */
+@ImportAutoConfiguration(
+    TransactionManagerCustomizationAutoConfiguration::class,
+    OctaviusSpringAutoConfiguration::class,
+    DataSourceAutoConfiguration::class
+)
 @SpringBootTest(
-    classes = [
-        TransactionScopeTestApplication::class,
-        TransactionManagerCustomizationAutoConfiguration::class,
-        OctaviusSpringAutoConfiguration::class,
-        DataSourceAutoConfiguration::class
-    ],
+    classes = [TransactionScopeTestApplication::class],
     properties = [
         DATASOURCE_URL, DATASOURCE_USERNAME, DATASOURCE_PASSWORD, DATASOURCE_DRIVER, ONE_CONNECTION, KEPT_OPEN,
         "spring.datasource.hikari.connection-init-sql=SET transaction_timeout = '200ms'"
@@ -196,7 +198,7 @@ class OctaviusSpringTransactionScopeOverADefaultTest {
     }
 }
 
-@TestConfiguration
+@Configuration
 @EnableTransactionManagement
 open class TimeoutTestApplication {
 
@@ -204,7 +206,7 @@ open class TimeoutTestApplication {
     open fun timeoutService(octaviusTemplate: OctaviusTemplate): TimeoutService = TimeoutService(octaviusTemplate)
 }
 
-@TestConfiguration
+@Configuration
 @EnableTransactionManagement
 open class TransactionScopeTestApplication {
 
