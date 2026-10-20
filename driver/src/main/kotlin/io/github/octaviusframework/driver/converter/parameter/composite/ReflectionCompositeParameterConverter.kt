@@ -34,21 +34,14 @@ internal object ReflectionCompositeParameterConverter : ParameterConverter<Any> 
             source::class as KClass<Any>
         )
 
-        val propertiesByMapKey = metadata.constructorProperties.associateBy { it.keyName }
+        val propertiesByKeyName = metadata.propertiesByKeyName
 
-        val fields = type.attributes.map { (attrName, attributeOid) ->
-            val meta = propertiesByMapKey[attrName]
-
-            var value = if (meta != null) {
-                meta.property.get(source)
-            } else null
-
-            if (value != null) {
-                value = context.convert(value, attributeOid, attrName)
-            }
-
-            value
-        }.toTypedArray()
+        val fields = arrayOfNulls<Any?>(type.attributes.size)
+        var index = 0
+        for ((attrName, attributeOid) in type.attributes) {
+            val value = propertiesByKeyName[attrName]?.property?.get(source)
+            fields[index++] = if (value != null) context.convert(value, attributeOid, attrName) else null
+        }
 
         return PgComposite(type, fields)
     }

@@ -92,6 +92,15 @@
   it sent its own binary layout under whatever type the server inferred from the statement. A negative OID is
   still taken, OIDs being unsigned. **A registration that declared `0` used to pass, and now throws.**
 
+- **A data class mapped reflectively allocates about half as much read, and as much as a hand-written converter
+  written as a composite.** Writing a `registerAutoComposite` class built a map of its properties for every value,
+  and reading one built a map of constructor arguments for every object and went through `callBy`. The property
+  map is built once with the class's metadata now, and the constructor is called directly unless a declared default
+  has a missing value to fill. Measured in one session, `SimpleDataBenchmark` and `CompositeInsertBenchmark` before
+  and after: 10 000 rows read went from 6.97 MB to 3.77 MB and from 0.192 ± 0.006 to 0.216 ± 0.005 ops/ms, the
+  hand-written converter beside it unchanged at 0.229; 10 000 composites written went from 4.93 MB to 2.05 MB,
+  which is what the hand-written converter allocates, and their time stayed within the noise.
+
 #### Fixed
 
 - **A `FATAL` is reported as itself, not as the closed connection after it.** The driver kept reading for a
