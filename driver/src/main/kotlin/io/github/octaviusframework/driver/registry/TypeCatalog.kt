@@ -9,6 +9,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.driver.util.reflection.sealedFamily
 import io.github.octaviusframework.identifier.CaseConvention
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
@@ -36,8 +37,9 @@ class TypeCatalog internal constructor(
     val dictionary: TypeDictionary,
     val codecs: CodecDictionary,
     /**
-     * Result converters indexed by `supportedSourceClass`, most recently registered first within a class.
-     * Converters registered under `Any::class` are kept in [anyResultConverters] instead.
+     * Result converters indexed by `supportedSourceClass` - and, where it is sealed, by every class below it -
+     * most recently registered first within a class. Converters registered under `Any::class` are kept in
+     * [anyResultConverters] instead.
      */
     internal val resultConverters: Map<KClass<*>, List<ResultConverter<*, *>>>,
     /** Result converters that named `Any::class`, consulted once every class-specific one has declined. */
@@ -91,7 +93,9 @@ class TypeCatalog internal constructor(
             return with(anyResultConverters = prepend(converter, anyResultConverters))
         }
         val newMap = HashMap(resultConverters)
-        newMap[sourceClass] = prepend(converter, resultConverters[sourceClass] ?: emptyList())
+        for (kClass in sourceClass.sealedFamily()) {
+            newMap[kClass] = prepend(converter, resultConverters[kClass] ?: emptyList())
+        }
         return with(resultConverters = newMap)
     }
 

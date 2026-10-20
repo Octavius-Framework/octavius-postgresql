@@ -71,6 +71,33 @@ class CodecRegistrationTest : AbstractIntegrationTest() {
         }
     }
 
+    sealed interface Arma
+    sealed class Scutum : Arma
+    data class Parma(val info: String) : Scutum()
+
+    @Test
+    fun `a codec for a sealed class is the default for every class below it, two levels down too`() {
+        openSession().use { session ->
+            session.typeManager.registerCodec(object : TypeCodec<Arma> {
+                override val pgTypeName = "circle"
+                override val oid: Int? = null
+                override val kotlinClass = Arma::class
+                override val isDefaultForKotlinType = true
+                override val fromBinary: (ByteArray, Int, Int) -> Arma = { _, _, _ -> Parma("umbo") }
+                override val toBinary: (Arma, PgByteWriter) -> Unit = { _, writer ->
+                    writer.writeDouble(0.0)
+                    writer.writeDouble(0.0)
+                    writer.writeDouble(1.0)
+                }
+            })
+
+            val declared: String = session.createNativeQuery("SELECT pg_typeof($1)::text")
+                .fetchRowStrict(Parma("umbo")).get(0)
+
+            assertEquals("circle", declared)
+        }
+    }
+
     @Test
     fun `a codec declaring OID 0 is refused, and nothing is bound to 0`() {
         openSession().use { session ->

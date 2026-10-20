@@ -475,7 +475,7 @@ The same extensions run the other way, for the parameter you are about to send:
 
 Going the other way, `toDurationExact()` is the one that can refuse: an interval carrying months or days has no fixed length in absolute time, so it throws `IllegalArgumentException` rather than pick a convention on your behalf. That is easier to run into than it sounds — `age(a, b)` comes back as `1 year 7 mons 15 days`, and even a plain `a - b` between two timestamps counts in days. Keep it for intervals you know are pure time, and reach for `toDurationApproximate()` or `toDateTimePeriod()` wherever calendar units can appear.
 
-If your application consistently wants, say, an approximate `Duration`, writing and registering a custom `ResultConverter` lets you intercept and convert `PgInterval` values everywhere, automatically.
+If your application consistently wants, say, an approximate `Duration`, a `ResultConverter` registered under `PgInterval::class` intercepts and converts `PgInterval` values everywhere, automatically — `Finite` and both infinities alike, a converter under a sealed class being offered [every class below it](#how-a-converter-gets-chosen).
 
 ### PgTyped
 
@@ -525,10 +525,10 @@ These translate your Kotlin objects into a shape the codec layer can serialize.
 
 ### How a converter gets chosen
 
-**Result converters** are indexed by `supportedSourceClass` — the runtime class of the *decoded* value, not the class you asked for. Lookup goes:
+**Result converters** are indexed by `supportedSourceClass` — the runtime class of the *decoded* value, not the class you asked for. A sealed class stands for every class below it, since a decoded value is always one of those: a converter registered under `PgInterval` is offered `PgInterval.Finite`, `PgInterval.Infinity` and `PgInterval.MinusInfinity`. A class below an open one is not covered, there being no list of them to read. Lookup goes:
 
-1. The query's own converters, newest first: those registered for that exact source class, then those registered under `Any::class`.
-2. Then the catalog's, registered for that exact source class, **newest first**, taking the first whose `canConvert(sourceClass, expectedType, sourceType, context)` returns `true`.
+1. The query's own converters, newest first: those registered for the source class or a sealed class above it, then those registered under `Any::class`.
+2. Then the catalog's, registered for the source class or a sealed class above it, **newest first**, taking the first whose `canConvert(sourceClass, expectedType, sourceType, context)` returns `true`. A converter under a sealed class and one under a class below it are one queue, so whichever was registered later is asked first.
 3. Then the catalog's `Any::class` converters, again newest first — a catch-all slot for converters that key off the PostgreSQL type rather than the decoded class.
 4. Then the identity fallback, then `MappingException(NO_CONVERTER_FOUND)`.
 
@@ -702,7 +702,7 @@ A codec is bound to OIDs in one of three ways, depending on what it declares:
 
 Naming a schema the catalog does not have is refused at the registration. A reload that later leaves a registered codec bound to nothing does not raise — the database changing is not the registration's fault — but it says so at `warn`, because otherwise the column simply comes back in a different shape. The `oid` row is the one that goes stale that way: a type dropped and recreated has a new OID, and a codec pinned to the old one is never reached again.
 
-Set `isDefaultForKotlinType = true` if the codec should also be chosen when the driver only knows the Kotlin class of a parameter and not its target OID. For a sealed class, that also registers all of its sealed subclasses.
+Set `isDefaultForKotlinType = true` if the codec should also be chosen when the driver only knows the Kotlin class of a parameter and not its target OID. For a sealed class, that also covers every class below it, through sealed classes all the way down.
 
 Registered codecs are remembered and re-bound on every catalog reload, so a codec bound by type name alone can be registered before its type exists and starts working after the next `reloadTypes()`. One that names a schema as well cannot: the type has to be there when it is registered.
 

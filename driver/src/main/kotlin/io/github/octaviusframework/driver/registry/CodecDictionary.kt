@@ -10,6 +10,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.type.UNRESOLVED_OID
+import io.github.octaviusframework.driver.util.reflection.sealedFamily
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.reflect.KClass
 
@@ -44,13 +45,7 @@ class CodecDictionary private constructor(
             fun register(codec: TypeCodec<*>) {
                 registeredCodecsList.add(codec)
                 if (codec.isDefaultForKotlinType) {
-                    classMap[codec.kotlinClass] = codec
-
-                    if (codec.kotlinClass.isSealed) {
-                        codec.kotlinClass.sealedSubclasses.forEach { subclass ->
-                            classMap[subclass] = codec
-                        }
-                    }
+                    for (kClass in codec.kotlinClass.sealedFamily()) classMap[kClass] = codec
                 }
                 if (codec.oid != null) {
                     oidMap[codec.oid!!] = codec
@@ -163,12 +158,7 @@ class CodecDictionary private constructor(
 
         for ((index, codec) in registered.withIndex()) {
             if (codec.isDefaultForKotlinType) {
-                newClassMap[codec.kotlinClass] = codec
-                if (codec.kotlinClass.isSealed) {
-                    codec.kotlinClass.sealedSubclasses.forEach { subclass ->
-                        newClassMap[subclass] = codec
-                    }
-                }
+                for (kClass in codec.kotlinClass.sealedFamily()) newClassMap[kClass] = codec
             }
 
             val declaredOid = codec.oid

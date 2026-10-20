@@ -163,6 +163,14 @@
   `point` - now resolves to the built-in where no schema is given, and a schema named after the user is searched
   where `$user` stands.**
 
+- **A result converter registered under a sealed class is offered every class below it**, as a codec for a sealed
+  class already was. A codec decodes to one concrete class and a converter was looked up by that class alone, so
+  one under `PgInterval` was never asked about an `interval` - what arrived was `PgInterval.Finite` or one of the
+  infinities - and `Any::class` was the only slot that reached them. A query's own converters are matched the same
+  way. Against a converter under a class below it, whichever was registered later is asked first. A codec for a
+  sealed class covers the classes below its sealed subclasses as well, where it stopped one level down. **A
+  converter under a sealed class that was never asked is asked now, ahead of those under `Any::class`.**
+
 ### Client
 
 #### Changed
