@@ -696,7 +696,7 @@ A codec is bound to OIDs in one of three ways, depending on what it declares:
 
 | Declared                     | Binding behavior                                                                                                                                                                 |
 |:-----------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `oid` set                    | Bound directly to that OID. No catalog lookup, works before the catalog is loaded.                                                                                               |
+| `oid` set                    | Bound directly to that OID. No catalog lookup, works before the catalog is loaded. `0` is refused with `InvalidOperationException(INVALID_ARGUMENT)`: no type has it.            |
 | `oid` null, `pgSchema` set   | The OID is resolved from the catalog at registration time; an unknown name throws `TypeException`.                                                                               |
 | `oid` null, `pgSchema` empty | Bound to **every** OID in the catalog whose type name matches, across all schemas. The OID used for outbound parameters is resolved in-flight against the session's search path. |
 

@@ -87,6 +87,11 @@
   of a temporary table, or any column of a temporary type, that read after a `reloadTypes()` now fails when the
   result is described; cast it to a permanent composite (`SELECT e::imperium.edict FROM edicts e`).**
 
+- **A codec declaring OID `0` is refused by `registerCodec`, with `InvalidOperationException(INVALID_ARGUMENT)`.**
+  No type has that OID: it is what a parameter is declared as for the server to infer its type, so a codec bound to
+  it sent its own binary layout under whatever type the server inferred from the statement. A negative OID is
+  still taken, OIDs being unsigned. **A registration that declared `0` used to pass, and now throws.**
+
 #### Fixed
 
 - **A `FATAL` is reported as itself, not as the closed connection after it.** The driver kept reading for a
