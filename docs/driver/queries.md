@@ -165,8 +165,8 @@ apart:
 * **`origin == null`** - the column is not a reference to a stored column at all: an expression, a literal, the
   output of a function.
 * **`origin` present, its names `null`** - the server tracked the value back to a relation the type catalog does
-  not describe. That means `pg_catalog` and `information_schema`, which the type load skips, and anything created
-  since the last load, which `reloadTypes()` fills in.
+  not describe. That means `pg_catalog`, `information_schema` and temporary tables, which the type load skips,
+  and anything created since the last load, which `reloadTypes()` fills in.
 * **`origin` present and named** - the ordinary case.
 
 `typeModifier` is left as the server sends it, because reading one takes knowledge of the particular type: a

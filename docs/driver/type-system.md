@@ -30,7 +30,7 @@ PostgreSQL identifies every type by an **OID** (Object Identifier). Built-in OID
 
 So the driver asks. On the first physical connection to a given database within the JVM, `GlobalCatalogStore.ensureLoaded` fires `CatalogLoader`, which reads the whole catalog in a **single** query. One round trip, paid by whoever connects first; every later connection to the same database reuses the result.
 
-The loader deliberately skips noise: composites belonging to `pg_catalog` and `information_schema`, and all pseudo-types except `void`, `record` and `_record`.
+The loader deliberately skips noise: composites belonging to `pg_catalog` and `information_schema`, and all pseudo-types except `void`, `record` and `_record`. It also leaves out every temporary schema, whose types belong to one session where the catalog belongs to all of them — see [the search path](#what-is-per-session-the-search-path) for what that means for a temporary table.
 
 What comes back is classified into a sealed `PgType` hierarchy:
 
@@ -253,12 +253,12 @@ PostgreSQL would find none, it is refused:
    * `$user` is the schema named after the session user, where there is one, so a path of `"$user", public` finds
      each user's own types ahead of the shared ones.
 3. A name the path does not reach is refused with `TypeException(TYPE_NOT_FOUND)`, even where only one schema has
-   it, and the refusal names the schemas that do, temporary ones aside: *"Type 'legio_status' is not on the search
-   path [pg_catalog, public], but schema 'imperium' has it. Name the schema, or put it on the search path."*
+   it, and the refusal names the schemas that do: *"Type 'legio_status' is not on the search path [pg_catalog,
+   public], but schema 'imperium' has it. Name the schema, or put it on the search path."*
 
 So two sessions with different search paths — or one `"$user"` path under different users — can resolve the same type name to different OIDs, even though they share one catalog. A type in a schema off the path, an extension installed into `extensions` among them, is reached by naming the schema — at registration (`registerEnum<LegioStatus>(schema = "imperium")`) or in `withPgType` — or by putting the schema on the path.
 
-The driver works the path out from what the server reports, and three things the server knows go unreported:
+Three things set the driver's answer apart from the server's:
 
 * **`SET ROLE`.** PostgreSQL does not report the current role, so after `SET ROLE` the driver still reads `$user`
   as the session user, where the server reads it as the role. That matters only where schemas are named after
@@ -267,9 +267,11 @@ The driver works the path out from what the server reports, and three things the
   `SET ROLE legatus; SET search_path = legatus, public` — and the driver follows it, `search_path` being
   reported. `SET SESSION AUTHORIZATION` is reported as well, and followed.
 * **`USAGE`.** A schema on the path the current role may not use is skipped by the server, not by the driver.
-* **The temporary schema.** The server searches the session's own first, or where `pg_temp` stands in the path.
-  The driver leaves it off the path, so a temporary type, a temporary table's row type among them, does not
-  shadow a permanent one of the same name, and one with no permanent namesake is refused.
+* **Temporary types are outside the catalog**, a temporary table's row type among them — even a table made `OF`
+  a permanent type has a temporary row type of its own. The server searches the session's temporary schema first,
+  or where `pg_temp` stands in the path; the driver never resolves a name to a temporary type, and a column of
+  one, such as the whole row of a temporary table, fails when the result is described, `reloadTypes()` or not.
+  Cast it to a permanent composite with the same attributes: `SELECT e::imperium.edict FROM edicts e`.
 
 ### Query-scoped overrides
 

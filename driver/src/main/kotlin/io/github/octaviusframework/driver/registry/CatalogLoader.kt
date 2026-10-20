@@ -15,6 +15,11 @@ internal object CatalogLoader {
      * (base types, arrays, composites, enums, domains, ranges, etc.) and updates
      * the given [CatalogHolder]'s catalog with the constructed [PgType] instances.
      *
+     * Temporary schemas are left out whole. The catalog is one per database, and a `pg_temp_N` belongs to one
+     * session: read in, its types would be every session's to resolve and decode, and would stay behind as OIDs
+     * of nothing once that session ended and the next one took the slot. What the load happened to find would
+     * also decide whether a temporary type worked at all.
+     *
      * @param holder The cell whose catalog the loaded types replace.
      * @param queryExecutor The executor used to run the type extraction query.
      */
@@ -34,6 +39,7 @@ internal object CatalogLoader {
             LEFT JOIN pg_catalog.pg_range r ON t.oid = r.rngtypid
             LEFT JOIN pg_catalog.pg_attribute a ON t.typrelid = a.attrelid AND a.attnum > 0 AND a.attisdropped = false
             WHERE NOT (t.typtype = 'c' AND n.nspname IN ('pg_catalog', 'information_schema'))
+            AND n.nspname !~ '^pg_(toast_)?temp_[0-9]+$'
             AND NOT (t.typtype = 'p' AND t.typname NOT IN ('void', 'record', '_record', 'unknown'))
             ORDER BY t.oid, e.enumsortorder, a.attnum
         """.trimIndent()

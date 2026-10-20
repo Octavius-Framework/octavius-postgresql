@@ -77,9 +77,15 @@
   the driver took it from the one schema defining it. That schema could be one the role may not use, another
   tenant's or another session's temporary one, and a parameter went out as its type, which the server accepts
   even where it would not find the type by name. The refusal is `TypeException(TYPE_NOT_FOUND)`, giving the path
-  searched; it names no temporary schema, the catalog holding those of whichever sessions had one when it was
-  read. **An enum, composite or codec registered without its schema, or a `withPgType` name without one, that
+  searched. **An enum, composite or codec registered without its schema, or a `withPgType` name without one, that
   the path does not reach fails until it names the schema or the path includes it.**
+
+- **No temporary type is in the catalog, a temporary table's row type among them.** The load and `reloadTypes()`
+  took in whatever temporary schemas existed at that moment, so whether a temporary type worked hung on when the
+  catalog was last read; once in, it was every session's to resolve and decode, and stayed as the OID of nothing
+  after its session ended. A column read from a temporary table keeps its `origin`, without names. **A whole row
+  of a temporary table, or any column of a temporary type, that read after a `reloadTypes()` now fails when the
+  result is described; cast it to a permanent composite (`SELECT e::imperium.edict FROM edicts e`).**
 
 #### Fixed
 

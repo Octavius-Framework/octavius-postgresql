@@ -41,8 +41,9 @@ class ColumnMetadata internal constructor(
  * That this is here at all says the server tracked the value back to a stored column. Whether the names inside it
  * are filled in says something else: they come from the relation's row type, which the driver reads when it
  * connects and on every `reloadTypes()`, so they are `null` for a relation that snapshot does not describe -
- * anything in `pg_catalog` or `information_schema`, which the type load skips, and anything created since. The
- * values of such a column decode as they always did; it is only the naming that depends on the catalog.
+ * anything in `pg_catalog` or `information_schema` and any temporary table, which the type load skips, and
+ * anything created since. The values of such a column decode as they always did; it is only the naming that
+ * depends on the catalog.
  *
  * @property relationOid The OID of the relation, whatever its kind - table, view, materialized view.
  * @property attributeNumber The column's attribute number within that relation. Negative for a system column such

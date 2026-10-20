@@ -144,22 +144,23 @@ class SearchPathIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `the refusal leaves out temporary schemas, which the catalog holds for other sessions`() {
+    fun `a reload takes in no temporary type, another session's or this one's`() {
         openSession().use { other ->
             other.createNativeQuery("CREATE TYPE pg_temp.mine AS (ore text); CREATE TYPE pg_temp.castra AS (name text)")
                 .execute()
             val otherTemp = other.createNativeQuery("SELECT pg_my_temp_schema()::regnamespace::text").fetchField<String>()!!
 
             openSession().use { session ->
+                session.createNativeQuery("CREATE TYPE pg_temp.vallum AS (height int)").execute()
+                val ownTemp = session.createNativeQuery("SELECT pg_my_temp_schema()::regnamespace::text").fetchField<String>()!!
                 session.reloadTypes()
                 session.createNativeQuery("SET search_path TO gallia").execute()
-                session.typeManager.resolveOid("castra", otherTemp) // the catalog has it
 
+                assertFailsWith<TypeException> { session.typeManager.resolveOid("castra", otherTemp) }
+                assertFailsWith<TypeException> { session.typeManager.resolveOid("vallum", ownTemp) }
+                // Nor does a name another session's temporary schema shares turn up among the schemas that have it.
                 val shared = assertFailsWith<TypeException> { session.typeManager.resolveOid("mine") }
-                val temporaryOnly = assertFailsWith<TypeException> { session.typeManager.resolveOid("castra") }
-
                 assertTrue("but schema 'hispania' has it" in shared.details!!, shared.details)
-                assertEquals("Type 'castra' not found on the search path [pg_catalog, gallia]", temporaryOnly.details)
             }
         }
     }

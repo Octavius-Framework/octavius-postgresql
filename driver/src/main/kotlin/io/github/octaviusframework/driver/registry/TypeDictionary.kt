@@ -22,9 +22,6 @@ class TypeDictionary private constructor(
 ) {
     //--------------------------------------------Construction----------------------------------------------------------
     companion object {
-        /** The prefix of a session's temporary schema, `pg_temp_N`. */
-        private const val TEMP_SCHEMA_PREFIX = "pg_temp_"
-
         /**
          * Builds the dictionary the driver starts out with: one entry per codec it ships with an OID of its own.
          *
@@ -79,11 +76,8 @@ class TypeDictionary private constructor(
      *
      * A name with no schema is found on [searchPath] or not at all, as the server finds it. One the path does not
      * reach is refused even where a single schema has it: that schema can be one this session's role may not see,
-     * or another tenant's, and which it is would depend on what else the database holds.
-     *
-     * The refusal names the schemas that do have it, temporary ones aside: the dictionary is read once for the
-     * whole database, so its `pg_temp_N` schemas are those of whichever sessions had one when it was read, and
-     * naming one of them is no way to reach a type of this session's.
+     * or another tenant's, and which it is would depend on what else the database holds. The refusal names the
+     * schemas that do have it.
      *
      * @param typeName the name of the type.
      * @param requestedSchema the schema where the type belongs (can be empty).
@@ -118,14 +112,12 @@ class TypeDictionary private constructor(
             }
             // 3. Off the path it is not found, whoever else has it
             if (resolvedOid == UNRESOLVED_OID) {
-                val nameable = schemasForName.keys.filterNot { it.startsWith(TEMP_SCHEMA_PREFIX) }.sorted()
-                val schemas = nameable.joinToString { "'$it'" }
-                val holders = if (nameable.size == 1) "schema $schemas has" else "schemas $schemas have"
+                val schemas = schemasForName.keys.sorted().joinToString { "'$it'" }
+                val holders = if (schemasForName.size == 1) "schema $schemas has" else "schemas $schemas have"
                 throw TypeException(
                     TypeExceptionReason.TYPE_NOT_FOUND,
                     typeName = typeName,
-                    details = if (nameable.isEmpty()) "Type '$typeName' not found on the search path $searchPath"
-                    else "Type '$typeName' is not on the search path $searchPath, but $holders it. " +
+                    details = "Type '$typeName' is not on the search path $searchPath, but $holders it. " +
                         "Name the schema, or put it on the search path."
                 )
             }
@@ -213,8 +205,8 @@ class TypeDictionary private constructor(
      * none for it.
      *
      * Unlike the rest of the lookups here, a miss is an ordinary answer rather than a failure: the type load
-     * skips composites in `pg_catalog` and `information_schema`, and a relation created since the load has no
-     * row type here yet. Callers are naming something for a reader, not resolving a type they have to have.
+     * skips composites in `pg_catalog` and `information_schema` and every type in a temporary schema, and a
+     * relation created since the load has no row type here yet. Callers are naming something for a reader, not resolving a type they have to have.
      *
      * @param relationOid the OID of the relation (`pg_class.oid`).
      */
