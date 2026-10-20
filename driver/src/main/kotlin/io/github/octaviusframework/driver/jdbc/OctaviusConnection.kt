@@ -52,8 +52,7 @@ internal class OctaviusConnection(
     @Volatile
     private var closeRequested: Boolean = false
 
-    private var lastSearchPathString: String? = null
-    private var cachedSearchPath: List<String>? = null
+    private var cachedSearchPath: SearchPath? = null
 
 
     /**
@@ -272,55 +271,35 @@ internal class OctaviusConnection(
     //------------------------------------------SEARCH PATH-------------------------------------------------------------
 
     /**
-     * Parses a PostgreSQL search_path parameter string which may contain quoted identifiers
-     * and commas within quotes (e.g., '"$user", public', '"schema,with,comma"').
+     * The search path as the server last reported it in `ParameterStatus`, together with the
+     * `session_authorization` its `$user` stands for.
+     *
+     * The setting is always there: the connection factory refuses a server that did not report it at login, and
+     * PostgreSQL 18 reports it again whenever it changes. Read again only when either report has moved.
      */
-    private fun parseSearchPath(param: String): List<String> {
-        val result = mutableListOf<String>()
-        val current = StringBuilder()
-        var inQuotes = false
-        var i = 0
-        while (i < param.length) {
-            val c = param[i]
-            if (c == '"') {
-                if (inQuotes && i + 1 < param.length && param[i + 1] == '"') {
-                    current.append('"')
-                    i++
-                } else {
-                    inQuotes = !inQuotes
-                }
-            } else if (c == ',' && !inQuotes) {
-                result.add(current.toString().trimEnd())
-                current.clear()
-            } else if (c.isWhitespace() && !inQuotes && current.isEmpty()) {
-                // skip leading whitespace
-            } else {
-                current.append(c)
-            }
-            i++
-        }
-        result.add(current.toString().trimEnd())
-        return result.filter { it.isNotEmpty() }
+    private fun currentSearchPath(): SearchPath {
+        val setting = stream.parameters.getValue("search_path")
+        val sessionUser = stream.parameters["session_authorization"]
+        cachedSearchPath?.let { if (it.isFor(setting, sessionUser)) return it }
+        return SearchPath(setting, sessionUser).also { cachedSearchPath = it }
     }
 
     /**
-     * Retrieves the current search path, as the server last reported it in a ParameterStatus message.
+     * Retrieves the entries of the current search path, as the server reads the setting it last reported.
      *
-     * Always there: the connection factory refuses a server that did not report it at login, and PostgreSQL
-     * 18 reports it again whenever it changes.
-     *
-     * @return A list of schema names representing the current search path.
+     * @return The schema names the setting lists, `$user` and `pg_temp` among them as written.
      */
     fun getSearchPath(): List<String> {
         checkClosed()
-        val paramSearchPath = stream.parameters.getValue("search_path")
-        if (paramSearchPath == lastSearchPathString && cachedSearchPath != null) {
-            return cachedSearchPath!!
-        }
-        val parsed = parseSearchPath(paramSearchPath)
-        lastSearchPathString = paramSearchPath
-        cachedSearchPath = parsed
-        return parsed
+        return currentSearchPath().entries
+    }
+
+    /**
+     * The schemas the server looks an unqualified type name up in, in its order - what type names resolve against.
+     */
+    fun getTypeLookupOrder(): List<String> {
+        checkClosed()
+        return currentSearchPath().typeLookupOrder
     }
 
     //--------------------------------------------READ ONLY-------------------------------------------------------------

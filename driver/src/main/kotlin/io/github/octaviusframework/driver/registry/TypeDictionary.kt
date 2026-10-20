@@ -22,6 +22,9 @@ class TypeDictionary private constructor(
 ) {
     //--------------------------------------------Construction----------------------------------------------------------
     companion object {
+        /** The prefix of a session's temporary schema, `pg_temp_N`. */
+        private const val TEMP_SCHEMA_PREFIX = "pg_temp_"
+
         /**
          * Builds the dictionary the driver starts out with: one entry per codec it ships with an OID of its own.
          *
@@ -74,12 +77,21 @@ class TypeDictionary private constructor(
     /**
      * Resolves the OID of a type given its name and an optional schema.
      *
+     * A name with no schema is found on [searchPath] or not at all, as the server finds it. One the path does not
+     * reach is refused even where a single schema has it: that schema can be one this session's role may not see,
+     * or another tenant's, and which it is would depend on what else the database holds.
+     *
+     * The refusal names the schemas that do have it, temporary ones aside: the dictionary is read once for the
+     * whole database, so its `pg_temp_N` schemas are those of whichever sessions had one when it was read, and
+     * naming one of them is no way to reach a type of this session's.
+     *
      * @param typeName the name of the type.
      * @param requestedSchema the schema where the type belongs (can be empty).
      * @param isArray whether to resolve the OID for the array type of the given type.
-     * @param searchPath the list of schemas to search if the schema is not explicitly provided.
+     * @param searchPath the schemas to search, in order, if the schema is not explicitly provided: the server's
+     *   order for type names, with the schemas it searches unlisted already in it, rather than the setting.
      * @return the resolved OID.
-     * @throws TypeException if the type cannot be found or is ambiguous.
+     * @throws TypeException if the type cannot be found, in the requested schema or on the search path.
      */
     internal fun resolveOid(
         typeName: String,
@@ -104,13 +116,18 @@ class TypeDictionary private constructor(
                     break
                 }
             }
-            // 3. If not in search_path, check for unambiguous match
+            // 3. Off the path it is not found, whoever else has it
             if (resolvedOid == UNRESOLVED_OID) {
-                if (schemasForName.size == 1) {
-                    resolvedOid = schemasForName.values.first()
-                } else {
-                    throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, typeName = typeName, details = "Ambiguous type '$typeName'. Schema must be specified.")
-                }
+                val nameable = schemasForName.keys.filterNot { it.startsWith(TEMP_SCHEMA_PREFIX) }.sorted()
+                val schemas = nameable.joinToString { "'$it'" }
+                val holders = if (nameable.size == 1) "schema $schemas has" else "schemas $schemas have"
+                throw TypeException(
+                    TypeExceptionReason.TYPE_NOT_FOUND,
+                    typeName = typeName,
+                    details = if (nameable.isEmpty()) "Type '$typeName' not found on the search path $searchPath"
+                    else "Type '$typeName' is not on the search path $searchPath, but $holders it. " +
+                        "Name the schema, or put it on the search path."
+                )
             }
         }
 
@@ -156,7 +173,7 @@ class TypeDictionary private constructor(
     /**
      * The OID of one named type in one named schema, or `null` where this dictionary has no such type.
      *
-     * What [resolveOid] does without the search path, the ambiguity and the raising: a fully qualified name
+     * What [resolveOid] does without the search path and the raising: a fully qualified name
      * identifies at most one type, `pg_type` being unique on name and namespace.
      */
     internal fun findOid(typeName: String, schema: String): Int? = typesByName[typeName]?.get(schema)

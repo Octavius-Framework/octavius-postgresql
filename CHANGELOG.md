@@ -73,6 +73,14 @@
   Boot's does**, a reactive one included, where only a `PlatformTransactionManager` made it stand back. **An
   application with a reactive one that also used Octavius's has to declare Octavius's itself.**
 
+- **An unqualified type name the search path does not reach is refused, naming the schemas that have it**, where
+  the driver took it from the one schema defining it. That schema could be one the role may not use, another
+  tenant's or another session's temporary one, and a parameter went out as its type, which the server accepts
+  even where it would not find the type by name. The refusal is `TypeException(TYPE_NOT_FOUND)`, giving the path
+  searched; it names no temporary schema, the catalog holding those of whichever sessions had one when it was
+  read. **An enum, composite or codec registered without its schema, or a `withPgType` name without one, that
+  the path does not reach fails until it names the schema or the path includes it.**
+
 #### Fixed
 
 - **A `FATAL` is reported as itself, not as the closed connection after it.** The driver kept reading for a
@@ -123,6 +131,17 @@
   digest, so neither end can hash the certificate: the login failed on the server's `could not find digest for NID
   UNDEF`, as a `CONNECTION_ERROR`. `prefer` does not log in unbound past it, since an intermediary presenting such
   a certificate of its own could relay that login.
+
+- **An unqualified type name resolves to the type the server picks for it, the reported `search_path` being read
+  as the server reads it.** `$user` is the schema named after the session user, taken from the reported
+  `session_authorization`: under the default `"$user", public` a user's own schema comes before `public`, and
+  with a schema for each user the name resolves to this user's rather than failing as ambiguous. `pg_catalog` is
+  searched first unless the path lists it. Unquoted names in a path stored as written - by `set_config` or a
+  startup parameter - are folded to lower case and cut to 63 bytes, so `Gallia` finds `gallia`, and `searchPath`
+  returns them that way. `SET ROLE`, a schema the role may not use and the session's temporary schema are still
+  not followed, the server reporting none of them. **A type of your own named like a built-in one - `money`,
+  `point` - now resolves to the built-in where no schema is given, and a schema named after the user is searched
+  where `$user` stands.**
 
 ### Client
 

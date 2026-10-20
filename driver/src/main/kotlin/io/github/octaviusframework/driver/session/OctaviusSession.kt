@@ -84,11 +84,15 @@ interface OctaviusSessionOperations {
     fun cancelQuery()
 
     /**
-     * The schemas making up this session's current `search_path`.
+     * The schemas this session's current `search_path` lists, named as the server reads them: an
+     * unquoted name in lower case, `$user` and `pg_temp` as they stand.
      *
      * Read from what the server reported rather than queried for: PostgreSQL 18 announces
      * `search_path` in `ParameterStatus` and announces it again whenever it moves, so a
      * hand-written `SET search_path` mid-session shows up here without a round trip.
+     *
+     * This is the setting, not the order a type name is looked up in, which adds `pg_catalog` ahead
+     * of the list unless the list has it and puts the session user's schema in place of `$user`.
      */
     val searchPath: List<String>
 

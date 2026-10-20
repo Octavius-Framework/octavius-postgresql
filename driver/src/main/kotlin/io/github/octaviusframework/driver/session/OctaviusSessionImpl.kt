@@ -56,7 +56,7 @@ internal class OctaviusSessionImpl(
     // manager holds the stream itself, and a listener loop reads messages off it directly - so the
     // check belongs at the point they are handed out. The rest are gated for one rule rather than a
     // rule with exceptions.
-    override val typeManager: TypeManager = TypeManager(octaviusConnection.catalogHolder) { octaviusConnection.getSearchPath() }
+    override val typeManager: TypeManager = TypeManager(octaviusConnection.catalogHolder) { octaviusConnection.getTypeLookupOrder() }
         get() { checkOpen(); return field }
 
     override val notifications: NotificationManager = NotificationManager(this)

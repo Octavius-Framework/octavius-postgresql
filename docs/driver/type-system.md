@@ -236,14 +236,40 @@ whenever it moves, so whatever moved it — this session, or any other code hold
 up here with no round trip of its own. A setter would be a second way to say it, and one that could disagree
 with the first.
 
-Resolution order for a name with no explicit schema:
+`searchPath` lists the schemas as the server reads the setting: unquoted names in lower case, quoted ones as
+written, every name cut to 63 bytes, and `$user` and `pg_temp` as they stand. A path stored as written, by
+`set_config` or a startup parameter, is read the same way, so `set_config('search_path', 'Imperium', false)`
+reads back as `[imperium]`.
+
+A type name given without a schema resolves to the type PostgreSQL would resolve it to in this session, and where
+PostgreSQL would find none, it is refused:
 
 1. An explicitly requested schema always wins (and throws if the type isn't there).
-2. Otherwise, schemas are tried in `search_path` order — first match wins.
-3. If the name doesn't appear in the search path at all but exists in exactly **one** schema, that one is used.
-4. If it exists in several schemas and none is in the search path: `TypeException` — *"Ambiguous type. Schema must be specified."*
+2. Otherwise, schemas are tried in the order PostgreSQL tries them for a type name — first match wins. That is
+   the search path with two schemas the setting does not spell out:
+   * `pg_catalog` comes first unless the path lists it. A type of yours named like a built-in one — `money`,
+     `point`, `box` — loses to the built-in, as it does in SQL; list `pg_catalog` after your schema to turn that
+     round.
+   * `$user` is the schema named after the session user, where there is one, so a path of `"$user", public` finds
+     each user's own types ahead of the shared ones.
+3. A name the path does not reach is refused with `TypeException(TYPE_NOT_FOUND)`, even where only one schema has
+   it, and the refusal names the schemas that do, temporary ones aside: *"Type 'legio_status' is not on the search
+   path [pg_catalog, public], but schema 'imperium' has it. Name the schema, or put it on the search path."*
 
-So two sessions with different search paths can resolve the same type name to different OIDs, even though they share one catalog. If you have a multi-schema database with colliding type names, pass the schema explicitly at registration time (`registerEnum<LegioStatus>(schema = "imperium")`).
+So two sessions with different search paths — or one `"$user"` path under different users — can resolve the same type name to different OIDs, even though they share one catalog. A type in a schema off the path, an extension installed into `extensions` among them, is reached by naming the schema — at registration (`registerEnum<LegioStatus>(schema = "imperium")`) or in `withPgType` — or by putting the schema on the path.
+
+The driver works the path out from what the server reports, and three things the server knows go unreported:
+
+* **`SET ROLE`.** PostgreSQL does not report the current role, so after `SET ROLE` the driver still reads `$user`
+  as the session user, where the server reads it as the role. That matters only where schemas are named after
+  roles and `$user` is on the path: a type the role's schema shares with `public` resolves to `public`'s, and one
+  only the role's schema has is refused. Set the path in plain names along with the role —
+  `SET ROLE legatus; SET search_path = legatus, public` — and the driver follows it, `search_path` being
+  reported. `SET SESSION AUTHORIZATION` is reported as well, and followed.
+* **`USAGE`.** A schema on the path the current role may not use is skipped by the server, not by the driver.
+* **The temporary schema.** The server searches the session's own first, or where `pg_temp` stands in the path.
+  The driver leaves it off the path, so a temporary type, a temporary table's row type among them, does not
+  shadow a permanent one of the same name, and one with no permanent namesake is refused.
 
 ### Query-scoped overrides
 
@@ -691,7 +717,7 @@ Registration is last-wins in both layers, so overriding the defaults means regis
 * **`reloadTypes()` after runtime DDL** — including `CREATE TABLE`, whose row type is a composite. Without it, new types resolve to nothing.
 * **Register before running the query, not before building it.** A query pins the catalog when a terminal runs, so a `registerCodec(...)` or a converter registration between `createNativeQuery(...)` and the `fetch*` call is picked up. What it will not do is reach a terminal already in flight, or rows a previous terminal returned.
 * **Same database, different credentials, same catalog.** The cache key is the servers and the database only.
-* **Ambiguous type names need a schema.** If the same type name exists in several schemas and none is on the search path, resolution throws instead of guessing.
+* **A type off the search path needs a schema.** A name the path does not reach is refused, naming the schemas that have it, rather than taken from whichever schema happens to define it.
 * **Empty collections need `PgTyped`.** Erasure leaves nothing in an `emptyList()` for the driver to infer an element type from — the same goes for a list of nothing but nulls.
 * **Not every PostgreSQL type has a codec.** `money`, `timetz`, `tsvector`, `tsquery`, `jsonpath` and friends throw `TypeException(MISSING_CODEC)`. Cast them in SQL or write the codec.
 * **`MappingException.path` points at the failure.** For nested composites and arrays, read the path before reading the message.
