@@ -71,7 +71,7 @@ There is no session here, nothing is tracked, nothing is lazy, and nothing is di
 a typed container for what came back and stops being interesting the moment you hold it. The mapping is
 reflective and one-directional, per query, and it is the only thing standing between the row and your object.
 
-*It is not an ORM. It is a **ROME** — a Relational-Object Mapping Engine, because all queries lead to ROME.*
+*It is not an ORM. It is a **ROME** — a Relational-Object Mapping Engine, because all rows lead to ROME.*
 
 ## Why speak the protocol rather than wrap a driver
 

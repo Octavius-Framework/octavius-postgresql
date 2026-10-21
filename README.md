@@ -5,7 +5,7 @@
 [![API Reference](https://img.shields.io/badge/docs-API%20reference-blue)](https://octavius-framework.github.io/octavius-postgresql/)
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
-*Not an ORM. A **ROME** — a Relational-Object Mapping Engine. Because all queries lead to ROME.*
+*Not an ORM. A **ROME** — a Relational-Object Mapping Engine. Because all rows lead to ROME.*
 
 Everything Octavius has to say about talking to PostgreSQL from Kotlin: a driver that speaks the wire protocol
 directly, a data access layer built on it, and a migrator that keeps the schema up to date.
