@@ -3,7 +3,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.octavius-framework/driver)](https://central.sonatype.com/namespace/io.github.octavius-framework)
 [![Build and Test](https://github.com/Octavius-Framework/octavius-postgresql/actions/workflows/tests.yml/badge.svg)](https://github.com/Octavius-Framework/octavius-postgresql/actions/workflows/tests.yml)
 [![API Reference](https://img.shields.io/badge/docs-API%20reference-blue)](https://octavius-framework.github.io/octavius-postgresql/)
-![License](https://img.shields.io/badge/license-Apache%202.0-blue)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 *Not an ORM. A **ROME** — a Relational-Object Mapping Engine. Because all rows lead to ROME.*
 
@@ -156,4 +156,4 @@ been.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+Licensed under the [Apache License, Version 2.0](LICENSE).
