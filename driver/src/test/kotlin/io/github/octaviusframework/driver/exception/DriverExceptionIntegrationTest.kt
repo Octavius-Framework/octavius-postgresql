@@ -65,6 +65,18 @@ class DriverExceptionIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `should throw InitializationException with CONNECTION_ERROR for a database that does not exist`() {
+        // A login the server refuses is no session at all, whatever its code - 3D000 would route to a statement
+        // error, for a statement that was never sent
+        val exception = assertFailsWith<InitializationException> {
+            getOctaviusSession("jdbc:octavius://${TestDatabase.HOST}:${TestDatabase.PORT}/nonexistent_curia", TestDatabase.properties())
+        }
+        assertEquals(InitializationExceptionReason.CONNECTION_ERROR, exception.reason)
+        assertEquals("3D000", exception.sqlState)
+        assertEquals("FATAL", exception.serverErrorMessage?.severity)
+    }
+
+    @Test
     fun `should throw InitializationException with CONNECTION_ERROR for unreachable host`() {
         val exception = assertFailsWith<InitializationException> {
             getOctaviusSession("jdbc:octavius://${TestDatabase.HOST}:54321/${TestDatabase.DATABASE}", TestDatabase.properties())

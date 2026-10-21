@@ -21,7 +21,9 @@ class SenateService(private val octavius: OctaviusTemplate) {
 
 `OctaviusSpringAutoConfiguration` runs after Boot's `DataSourceAutoConfiguration`, before its
 `DataSourceTransactionManagerAutoConfiguration`, and contributes two beans — the `OctaviusTemplate` above and an
-`OctaviusJdbcTransactionManager`. Both are `@ConditionalOnMissingBean`, so declaring your own replaces them.
+`OctaviusJdbcTransactionManager`. A template of your own replaces the first, and any `TransactionManager` of your
+own the second. With several `DataSource` beans it builds on the `@Primary` one, and without one contributes
+nothing.
 
 ## What it does
 
@@ -32,6 +34,11 @@ brace. No session is threaded through a signature either way.
 **`@Transactional` works in full, `Propagation.NESTED` included** — the transaction manager is an
 `OctaviusJdbcTransactionManager`, which also answers truthfully when a connection dies mid-transaction rather
 than reporting a rollback that never reached the server.
+
+**`@Transactional(timeout = …)` is enforced.** By default as `statement_timeout`, which cancels each statement
+that runs past it and keeps the connection, but does not bound their sum; set `timeoutScope` to `TRANSACTION`
+for `transaction_timeout`, which bounds the whole transaction on the server and ends the session, connection and
+all, when it runs out.
 
 **A failure that came from Octavius survives the crossing.** It arrives as `OctaviusDataAccessException`, whose
 `octaviusException` hands back the driver's own exception — type, reason enum, SQLSTATE and query context
@@ -59,8 +66,9 @@ around: it labels its response with `getDatabaseProductName()` before checking a
 permanently `DOWN` in front of a connection that is fine. One bean replaces it, in
 [the documentation](../docs/driver/spring-integration.md#replacing-actuators-database-health-check).
 
-Where a tool genuinely needs full JDBC, the practical answer is a second `DataSource` on `pgjdbc` dedicated to
-it, with the Octavius one left to the application.
+Schema migrations need neither Flyway nor Liquibase: [`migrations`](../docs/migrations/README.md) runs on the
+driver. Where a tool genuinely needs full JDBC all the same, the practical answer is a second `DataSource` on
+`pgjdbc` dedicated to it, with the Octavius one left to the application and marked `@Primary`.
 
 ## Requirements
 

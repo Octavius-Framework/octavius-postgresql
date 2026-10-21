@@ -258,15 +258,16 @@ is slower than the rest:
 
 Step 4 has three happy endings: the server asks for SCRAM-SHA-256, the server asks for a cleartext password on a connection that is already encrypted, or the server asks for nothing at all — `trust` in `pg_hba.conf`, or a client certificate already accepted during the TLS handshake.
 
-| The server asks for                | Result                                                     |
-|:-----------------------------------|:-----------------------------------------------------------|
-| SCRAM-SHA-256-PLUS                 | Connected, bound to the TLS channel.                       |
-| SCRAM-SHA-256                      | Connected.                                                 |
-| Nothing — `trust`, `cert`          | Connected.                                                 |
-| A cleartext password, over TLS     | Connected; the password goes out as it is, inside TLS.     |
-| A cleartext password, in plaintext | `InitializationException(UNSUPPORTED_PASSWORD_ENCRYPTION)` |
-| MD5                                | `InitializationException(UNSUPPORTED_PASSWORD_ENCRYPTION)` |
-| GSSAPI, SSPI, anything else        | `InitializationException(UNSUPPORTED_MECHANISM)`           |
+| The server asks for                                              | Result                                                                                     |
+|:-----------------------------------------------------------------|:-------------------------------------------------------------------------------------------|
+| SCRAM-SHA-256-PLUS                                               | Connected, bound to the TLS channel.                                                       |
+| SCRAM-SHA-256-PLUS, its certificate signed with Ed25519 or Ed448 | `InitializationException(UNSUPPORTED_MECHANISM)`; see [Channel binding](#channel-binding). |
+| SCRAM-SHA-256                                                    | Connected.                                                                                 |
+| Nothing — `trust`, `cert`                                        | Connected.                                                                                 |
+| A cleartext password, over TLS                                   | Connected; the password goes out as it is, inside TLS.                                     |
+| A cleartext password, in plaintext                               | `InitializationException(UNSUPPORTED_PASSWORD_ENCRYPTION)`                                 |
+| MD5                                                              | `InitializationException(UNSUPPORTED_PASSWORD_ENCRYPTION)`                                 |
+| GSSAPI, SSPI, anything else                                      | `InitializationException(UNSUPPORTED_MECHANISM)`                                           |
 
 **The cleartext row is the one worth reading twice.** The server asks for a password in the clear when `pg_hba.conf` names `password`, `ldap`, `pam` or `radius` — the last three because the server has to hold the password itself to check it against something that is not PostgreSQL. Nothing on the client side makes that safer: the password travels as it was typed, and the only thing between it and the wire is the encryption underneath. So the driver insists on that encryption rather than trusting the deployment to have arranged it — raise `sslmode` to `require` or above and the exchange proceeds; leave it where the connection ends up in plaintext and the password is never sent. `channelBinding=require` refuses the exchange outright, before the password leaves the JVM, because no cleartext login can be bound to the channel.
 
@@ -285,6 +286,8 @@ How hard the driver insists is the `channelBinding` property:
 | `disable` | Never offer it; the exchange declares no support for binding.            |
 
 PostgreSQL offers `SCRAM-SHA-256-PLUS` on every encrypted connection, so under the default *every* TLS connection to PostgreSQL ends up bound — there is nothing to switch on. What `require` buys is the failure: without TLS, or against a server that does not offer binding, you get an `InitializationException(UNSUPPORTED_MECHANISM)` rather than a quietly unbound login. It also rejects a connection the server waved through without asking, since `trust` is not a bound exchange either.
+
+A certificate signed with Ed25519 or Ed448 is the exception. The hash is taken with the digest the certificate was signed with, and those signatures are made without one, so neither end can compute it. The driver refuses such a login under `prefer` as under `require`, before the exchange begins, with an `InitializationException(UNSUPPORTED_MECHANISM)` naming the signature: unbound, the login could be relayed by an intermediary presenting a certificate like that of its own. `channelBinding=disable` logs in, unbound.
 
 Binding hashes the certificate; it does not judge it. That still belongs to [`verify-full`](#ssl), and the two answer different questions worth answering together: binding proves the exchange reached the holder of *that* certificate, `verify-full` proves that certificate is the one you meant to reach.
 

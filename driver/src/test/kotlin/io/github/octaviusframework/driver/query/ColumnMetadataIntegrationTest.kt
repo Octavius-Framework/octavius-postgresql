@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.query
 
+import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
@@ -26,6 +27,8 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
         -- behind its own number.
         ALTER TABLE res_publica.senators DROP COLUMN province;
         CREATE VIEW res_publica.consuls AS SELECT id, cognomen FROM res_publica.senators;
+        -- For a temporary table made OF it, which still has a row type of its own, outside the catalog.
+        CREATE TYPE res_publica.edict AS (title text, year int);
         INSERT INTO res_publica.senators VALUES (1, 'Cato', 12.50, 3.00);
     """.trimIndent()
 
@@ -180,6 +183,37 @@ class ColumnMetadataIntegrationTest : AbstractIntegrationTest() {
             }
 
             assertEquals(42, s.createNativeQuery("SELECT 42").fetchFieldStrict<Int>())
+        }
+    }
+
+    @Test
+    fun `a whole row of a temporary table fails on the description, after a reload too, and reads cast to a permanent type`() {
+        openSession().use { s ->
+            s.createNativeQuery("CREATE TEMP TABLE edicts OF res_publica.edict; INSERT INTO edicts VALUES ('Lex Iulia', 18)")
+                .execute()
+
+            assertFailsWith<TypeException> { s.createNativeQuery("SELECT e FROM edicts e").fetchRows() }
+            s.reloadTypes()
+            assertFailsWith<TypeException> { s.createNativeQuery("SELECT e FROM edicts e").fetchRows() }
+
+            val row = s.createNativeQuery("SELECT e::res_publica.edict FROM edicts e").fetchRowStrict()
+            assertEquals("edict", row.metadata.getColumn(0).type.name)
+            assertEquals(listOf<Any?>("Lex Iulia", 18), (row.getRaw(0) as PgComposite).fields.toList())
+        }
+    }
+
+    @Test
+    fun `a column read from a temporary table has an origin, and no names for it`() {
+        openSession().use { s ->
+            s.createNativeQuery("CREATE TEMP TABLE edicts OF res_publica.edict; INSERT INTO edicts VALUES ('Lex Iulia', 18)")
+                .execute()
+            s.reloadTypes()
+
+            val origin = s.createNativeQuery("SELECT title FROM edicts").fetchRowStrict().metadata.getColumn(0).origin!!
+
+            assertEquals(1, origin.attributeNumber)
+            assertNull(origin.relationName)
+            assertNull(origin.columnName)
         }
     }
 

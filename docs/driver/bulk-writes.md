@@ -5,7 +5,7 @@ unloaded at Portus, and the whole harvest of a province crossed the sea in one p
 the same one: ten thousand rows sent a statement at a time pay for ten thousand crossings, and the same rows sent as
 arrays in a single statement pay for one.*
 
-Past a handful of rows, the shape of the statement matters far more than the driver underneath it. Inserting 10 000 senators one `INSERT` at a time costs ~282 ms; the same rows go in through a single statement carrying arrays in **~7.6 ms** — [37× faster](performance.md#writing), and the same ratio holds for `pgjdbc`.
+Past a handful of rows, the shape of the statement matters far more than the driver underneath it. Inserting 10 000 senators one `INSERT` at a time costs ~329 ms; the same rows go in through a single statement carrying arrays in **~6.8 ms** — [48× faster](performance.md#writing), and 43× in `pgjdbc`.
 
 Octavius has no `addBatch()` / `executeBatch()`: JDBC batching is [one of the things it dropped](octavius-vs-jdbc.md#3-jdbc-batching). What replaces it is PostgreSQL's own answer — pass each column as an array, let the server zip them back into rows — which is not a workaround for a missing feature but the faster path in both drivers, and the only one of the two that works for `UPDATE` and `DELETE` as well.
 
@@ -27,12 +27,12 @@ Row-at-a-time insertion pays for a full Parse/Bind/Execute cycle and a round tri
 
 | Strategy for 10 000 rows                | Octavius     | pgjdbc       |
 |:----------------------------------------|:-------------|:-------------|
-| Single inserts                          | 281.6 ± 4.1  | 221.2 ± 2.6  |
-| JDBC batching                           | n/a          | 25.55 ± 0.32 |
-| JDBC batching + `reWriteBatchedInserts` | n/a          | 7.35 ± 0.48  |
-| **`UNNEST`**                            | 7.56 ± 0.41  | 5.96 ± 0.50  |
+| Single inserts                          | 328.9 ± 6.0  | 239.6 ± 3.5  |
+| JDBC batching                           | n/a          | 24.35 ± 0.24 |
+| JDBC batching + `reWriteBatchedInserts` | n/a          | 6.87 ± 0.12  |
+| **`UNNEST`**                            | 6.80 ± 0.27  | 5.54 ± 0.18  |
 
-Milliseconds per operation, lower is better. `UNNEST` in Octavius matches pgjdbc's fastest batching mode and beats plain batching by 3.4×.
+Milliseconds per operation, lower is better. `UNNEST` in Octavius matches pgjdbc's fastest batching mode and beats plain batching by 3.6×.
 
 The reason is that `UNNEST` collapses the whole load into **one** statement: one Parse, one Bind, one Execute, one round trip, one plan. Ten thousand rows leave as *two* parameters — an `int[]` and a `text[]` — rather than twenty thousand.
 
@@ -209,13 +209,13 @@ The composite type has to exist in the database either way — it is often the t
 
 | Form                                             | Time        | Allocated |
 |:-------------------------------------------------|:------------|:----------|
-| Parallel scalar arrays                           | 7.10 ± 0.44 | 0.93 MB   |
-| `composite[]`, hand-written `ParameterConverter` | 7.01 ± 0.39 | 2.05 MB   |
-| `composite[]`, `registerAutoComposite`           | 8.65 ± 0.33 | 4.93 MB   |
+| Parallel scalar arrays                           | 7.72 ± 0.57 | 0.93 MB   |
+| `composite[]`, hand-written `ParameterConverter` | 7.53 ± 0.36 | 2.05 MB   |
+| `composite[]`, `registerAutoComposite`           | 9.61 ± 0.48 | 2.05 MB   |
 
-**On time, the composite form is free** — 7.01 against 7.10 with the intervals overlapping — as long as the converter is one you wrote. Going through `registerAutoComposite` instead costs about a quarter, and that difference is outside the noise.
+**On time, the composite form is free** — 7.53 against 7.72 with the intervals overlapping — as long as the converter is one you wrote. Going through `registerAutoComposite` instead costs about a quarter, and that difference is outside the noise.
 
-**On memory it is never free.** For these rows, composites allocate 2.2× the scalar form even at their cheapest, and the reflective path 5.3×. Those multipliers are not constants — a wider class or heavier field types shift them in both columns — but the ordering holds, and it lands on top of the arrays you already built. See [Choosing a batch size](#choosing-a-batch-size).
+**On memory it is never free.** For these rows, composites allocate 2.2× the scalar form, the same whether the converter is hand-written or reflective. That multiplier is not a constant — a wider class or heavier field types shift it — but the ordering holds, and it lands on top of the arrays you already built. See [Choosing a batch size](#choosing-a-batch-size).
 
 So: reach for parallel scalar arrays on the path that moves the most rows, and for the composite form when the call site would otherwise take eight arrays and a good memory. Reflection is the convenience on top of that, and the one part of it with a price tag worth checking — the example above uses it; [a hand-written `ParameterConverter`](type-system.md#custom-converters) is what buys the middle row of that table back.
 
@@ -225,7 +225,7 @@ Everything in the batch is serialized into the connection's parameter buffer **b
 
 Two hard limits sit further out: a single PostgreSQL array value cannot exceed 1 GB, and `UNNEST` materializes its rows server-side.
 
-How much that is depends on what a row holds, not only on how many there are. For the [benchmark's](performance.md#reflection-or-a-hand-written-converter) two-column rows — an `int` and a short `text` — 10 000 of them come to ~0.93 MB per statement as parallel scalar arrays and ~4.93 MB as a reflectively built `composite[]`. A wider class, longer strings or nested structures move both figures, so measure your own shape rather than scaling these.
+How much that is depends on what a row holds, not only on how many there are. For the [benchmark's](performance.md#reflection-or-a-hand-written-converter) two-column rows — an `int` and a short `text` — 10 000 of them come to ~0.93 MB per statement as parallel scalar arrays and ~2.05 MB as a `composite[]`, however it is built. A wider class, longer strings or nested structures move both figures, so measure your own shape rather than scaling these.
 
 In practice the gain is nearly all captured well before any of that. **Chunk at 10 000–50 000 rows** and loop; the per-statement overhead you are trying to amortize disappears within the first thousand, and smaller chunks keep both memory and lock duration predictable:
 
@@ -259,7 +259,7 @@ Wrapping the loop in a transaction is what makes the chunks all-or-nothing; with
 * **Build the parallel lists in one pass.** Arrays of different lengths pad with `NULL` instead of failing — the single easiest way to write garbage rows at speed.
 * **`update()` counts what the server did, not what you sent.** For a bulk `UPDATE` the difference is exactly the ids that matched nothing; check it if that is not supposed to happen.
 * **Guard or type your empty batches.** `emptyList()` carries no element type, so it fails with `TYPE_NOT_FOUND` unless wrapped in `withPgType`.
-* **Scalar arrays are the cheapest form.** On two-column rows a `composite[]` allocated 2.2× as much, and 5.3× when `registerAutoComposite` built it; time was a tie except for the reflective path. Your own shape decides the size of that, not the ratio quoted here.
+* **Scalar arrays are the cheapest form.** On two-column rows a `composite[]` allocated 2.2× as much, whether a hand-written converter or `registerAutoComposite` built it; time was a tie except for the reflective path. Your own shape decides the size of that, not the ratio quoted here.
 * **Do not zip `RETURNING` results against your input by position.** Use `WITH ORDINALITY` or return a key you supplied.
 * **Deduplicate before an `ON CONFLICT DO UPDATE`.** The same key twice in one statement is an error, not a last-write-wins.
 * **`= ANY($1)` is the `IN` clause.** One parameter, one plan, any list length — and `<> ALL($1)` for `NOT IN`.

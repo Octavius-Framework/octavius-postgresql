@@ -42,16 +42,17 @@ internal class OctaviusConnection(
     @Volatile
     var isClosedFlag: Boolean = false
 
-    private inline fun <T> wrapSqlException(block: () -> T): T {
-        try {
-            return block()
-        } catch (e: OctaviusException) {
-            throw SQLExceptionWrapper(e)
-        }
-    }
+    /**
+     * Whether [close] or [abort] has run, as opposed to [isClosedFlag], which a broken stream latches as well.
+     *
+     * The two part ways at [abort]. A second abort is the no-op JDBC says it is, but the first one on a
+     * connection whose stream broke underneath is not a second one: the pool still holds it as borrowed, and
+     * the exception an abort raises is the only thing that tells the pool to let it go.
+     */
+    @Volatile
+    private var closeRequested: Boolean = false
 
-    private var lastSearchPathString: String? = null
-    private var cachedSearchPath: List<String>? = null
+    private var cachedSearchPath: SearchPath? = null
 
 
     /**
@@ -71,21 +72,26 @@ internal class OctaviusConnection(
      * than by asking a socket that is already gone.
      *
      * @throws NetworkException `CONNECTION_CLOSED` (`08003`) if it was closed, `CONNECTION_ERROR` (`08006`)
-     *   if the stream broke.
+     *   if the stream broke - with the server's own reason in `details` where it was the server that ended
+     *   the session.
      */
     fun checkClosed() {
         if (isClosedFlag) throw NetworkException(NetworkExceptionReason.CONNECTION_CLOSED, sqlState = "08003")
         if (stream.isBroken) {
             isClosedFlag = true
-            throw NetworkException(NetworkExceptionReason.CONNECTION_ERROR, details = "Underlying stream is broken", sqlState = "08006")
+            val terminatedBy = stream.terminatedBy
+            val details = if (terminatedBy != null) {
+                "The server ended this session (${terminatedBy.code}): ${terminatedBy.message}"
+            } else {
+                "Underlying stream is broken"
+            }
+            throw NetworkException(NetworkExceptionReason.CONNECTION_ERROR, details = details, sqlState = "08006")
         }
     }
 
     @Suppress("UNCHECKED_CAST")
-    override fun <T> unwrap(iface: Class<T>): T {
-        if (iface.isInstance(this)) {
-            return this as T
-        }
+    override fun <T> unwrap(iface: Class<T>): T = wrapSqlException {
+        if (iface.isInstance(this)) return@wrapSqlException this as T
         throw InvalidOperationException(InvalidOperationExceptionReason.UNWRAP_ERROR, details = "Cannot unwrap to ${iface.name}")
     }
 
@@ -94,8 +100,10 @@ internal class OctaviusConnection(
     override fun nativeSQL(sql: String?): String = sql?.let { SqlParameterParser.parse(sql).transformedSql } ?: ""
 
     override fun close() {
-        if (!isClosedFlag) {
+        if (!closeRequested) {
+            closeRequested = true
             isClosedFlag = true
+            // Also on a stream that broke: a socket a read timed out on is still open until this closes it.
             stream.close()
         }
     }
@@ -111,17 +119,17 @@ internal class OctaviusConnection(
     override fun clearWarnings() {} // required by Hikari
 
 
-    override fun isValid(timeout: Int): Boolean { // required by Hikari
+    override fun isValid(timeout: Int): Boolean = wrapSqlException { // required by Hikari
         if (timeout < 0) throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "Timeout for isValid() cannot be negative, was $timeout"
         )
-        if (isClosed()) return false
+        if (isClosed()) return@wrapSqlException false
 
         // The timeout is a property of the whole connection, so it is swapped under the same lock
         // that serializes exchanges - otherwise this would shorten the deadline of a query already
         // in flight on another thread, and kill a healthy connection with a read timeout.
-        return stream.lock.withLock {
+        stream.lock.withLock {
             val originalTimeout = try {
                 stream.networkTimeout
             } catch (e: NetworkException) {
@@ -168,13 +176,16 @@ internal class OctaviusConnection(
     override fun getClientInfo(): Properties = Properties()
 
 
-    override fun abort(executor: Executor?) {
+    override fun abort(executor: Executor?) = wrapSqlException {
         if (executor == null) throw InvalidOperationException(
-            InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED,
+            InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "Executor cannot be null"
         )
-        
-        if (isClosedFlag) return
+
+        // Not isClosedFlag: a stream that broke latches that too, and a connection a pool still holds as
+        // borrowed has to raise below, or the pool never learns to let it go - see closeRequested.
+        if (closeRequested) return@wrapSqlException
+        closeRequested = true
         isClosedFlag = true
 
         logger.debug { "$pid Connection aborted" }
@@ -183,11 +194,11 @@ internal class OctaviusConnection(
             stream.close()
         }
         // Signal for Hikari to evict Connection
-        throw SQLExceptionWrapper(NetworkException(
+        throw NetworkException(
             NetworkExceptionReason.CONNECTION_ABORTED,
             details = "Connection explicitly aborted by Octavius",
             sqlState = "08000"
-        ))
+        )
     }
 
     override fun setNetworkTimeout(executor: Executor?, milliseconds: Int) = wrapSqlException { // required by Hikari
@@ -215,7 +226,7 @@ internal class OctaviusConnection(
      * Failing to open that second connection is not reported: there was nothing to clean up and the query
      * carries on. A cancelled query surfaces at whoever is running it, as
      * [ExecutionAbortedException][io.github.octaviusframework.driver.exception.ExecutionAbortedException]
-     * (`QUERY_CANCELED`, SQLSTATE `57014`) — the same one a `statement_timeout` produces, since the server
+     * (SQLSTATE `57014`) — the same one a `statement_timeout` produces, since the server
      * reports both the same way.
      *
      * @throws NetworkException if this connection is already closed or broken.
@@ -260,55 +271,35 @@ internal class OctaviusConnection(
     //------------------------------------------SEARCH PATH-------------------------------------------------------------
 
     /**
-     * Parses a PostgreSQL search_path parameter string which may contain quoted identifiers
-     * and commas within quotes (e.g., '"$user", public', '"schema,with,comma"').
+     * The search path as the server last reported it in `ParameterStatus`, together with the
+     * `session_authorization` its `$user` stands for.
+     *
+     * The setting is always there: the connection factory refuses a server that did not report it at login, and
+     * PostgreSQL 18 reports it again whenever it changes. Read again only when either report has moved.
      */
-    private fun parseSearchPath(param: String): List<String> {
-        val result = mutableListOf<String>()
-        val current = StringBuilder()
-        var inQuotes = false
-        var i = 0
-        while (i < param.length) {
-            val c = param[i]
-            if (c == '"') {
-                if (inQuotes && i + 1 < param.length && param[i + 1] == '"') {
-                    current.append('"')
-                    i++
-                } else {
-                    inQuotes = !inQuotes
-                }
-            } else if (c == ',' && !inQuotes) {
-                result.add(current.toString().trimEnd())
-                current.clear()
-            } else if (c.isWhitespace() && !inQuotes && current.isEmpty()) {
-                // skip leading whitespace
-            } else {
-                current.append(c)
-            }
-            i++
-        }
-        result.add(current.toString().trimEnd())
-        return result.filter { it.isNotEmpty() }
+    private fun currentSearchPath(): SearchPath {
+        val setting = stream.parameters.getValue("search_path")
+        val sessionUser = stream.parameters["session_authorization"]
+        cachedSearchPath?.let { if (it.isFor(setting, sessionUser)) return it }
+        return SearchPath(setting, sessionUser).also { cachedSearchPath = it }
     }
 
     /**
-     * Retrieves the current search path, as the server last reported it in a ParameterStatus message.
+     * Retrieves the entries of the current search path, as the server reads the setting it last reported.
      *
-     * Always there: the connection factory refuses a server that did not report it at login, and PostgreSQL
-     * 18 reports it again whenever it changes.
-     *
-     * @return A list of schema names representing the current search path.
+     * @return The schema names the setting lists, `$user` and `pg_temp` among them as written.
      */
     fun getSearchPath(): List<String> {
         checkClosed()
-        val paramSearchPath = stream.parameters.getValue("search_path")
-        if (paramSearchPath == lastSearchPathString && cachedSearchPath != null) {
-            return cachedSearchPath!!
-        }
-        val parsed = parseSearchPath(paramSearchPath)
-        lastSearchPathString = paramSearchPath
-        cachedSearchPath = parsed
-        return parsed
+        return currentSearchPath().entries
+    }
+
+    /**
+     * The schemas the server looks an unqualified type name up in, in its order - what type names resolve against.
+     */
+    fun getTypeLookupOrder(): List<String> {
+        checkClosed()
+        return currentSearchPath().typeLookupOrder
     }
 
     //--------------------------------------------READ ONLY-------------------------------------------------------------

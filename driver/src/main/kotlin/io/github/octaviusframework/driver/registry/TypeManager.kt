@@ -119,6 +119,8 @@ class TypeManager internal constructor(
      * @param codec The codec instance to register.
      * @throws io.github.octaviusframework.driver.exception.TypeException `TYPE_NOT_FOUND` where [codec] names a
      *   schema-qualified type the catalog does not describe.
+     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException `INVALID_ARGUMENT` where
+     *   [codec] declares OID `0`, which no type has.
      */
     fun registerCodec(codec: TypeCodec<*>) = holder.update { it.withCodec(codec) }
 

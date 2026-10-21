@@ -16,11 +16,18 @@ import io.github.octaviusframework.driver.message.backend.ErrorOrNoticeMessage
  * The mapping is by SQLSTATE class where PostgreSQL's classes are meaningful and by individual code where
  * they are not — `40001` and `40P01` are both concurrency but want different reasons, and `57014` is a
  * cancelled statement inside a class that is otherwise about the server being in trouble.
+ *
+ * One distinction comes before the SQLSTATE, and it is the severity. A `FATAL` or a `PANIC` in an open session
+ * ends that session, whatever its code says, and goes through [translateTermination]; a `FATAL` at login is the
+ * server refusing one, and goes through [translateRefusal]. What reaches [translate] is always an `ERROR`.
  */
 internal object ExceptionTranslator {
 
     /**
-     * The exception for [errorMsg].
+     * The exception for [errorMsg], an `ERROR`.
+     *
+     * Chosen by SQLSTATE alone. A `FATAL` is [translateTermination]'s in an open session and [translateRefusal]'s
+     * at login.
      *
      * @param errorMsg The `ErrorResponse` the server sent.
      * @return The exception to raise, carrying the server's message, SQLSTATE and detail fields.
@@ -88,22 +95,14 @@ internal object ExceptionTranslator {
 
             // Class 25 — Invalid Transaction State
             state.startsWith("25") -> {
-                if (state == "25P03" || state == "25P04") { // idle_in_transaction_session_timeout or transaction_timeout
-                    ExecutionAbortedException(
-                        ExecutionAbortedExceptionReason.TRANSACTION_TIMEOUT,
-                        sqlState = state,
-                        serverErrorMessage = serverErrorMessage
-                    )
-                } else {
-                    val reason = when (state) {
-                        "25P02" -> TransactionStateExceptionReason.IN_FAILED_TRANSACTION
-                        "25006" -> TransactionStateExceptionReason.READ_ONLY_TRANSACTION
-                        "25P01" -> TransactionStateExceptionReason.NO_ACTIVE_TRANSACTION
-                        "25001" -> TransactionStateExceptionReason.ACTIVE_TRANSACTION
-                        else -> TransactionStateExceptionReason.UNKNOWN
-                    }
-                    TransactionStateException(reason, state, serverErrorMessage)
+                val reason = when (state) {
+                    "25P02" -> TransactionStateExceptionReason.IN_FAILED_TRANSACTION
+                    "25006" -> TransactionStateExceptionReason.READ_ONLY_TRANSACTION
+                    "25P01" -> TransactionStateExceptionReason.NO_ACTIVE_TRANSACTION
+                    "25001" -> TransactionStateExceptionReason.ACTIVE_TRANSACTION
+                    else -> TransactionStateExceptionReason.UNKNOWN
                 }
+                TransactionStateException(reason, state, serverErrorMessage)
             }
 
             // Class 40 — Transaction Rollback
@@ -164,11 +163,7 @@ internal object ExceptionTranslator {
                 }
             }
 
-            state == "57014" -> ExecutionAbortedException(
-                ExecutionAbortedExceptionReason.QUERY_CANCELED,
-                sqlState = state,
-                serverErrorMessage = serverErrorMessage
-            )
+            state == "57014" -> ExecutionAbortedException(sqlState = state, serverErrorMessage = serverErrorMessage)
 
             state.startsWith("57") || state.startsWith("53") || state.startsWith("58") || state.startsWith("XX") -> DatabaseSystemException(
                 "Database system error ($state): ${serverErrorMessage.message}", sqlState = state, serverErrorMessage = serverErrorMessage
@@ -196,5 +191,58 @@ internal object ExceptionTranslator {
                 details = "Unknown database error ($state): ${serverErrorMessage.message}", sqlState = state, serverErrorMessage = serverErrorMessage
             )
         }
+    }
+
+    /**
+     * The exception for a `FATAL` or `PANIC` the server sent in a session that was open.
+     *
+     * Chosen by severity before SQLSTATE, because the severity is what decides where the caller stands: the
+     * server closes the connection behind either one, so whatever the code says, the session is over - a
+     * `FATAL` `57P01` is not a server in trouble, and a `FATAL` `40001` from a standby's recovery conflict is not
+     * a serialization failure to retry on the same session. The code then names why, for the causes an
+     * application would tell apart, and [SessionTerminatedExceptionReason.UNKNOWN] carries the rest with the code
+     * intact.
+     *
+     * Not for login, where there is no session yet to end: a `FATAL` there is [translateRefusal]'s.
+     *
+     * @param errorMsg The `ErrorResponse` the server sent, severity `FATAL` or `PANIC`.
+     * @return The exception to raise, carrying the server's message, SQLSTATE and detail fields.
+     */
+    fun translateTermination(errorMsg: ErrorOrNoticeMessage): SessionTerminatedException {
+        val reason = when (errorMsg.code) {
+            "25P04", "25P03" -> SessionTerminatedExceptionReason.TRANSACTION_TIMEOUT
+            "57P05" -> SessionTerminatedExceptionReason.IDLE_SESSION_TIMEOUT
+            "57P01" -> SessionTerminatedExceptionReason.ADMINISTRATOR_COMMAND
+            else -> SessionTerminatedExceptionReason.UNKNOWN
+        }
+        return SessionTerminatedException(reason, errorMsg.code, ServerErrorMessage.from(errorMsg))
+    }
+
+    /**
+     * The exception for the `ErrorResponse` the server refused a login with.
+     *
+     * Every refusal arrives as a `FATAL`, and whatever its code, the caller is left without a session - which is
+     * what [InitializationException] says. Its SQLSTATE would route it elsewhere in [translate]: a database that
+     * does not exist (`3D000`) to a statement error for a statement never sent, too many connections (`53300`) or
+     * a server starting up (`57P03`) to the server being in trouble. Credentials (class `28`) keep their own
+     * reason; the rest is [InitializationExceptionReason.CONNECTION_ERROR], with the code in `sqlState` for anyone
+     * who tells them apart.
+     *
+     * @param errorMsg The `ErrorResponse` the server sent during login.
+     * @return The exception to raise, carrying the server's message, SQLSTATE and detail fields.
+     */
+    fun translateRefusal(errorMsg: ErrorOrNoticeMessage): InitializationException {
+        val serverErrorMessage = ServerErrorMessage.from(errorMsg)
+        val reason = if (errorMsg.code.startsWith("28")) {
+            InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS
+        } else {
+            InitializationExceptionReason.CONNECTION_ERROR
+        }
+        return InitializationException(
+            reason,
+            details = serverErrorMessage.message,
+            sqlState = errorMsg.code,
+            serverErrorMessage = serverErrorMessage
+        )
     }
 }

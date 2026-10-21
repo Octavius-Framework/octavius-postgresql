@@ -180,7 +180,7 @@ val worker = OctaviusDispatchers.VirtualExecutor.submit {
 session.cancelQuery()
 ```
 
-The cancelled statement surfaces on the blocked thread as `ExecutionAbortedException(QUERY_CANCELED)` (SQLSTATE `57014`), the session survives, and the next statement works normally.
+The cancelled statement surfaces on the blocked thread as `ExecutionAbortedException` (SQLSTATE `57014`), the session survives, and the next statement works normally.
 
 Two properties of `cancelQuery()` follow from being a best-effort protocol request rather than a command:
 
@@ -199,7 +199,7 @@ Serializing a session on one connection does not help either, because the hazard
 4. Anything waiting takes the lock and sends statement 2.
 5. The backend handles the signal and cancels statement 2.
 
-Thread A sees a perfectly normal result and whoever issued statement 2 gets an `ExecutionAbortedException(QUERY_CANCELED)` it did nothing to deserve. The same shape appears with a pooled connection if a cancel is fired at a session that is then returned and re-borrowed, which is a good reason not to cancel on the way out of anything.
+Thread A sees a perfectly normal result and whoever issued statement 2 gets an `ExecutionAbortedException` it did nothing to deserve. The same shape appears with a pooled connection if a cancel is fired at a session that is then returned and re-borrowed, which is a good reason not to cancel on the way out of anything.
 
 Two ways to stay clear of it:
 

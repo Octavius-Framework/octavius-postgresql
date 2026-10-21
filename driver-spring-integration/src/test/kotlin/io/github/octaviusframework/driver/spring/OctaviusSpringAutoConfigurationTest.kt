@@ -12,10 +12,13 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.boot.transaction.autoconfigure.TransactionAutoConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Primary
 import org.springframework.core.Ordered
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
+import org.springframework.jdbc.datasource.DriverManagerDataSource
 import org.springframework.jdbc.support.JdbcTransactionManager
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import javax.sql.DataSource
 import org.springframework.beans.factory.getBean
@@ -87,6 +90,43 @@ class OctaviusSpringAutoConfigurationTest {
         }
     }
 
+    @Test
+    fun `should let a bean created before it inject its TransactionManager as OctaviusJdbcTransactionManager`() {
+        contextRunner.withUserConfiguration(TransactionManagerConsumerConfiguration::class.java).run { context ->
+            assertNull(context.startupFailure)
+            assertSame(context.getBean<OctaviusJdbcTransactionManager>(), context.getBean<TransactionManagerConsumer>().manager)
+        }
+    }
+
+    @Test
+    fun `should back off if a TransactionManager that is not a PlatformTransactionManager is provided`() {
+        contextRunner.withUserConfiguration(ReactiveStyleTransactionManagerConfiguration::class.java).run { context ->
+            assertNull(context.startupFailure)
+            assertFalse(context.containsBean("transactionManager"))
+            assertTrue(context.getBeansOfType(PlatformTransactionManager::class.java).isEmpty())
+        }
+    }
+
+    @Test
+    fun `should contribute nothing when several DataSources have no primary`() {
+        contextRunner.withUserConfiguration(TwoDataSourcesConfiguration::class.java).run { context ->
+            assertNull(context.startupFailure)
+            assertFalse(context.containsBean("octaviusTemplate"))
+            assertFalse(context.containsBean("transactionManager"))
+        }
+    }
+
+    @Test
+    fun `should build on the primary DataSource when there are several`() {
+        contextRunner.withUserConfiguration(TwoDataSourcesConfiguration::class.java, PrimaryDataSourceConfiguration::class.java)
+            .run { context ->
+                assertNull(context.startupFailure)
+                assertTrue(context.containsBean("octaviusTemplate"))
+                val primary = context.getBean("primaryDataSource")
+                assertSame(primary, context.getBean<OctaviusJdbcTransactionManager>().dataSource)
+            }
+    }
+
     @AutoConfiguration(after = [TransactionAutoConfiguration::class])
     @AutoConfigureOrder(Ordered.HIGHEST_PRECEDENCE)
     open class AfterTransactionAutoConfiguration
@@ -105,5 +145,41 @@ class OctaviusSpringAutoConfigurationTest {
         open fun customTransactionManager(dataSource: DataSource): PlatformTransactionManager {
             return DataSourceTransactionManager(dataSource)
         }
+    }
+
+    class TransactionManagerConsumer(val manager: OctaviusJdbcTransactionManager)
+
+    // User configuration is instantiated before auto-configuration, so the type has to be known from the declaration.
+    @Configuration
+    open class TransactionManagerConsumerConfiguration {
+        @Bean
+        open fun transactionManagerConsumer(manager: OctaviusJdbcTransactionManager) = TransactionManagerConsumer(manager)
+    }
+
+    // Stands in for a reactive one, such as R2DBC's: a TransactionManager, but not a PlatformTransactionManager.
+    @Configuration
+    open class ReactiveStyleTransactionManagerConfiguration {
+        @Bean
+        open fun customTransactionManager(): TransactionManager = object : TransactionManager {}
+    }
+
+    @Configuration
+    open class TwoDataSourcesConfiguration {
+        @Bean
+        open fun senatusDataSource(): DataSource = testDataSource()
+
+        @Bean
+        open fun curiaDataSource(): DataSource = testDataSource()
+    }
+
+    @Configuration
+    open class PrimaryDataSourceConfiguration {
+        @Bean
+        @Primary
+        open fun primaryDataSource(): DataSource = testDataSource()
+    }
+
+    companion object {
+        private fun testDataSource() = DriverManagerDataSource(TestDatabase.URL, TestDatabase.USER, TestDatabase.PASSWORD)
     }
 }

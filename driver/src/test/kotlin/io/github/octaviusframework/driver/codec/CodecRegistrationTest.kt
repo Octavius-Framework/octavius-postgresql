@@ -1,10 +1,14 @@
 package io.github.octaviusframework.driver.codec
 
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.io.PgByteWriter
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import kotlin.reflect.KClass
 
 /** A round shield, which is all a `circle` has to be to this test. */
@@ -64,6 +68,47 @@ class CodecRegistrationTest : AbstractIntegrationTest() {
 
             assertEquals("circle", declared(Clipeus("umbo")))
             assertEquals("circle[]", declared(listOf(Clipeus("umbo"), Clipeus("umbo"))))
+        }
+    }
+
+    sealed interface Arma
+    sealed class Scutum : Arma
+    data class Parma(val info: String) : Scutum()
+
+    @Test
+    fun `a codec for a sealed class is the default for every class below it, two levels down too`() {
+        openSession().use { session ->
+            session.typeManager.registerCodec(object : TypeCodec<Arma> {
+                override val pgTypeName = "circle"
+                override val oid: Int? = null
+                override val kotlinClass = Arma::class
+                override val isDefaultForKotlinType = true
+                override val fromBinary: (ByteArray, Int, Int) -> Arma = { _, _, _ -> Parma("umbo") }
+                override val toBinary: (Arma, PgByteWriter) -> Unit = { _, writer ->
+                    writer.writeDouble(0.0)
+                    writer.writeDouble(0.0)
+                    writer.writeDouble(1.0)
+                }
+            })
+
+            val declared: String = session.createNativeQuery("SELECT pg_typeof($1)::text")
+                .fetchRowStrict(Parma("umbo")).get(0)
+
+            assertEquals("circle", declared)
+        }
+    }
+
+    @Test
+    fun `a codec declaring OID 0 is refused, and nothing is bound to 0`() {
+        openSession().use { session ->
+            val boundToNothing = object : TypeCodec<Clipeus> by ClipeusCodec() {
+                override val oid: Int? = 0
+            }
+
+            val e = assertThrows<InvalidOperationException> { session.typeManager.registerCodec(boundToNothing) }
+
+            assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, e.reason)
+            assertNull(session.typeManager.codecs.getCodecByOid<Clipeus>(0))
         }
     }
 }

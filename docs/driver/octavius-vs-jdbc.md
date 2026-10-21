@@ -14,13 +14,13 @@ Octavius replaces all of that with a functional, Kotlin-first API — and even t
 
 Fittingly for a driver named after Augustus — who traced his lineage back to Aeneas, the Trojan refugee of legend — Octavius's JDBC compatibility layer borrows a trick from the same story. If the driver throws away most of JDBC, why implement `java.sql.Connection` at all?
 
-The answer is connection pooling. Production JVM applications lean on mature pools like **HikariCP**, and those pools need standard JDBC surfaces to manage, validate, and recycle connections. So Octavius implements just enough JDBC — a gift left outside the gates — to get waved through:
+The answer is connection pooling. Production JVM applications lean on mature pools like **HikariCP**, and those pools — and [Spring's transaction management](spring-integration.md) on top of them — need standard JDBC surfaces to manage, validate, and recycle connections. So Octavius implements just enough JDBC — a gift left outside the gates — to get waved through:
 - Connection lifecycle (`close()`, `isClosed()`, `isValid()`)
 - Transaction control (`commit()`, `rollback()`, `setAutoCommit()`, isolation level, read-only mode, savepoints)
 - Network timeout handling
 - A plain `java.sql.Statement`, narrowed to `execute()` and `executeUpdate()` — no `ResultSet`, no batching. It exists so a pool can run its `connectionInitSql`, and it is what carries Spring Boot's `spring.sql.init` scripts.
 
-That `Statement` comes with a hard edge worth knowing before you configure a pool: **neither `execute()` nor `executeUpdate()` accepts a statement that returns rows.** A `RowDescription` arriving on either path is an `InvalidOperationException(UNEXPECTED_RESULT)`, because with no `ResultSet` to hand back there is nowhere for those rows to go. So the reflex `connectionTestQuery = "SELECT 1"` does not merely fail to help — it throws on every probe, and a pool reading that as a dead connection will discard healthy ones in a loop.
+That `Statement` comes with a hard edge worth knowing before you configure a pool: **neither `execute()` nor `executeUpdate()` accepts a statement that returns rows.** A `RowDescription` arriving on either path is an `InvalidOperationException(UNEXPECTED_RESULT)`, because with no `ResultSet` to hand back there is nowhere for those rows to go. So the reflex `connectionTestQuery = "SELECT 1"` does not merely fail to help — HikariCP runs it on the first connection it opens, and the pool never starts: `PoolInitializationException`, with `InvalidOperationException(UNEXPECTED_RESULT)` underneath.
 
 Leave the test query unset. HikariCP then validates through `isValid()`, which Octavius implements properly: it runs an empty query, returns no rows, and only ever tightens the connection's existing network timeout for the duration of the check. A pool that insists on a query string needs one that returns nothing — `SET`-style, not `SELECT`-style.
 
@@ -36,7 +36,7 @@ val session = dataSource.getOctaviusSession()
 
 Reaching for any of the following on the underlying JDBC connection — or on the `Statement` it hands out — throws an `InvalidOperationException` with reason `FEATURE_NOT_SUPPORTED`.
 
-That exception is **not** a `SQLException`. The methods Octavius does implement wrap their failures in [`SQLExceptionWrapper`](exceptions.md#sqlexceptionwrapper), because pools need to read SQLSTATE off something — but the unsupported ones throw the raw Octavius exception, an unchecked `RuntimeException`. A `catch (SQLException e)` inherited from legacy JDBC code will not catch it, and the failure sails past the handler that was written for exactly this case.
+That exception is **not** a `SQLException`. The methods Octavius does implement wrap their failures in [`SQLExceptionWrapper`](exceptions.md#sqlexceptionwrapper), because pools need to read SQLSTATE off something, and Spring's script runner carries on past a failed statement only when it is a `SQLException` — but the unsupported ones throw the raw Octavius exception, an unchecked `RuntimeException`. A `catch (SQLException e)` inherited from legacy JDBC code will not catch it, and the failure sails past the handler that was written for exactly this case.
 
 A further handful of methods neither work nor throw. They [answer quietly](#what-answers-quietly-instead-of-throwing), which is the half worth reading twice.
 
@@ -51,7 +51,7 @@ There's no mutable cursor to walk with `.next()`. Octavius hydrates results stra
 The accessories go with the cursor: `setMaxRows()`, `setFetchSize()`, `setQueryTimeout()`, and generated-key retrieval (`RETURN_GENERATED_KEYS`, `getGeneratedKeys()`) all throw. The [migration map](#migration-map) below says what replaces each.
 
 ### 3. JDBC Batching
-`addBatch()` / `executeBatch()` aren't implemented in their standard JDBC shape — both throw. Octavius favors PostgreSQL-native bulk techniques instead: [`UNNEST`-based inserts](bulk-writes.md), which [outperform classic batching by roughly 3× in the benchmarks](performance.md), and the [`COPY` protocol](copy.md) for genuinely large loads. The array form is the broader of the two — it covers `UPDATE` and `DELETE`, takes `RETURNING` and `ON CONFLICT`, and needs no change to the shape of your data.
+`addBatch()` / `executeBatch()` aren't implemented in their standard JDBC shape — both throw. Octavius favors PostgreSQL-native bulk techniques instead: [`UNNEST`-based inserts](bulk-writes.md), which [match pgjdbc's fastest batching and run 3.6× faster than plain JDBC batching](performance.md#writing), and the [`COPY` protocol](copy.md) for genuinely large loads. The array form is the broader of the two — it covers `UPDATE` and `DELETE`, takes `RETURNING` and `ON CONFLICT`, and needs no change to the shape of your data.
 
 ### 4. Legacy LOBs (BLOB, CLOB)
 `createBlob()` / `createClob()` don't exist here. Binary and text data map directly to plain Kotlin `ByteArray` and `String`, backed by PostgreSQL's `bytea` and `text` through the type catalog. For payloads past what a single `bytea` should carry, PostgreSQL's own large objects are exposed as [a first-class API](large-objects.md) on the session — no unwrapping to a vendor interface.
@@ -59,7 +59,7 @@ The accessories go with the cursor: `setMaxRows()`, `setFetchSize()`, `setQueryT
 ### 5. DatabaseMetaData
 The heavyweight JDBC metadata API is skipped entirely. If you need metadata, query `pg_catalog` directly through `OctaviusSession`.
 
-This is the omission with the longest shadow: Hibernate, Spring Data JDBC and JPA, Flyway and Liquibase all identify the database through `DatabaseMetaData` before they do anything else, so none of them run on Octavius. Where one of them is non-negotiable — schema migrations at startup, usually — the practical answer is a second `DataSource` on `pgjdbc` dedicated to that tool, with Octavius left to the application.
+This is the omission with the longest shadow: Hibernate, Spring Data JDBC and JPA, Flyway and Liquibase all identify the database through `DatabaseMetaData` before they do anything else, so none of them run on Octavius. Schema migrations at startup, the usual reason to want one of them, are what [`migrations`](../migrations/README.md) does on the driver itself. Where one of those tools is non-negotiable all the same, the practical answer is a second `DataSource` on `pgjdbc` dedicated to it, with Octavius left to the application — under Spring Boot marked `@Primary`, the one [the auto-configuration](spring-integration.md#auto-configuration) builds on.
 
 ### 6. The vendor extension points
 `createArrayOf()`, `createStruct()`, `createSQLXML()`, `getTypeMap()` / `setTypeMap()` — the seams JDBC left for a driver to bolt its own types onto. Octavius doesn't need them: pass a Kotlin `List` or a data class and [the registry](type-system.md) encodes it, having read the OIDs out of *your* catalog at connect time. `xml` decodes as a `String`, so there is no `SQLXML` to construct either.
@@ -101,23 +101,23 @@ Running the other way, one method throws where the spec says it shouldn't: `abor
 
 Coming from `pgjdbc`, this is where each habit lands:
 
-| Plain JDBC / `pgjdbc`                           | Octavius                                                                                                                      |
-|:------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------|
-| `prepareStatement(sql)` + `setString(1, …)`     | `createNativeQuery` with `$1`, or `createNamedQuery` with `@name`                                                             |
-| `prepareThreshold`, statement caching           | Nothing — [every execution is parsed afresh](#nothing-is-prepared-server-side)                                                |
-| `executeQuery()` + `while (rs.next())`          | `fetchRows()`, `fetchObjects<T>()`, `fetchField<T>()`                                                                         |
-| `setFetchSize(n)` + a cursor loop               | [`forEach*`](queries.md#streaming-large-results)                                                                              |
-| `setMaxRows(n)`                                 | `LIMIT`                                                                                                                       |
-| `RETURN_GENERATED_KEYS` + `getGeneratedKeys()`  | `RETURNING id`, read with `fetchFieldStrict<Long>()`                                                                          |
-| `setQueryTimeout(s)`                            | `statement_timeout` as a [startup parameter](initialization.md#startup-parameters); `session.cancelQuery()` for one in flight |
-| `addBatch()` / `executeBatch()`                 | [`UNNEST` inserts](bulk-writes.md), or [`COPY`](copy.md)                                                                      |
-| `prepareCall("{call proc(?)}")`                 | [`CALL proc($1)`](functions-procedures.md) as an ordinary statement                                                           |
-| `conn.unwrap(PGConnection).getLargeObjectAPI()` | `session.largeObjects` — [Large Objects](large-objects.md)                                                                    |
-| `conn.unwrap(PGConnection).getCopyAPI()`        | `session.copy` — [COPY](copy.md)                                                                                              |
-| `createArrayOf(…)` / `createStruct(…)`          | Pass the Kotlin `List` or data class; [the registry](type-system.md) encodes it                                               |
-| `conn.getMetaData()`                            | Query `pg_catalog` through the session                                                                                        |
-| `conn.setSchema(…)` / `conn.getSchema()`        | `search_path` as a [startup parameter](initialization.md#startup-parameters); `session.searchPath` reads it back              |
-| `conn.setCatalog(…)` / `conn.getCatalog()`      | `SELECT current_database()` — the database a connection is on cannot change                                                   |
+| Plain JDBC / `pgjdbc`                           | Octavius                                                                                                                                                                                                                    |
+|:------------------------------------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `prepareStatement(sql)` + `setString(1, …)`     | `createNativeQuery` with `$1`, or `createNamedQuery` with `@name`                                                                                                                                                           |
+| `prepareThreshold`, statement caching           | Nothing — [every execution is parsed afresh](#nothing-is-prepared-server-side)                                                                                                                                              |
+| `executeQuery()` + `while (rs.next())`          | `fetchRows()`, `fetchObjects<T>()`, `fetchField<T>()`                                                                                                                                                                       |
+| `setFetchSize(n)` + a cursor loop               | [`forEach*`](queries.md#streaming-large-results)                                                                                                                                                                            |
+| `setMaxRows(n)`                                 | `LIMIT`                                                                                                                                                                                                                     |
+| `RETURN_GENERATED_KEYS` + `getGeneratedKeys()`  | `RETURNING id`, read with `fetchFieldStrict<Long>()`                                                                                                                                                                        |
+| `setQueryTimeout(s)`                            | `statementTimeout` on [`transaction.required`](transactions.md#terms-for-one-transaction), or `statement_timeout` as a [startup parameter](initialization.md#startup-parameters); `session.cancelQuery()` for one in flight |
+| `addBatch()` / `executeBatch()`                 | [`UNNEST` inserts](bulk-writes.md), or [`COPY`](copy.md)                                                                                                                                                                    |
+| `prepareCall("{call proc(?)}")`                 | [`CALL proc($1)`](functions-procedures.md) as an ordinary statement                                                                                                                                                         |
+| `conn.unwrap(PGConnection).getLargeObjectAPI()` | `session.largeObjects` — [Large Objects](large-objects.md)                                                                                                                                                                  |
+| `conn.unwrap(PGConnection).getCopyAPI()`        | `session.copy` — [COPY](copy.md)                                                                                                                                                                                            |
+| `createArrayOf(…)` / `createStruct(…)`          | Pass the Kotlin `List` or data class; [the registry](type-system.md) encodes it                                                                                                                                             |
+| `conn.getMetaData()`                            | Query `pg_catalog` through the session                                                                                                                                                                                      |
+| `conn.setSchema(…)` / `conn.getSchema()`        | `search_path` as a [startup parameter](initialization.md#startup-parameters); `session.searchPath` reads it back                                                                                                            |
+| `conn.setCatalog(…)` / `conn.getCatalog()`      | `SELECT current_database()` — the database a connection is on cannot change                                                                                                                                                 |
 
 Note which way those last rows point. `pgjdbc` hands you a vendor interface by *unwrapping* the connection; Octavius hands you a session by *wrapping* it. `connection.getOctaviusSession()` on a pooled `Connection` — or `dataSource.getOctaviusSession()` on the pool itself — builds the session around the connection you already hold, which is why `close()` still returns that connection to the pool. Getting down to the protocol underneath is the session's own business, done once, internally.
 
@@ -129,16 +129,16 @@ One row in that map has no counterpart at all, and it is worth a paragraph of it
 
 What you give up is plan reuse. Parsing and planning happen on every execution, which is real work for a trivial statement in a tight loop — and where that loop is the problem, fewer round trips through [`UNNEST`](bulk-writes.md) or [`COPY`](copy.md) buy more than a cached plan would.
 
-How much work is [measured rather than argued](performance.md#what-not-preparing-costs): **16.3 µs a statement**, taken with pgjdbc against itself, its own server-side prepare switched on and then off, on a primary-key lookup chosen so the figure would come out as large as it can. Octavius lands on pgjdbc's unprepared figure, so that gap is the feature and nothing else about the driver.
+How much work is [measured rather than argued](performance.md#what-not-preparing-costs): **19.6 µs a statement**, taken with pgjdbc against itself, its own server-side prepare switched on and then off, on a primary-key lookup chosen so the figure would come out as large as it can. Octavius lands on pgjdbc's unprepared figure, inside its interval, so the 19 µs it is behind the prepared one are the feature.
 
 What a cache brings with it is the other half of the trade:
 
-* **The plan stops following the parameter.** PostgreSQL plans the unnamed statement at `Bind`, with the values in hand, so every execution is planned for its own arguments. A statement prepared on the server gets that for its first five executions; from the sixth, PostgreSQL compares the generic plan's *estimated* cost against the average of those five and keeps whichever looks cheaper, for every value after that. On a column where 99% of rows shared one value, [that estimate came out 254× low](performance.md#what-not-preparing-costs) and the switch happened. What it costs from there depends on the table and on which value you are unlucky with; nothing measures the plan it settled on and reconsiders.
-* **A named statement can go missing.** It belongs to one backend, and anything that clears that backend's session state takes it along: PgBouncer in transaction-pooling mode, a `DISCARD ALL`, a failover. The client is then the one that has to recognise `26000`, prepare it again and re-run the statement — which means being right about when re-running is safe.
+* **The plan stops following the parameter.** PostgreSQL plans the unnamed statement at `Bind`, with the values in hand, so every execution is planned for its own arguments. A statement prepared on the server gets that for its first five executions; from the sixth, PostgreSQL compares the generic plan's *estimated* cost against the average of those five and keeps whichever looks cheaper, for every value after that. On a 100 000-row table where one value filled 99% of a column, the generic plan counted on 526 rows for any value, against the common one's 99 000, and the switch happened. What it costs from there depends on the table and on which value you are unlucky with; nothing measures the plan it settled on and reconsiders.
+* **A named statement can go missing.** It belongs to one backend, and anything that clears that backend's session state takes it along: a `DISCARD ALL`, a failover, a pooler that hands the client another backend without carrying its statements over. The client is then the one that has to recognise `26000`, prepare it again and re-run the statement — which means being right about when re-running is safe.
 * **No stale cached plans.** `cached plan must not change result type`, the error that follows a migration on a long-lived pooled connection, has no cache to come from.
 * **Nothing to deallocate.** A connection returned to the pool carries no statements forward, and there is no leak to chase when a pool is large and the query set is larger.
 
-None of which makes the absence something to prefer. It is one side of a trade: 16 µs a statement, against a plan fitted to its arguments and a good deal of machinery kept out of the driver. Where plan reuse is worth more than that on your workload, pgjdbc's model is the one that has it.
+None of which makes the absence something to prefer. It is one side of a trade: ~20 µs a statement, against a plan fitted to its arguments and a good deal of machinery kept out of the driver. Where plan reuse is worth more than that on your workload, pgjdbc's model is the one that has it.
 
 ## Summary
 

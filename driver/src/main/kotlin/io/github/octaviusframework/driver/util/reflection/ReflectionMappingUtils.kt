@@ -35,23 +35,27 @@ fun <T : Any> instantiateDataObject(
     metadata: DataObjectClassMetadata<T>,
     resolveValue: (ConstructorParamMetadata<T>) -> Any?
 ): T {
-    val constructorArgs = mutableMapOf<KParameter, Any?>()
+    val properties = metadata.constructorProperties
+    // In constructor order, MissingToken standing for a parameter its declared default is to cover.
+    val args = arrayOfNulls<Any?>(properties.size)
+    var defaultsNeeded = false
 
-    for (meta in metadata.constructorProperties) {
+    for (i in properties.indices) {
+        val meta = properties[i]
         val param = meta.parameter
 
         when (val result = resolveValue(meta)) {
             // Nothing in the result set under this name: the default is what covers it.
             MissingToken -> {
-                if (!param.isOptional) {
-                    if (!meta.type.isMarkedNullable) {
-                        throw MappingException(
-                            MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING,
-                            "Missing non-nullable attribute '${meta.keyName}' for $kClass",
-                            path = mutableListOf(meta.keyName)
-                        )
-                    }
-                    constructorArgs[param] = null
+                if (param.isOptional) {
+                    args[i] = MissingToken
+                    defaultsNeeded = true
+                } else if (!meta.type.isMarkedNullable) {
+                    throw MappingException(
+                        MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING,
+                        "Missing non-nullable attribute '${meta.keyName}' for $kClass",
+                        path = mutableListOf(meta.keyName)
+                    )
                 }
             }
             // Present and NULL: a value
@@ -63,13 +67,19 @@ fun <T : Any> instantiateDataObject(
                         path = mutableListOf(meta.keyName)
                     )
                 }
-                constructorArgs[param] = null
             }
-            else -> constructorArgs[param] = result
+            else -> args[i] = result
         }
     }
 
-    return metadata.constructor.callBy(constructorArgs)
+    if (!defaultsNeeded) return metadata.constructor.call(*args)
+
+    // Only callBy can leave a parameter out for its default to fill, and it takes the arguments by parameter.
+    val byParameter = HashMap<KParameter, Any?>(properties.size * 2)
+    for (i in properties.indices) {
+        if (args[i] !== MissingToken) byParameter[properties[i].parameter] = args[i]
+    }
+    return metadata.constructor.callBy(byParameter)
 }
 
 /**

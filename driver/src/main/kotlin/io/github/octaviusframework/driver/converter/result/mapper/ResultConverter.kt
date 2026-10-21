@@ -17,8 +17,11 @@ import kotlin.reflect.KType
  * Lookup is keyed on [supportedSourceClass] — what the codec produced rather than what the caller asked
  * for, so a `PgComposite`, a `PgArray`, a `Row`, a scalar. Every built-in names one of those, and a
  * converter written for a particular column knows as much about it, so naming the class costs nothing
- * and is what keeps the converter from being asked about every other value in the database. Within one
- * class the most recent registration is consulted first, so a later converter wins over an earlier one.
+ * and is what keeps the converter from being asked about every other value in the database. A sealed class
+ * names every class below it, since what a codec produces is always one of those: a converter under
+ * `PgInterval` is offered `PgInterval.Finite` and both infinities. Within one class the most recent
+ * registration is consulted first, so a later converter wins over an earlier one - one under a sealed class
+ * included, against one under a class below it.
  *
  * `Any::class` is the slot for a converter that genuinely cannot say — one keying off the PostgreSQL
  * type rather than the decoded class — and it is a fallback rather than an override: that group is
@@ -43,7 +46,8 @@ import kotlin.reflect.KType
  */
 interface ResultConverter<S : Any, T : Any> {
     /**
-     * The decoded class this converter is indexed under. Use `Any::class` to be offered every value.
+     * The decoded class this converter is indexed under, and where it is sealed every class below it. Use
+     * `Any::class` to be offered every value.
      */
     val supportedSourceClass: KClass<S>
 

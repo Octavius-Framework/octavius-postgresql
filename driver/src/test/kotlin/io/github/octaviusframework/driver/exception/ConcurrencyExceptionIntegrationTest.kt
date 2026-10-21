@@ -26,7 +26,6 @@ class ConcurrencyExceptionIntegrationTest : AbstractIntegrationTest() {
             }
             logger.error(exception) { "" }
             assertEquals("57014", exception.sqlState)
-            assertEquals(ExecutionAbortedExceptionReason.QUERY_CANCELED, exception.reason)
         }
     }
 

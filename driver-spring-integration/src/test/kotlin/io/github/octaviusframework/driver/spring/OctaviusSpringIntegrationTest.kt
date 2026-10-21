@@ -10,18 +10,20 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertInstanceOf
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Lazy
 import org.springframework.transaction.annotation.EnableTransactionManagement
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.annotation.Propagation
 
-@SpringBootTest(classes = [TestApplication::class, OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class], properties = [
-    "spring.datasource.url=${TestDatabase.URL}",
+@ImportAutoConfiguration(OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class)
+@SpringBootTest(classes = [TestApplication::class], properties = [
+    TEST_DATASOURCE_URL,
     "spring.datasource.username=${TestDatabase.USER}",
     "spring.datasource.password=${TestDatabase.PASSWORD}",
     "spring.datasource.driver-class-name=io.github.octaviusframework.driver.jdbc.OctaviusDriver"
@@ -125,7 +127,7 @@ class OctaviusSpringIntegrationTest {
     }
 }
 
-@TestConfiguration
+@Configuration
 @EnableTransactionManagement
 open class TestApplication {
     

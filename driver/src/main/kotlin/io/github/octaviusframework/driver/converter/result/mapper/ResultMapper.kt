@@ -5,6 +5,7 @@ import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.registry.TypeCatalog
 import io.github.octaviusframework.driver.registry.TypeLookup
+import io.github.octaviusframework.driver.util.reflection.sealedFamily
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
@@ -57,6 +58,9 @@ internal class DefaultDeserializationContext(
     private val localConverters: List<ResultConverter<*, *>>?,
     override val types: TypeLookup
 ) : DeserializationContext {
+    /** The classes each of [localConverters] is offered values of, as the catalog indexes its own. */
+    private val localSourceClasses = localConverters?.map { it.supportedSourceClass.sealedFamily() }
+
     override fun <T> convert(source: Any?, expectedType: KType, sourceType: PgType, pathSegment: String?): T {
         try {
         if (source == null) {
@@ -113,22 +117,23 @@ internal class DefaultDeserializationContext(
     }
 
     /**
-     * The query's own converters first, then the catalog's, and within each the class the codec produced
-     * before `Any::class` - so a converter registered on the query displaces one the session registered for
-     * the same class, and a catch-all registered on the query displaces both.
+     * The query's own converters first, then the catalog's, and within each the class the codec produced -
+     * or a sealed class above it - before `Any::class`, so a converter registered on the query displaces one
+     * the session registered for the same class, and a catch-all registered on the query displaces both.
      */
     @Suppress("UNCHECKED_CAST")
     override fun findConverter(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType): ResultConverter<Any, *>? {
         val local = localConverters
-        if (local != null) {
+        val localClasses = localSourceClasses
+        if (local != null && localClasses != null) {
             val anyClass: KClass<*> = Any::class
             val lastIndex = local.size - 1
             for (pass in 0..1) {
-                val wanted = if (pass == 0) sourceClass else anyClass
                 // Registration order, so the most recent is asked first.
                 for (i in lastIndex downTo 0) {
                     val converter = local[i]
-                    if (converter.supportedSourceClass != wanted) continue
+                    val offered = if (pass == 0) sourceClass in localClasses[i] else converter.supportedSourceClass == anyClass
+                    if (!offered) continue
                     converter as ResultConverter<Any, *>
                     if (converter.canConvert(sourceClass, expectedType, sourceType, this)) return converter
                 }

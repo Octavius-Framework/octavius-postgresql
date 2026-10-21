@@ -35,7 +35,14 @@ data class ConstructorParamMetadata<T : Any>(
 data class DataObjectClassMetadata<T : Any>(
     val constructor: KFunction<T>,
     val constructorProperties: List<ConstructorParamMetadata<T>>
-)
+) {
+    /**
+     * [constructorProperties] by [keyName][ConstructorParamMetadata.keyName], built once with the rest of the
+     * metadata rather than per object written - writing a composite looks every attribute up by its name.
+     */
+    internal val propertiesByKeyName: Map<String, ConstructorParamMetadata<T>> =
+        constructorProperties.associateBy { it.keyName }
+}
 
 /**
  * A global cache for Kotlin reflection metadata of data classes.

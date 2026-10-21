@@ -12,6 +12,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.*
 import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
@@ -49,8 +50,9 @@ internal object ScramSha256Authenticator {
      *
      * @return true when the exchange was bound to the TLS channel, which is what lets the caller
      *   enforce [ChannelBinding.REQUIRE] over the whole login rather than over this step alone.
-     * @throws InitializationException if no usable mechanism is on offer, the server violates the
-     *   protocol, or its final signature does not verify.
+     * @throws InitializationException if no usable mechanism is on offer, the server's certificate
+     *   is one no binding can be computed for, the server violates the protocol, or its final
+     *   signature does not verify.
      */
     fun authenticate(
         stream: PgStream,
@@ -62,7 +64,7 @@ internal object ScramSha256Authenticator {
         // back non-null only on an encrypted connection, and only when the caller allows binding.
         val certificate = if (channelBinding == ChannelBinding.DISABLE) null else stream.peerCertificate
         val bindingData = if (certificate != null && mechanisms.contains(MECHANISM_PLUS)) {
-            TlsServerEndPoint.hash(certificate)
+            TlsServerEndPoint.hash(certificate) ?: throw unbindable(certificate)
         } else {
             null
         }
@@ -166,6 +168,23 @@ internal object ScramSha256Authenticator {
     }
 
     /**
+     * Refuses a server certificate whose signature was made without a digest - Ed25519, Ed448 -
+     * under [ChannelBinding.PREFER] as much as under [ChannelBinding.REQUIRE].
+     *
+     * Neither end can hash such a certificate, so a bound exchange cannot succeed, and PREFER has no
+     * unbound one to fall back to. The server offers binding on every TLS connection, so the client
+     * could only declare that it does not bind (`n`), which the server accepts from anyone - and an
+     * intermediary presenting a certificate like this of its own would have the login relayed to
+     * the real server unbound.
+     */
+    private fun unbindable(certificate: X509Certificate) = InitializationException(
+        InitializationExceptionReason.UNSUPPORTED_MECHANISM,
+        details = "The server certificate is signed with ${certificate.sigAlgName}, a signature made without a " +
+            "digest, so channel binding has nothing to hash it with, on either end. Set channelBinding=disable " +
+            "to log in unbound, or give the server a certificate signed with RSA or ECDSA."
+    )
+
+    /**
      * Reads the next message, insisting it be a [T].
      *
      * An `ErrorResponse` is the server's ordinary way of saying no at any point in the exchange,
@@ -173,7 +192,7 @@ internal object ScramSha256Authenticator {
      */
     private inline fun <reified T : AuthenticationMessage> expect(stream: PgStream): T {
         val message = stream.receiveMessage()
-        if (message is ErrorOrNoticeMessage) throw ExceptionTranslator.translate(message)
+        if (message is ErrorOrNoticeMessage) throw ExceptionTranslator.translateRefusal(message)
         return message as? T ?: throw InitializationException(
             InitializationExceptionReason.PROTOCOL_VIOLATION,
             details = "Expected ${T::class.simpleName}, got: $message"

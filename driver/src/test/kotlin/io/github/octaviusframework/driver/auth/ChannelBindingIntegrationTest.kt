@@ -25,6 +25,12 @@ class ChannelBindingIntegrationTest {
     // The CI job runs its TLS server on the default port; a throwaway local instance rarely can.
     private val url = "jdbc:octavius://localhost:5433/octavius_test"
 
+    // The same certificate signed with RSASSA-PSS over SHA-384, on a server of its own.
+    private val rsaPssUrl = "jdbc:octavius://localhost:5436/octavius_test"
+
+    // A certificate signed with Ed25519, a signature made without a digest, on a third server.
+    private val ed25519Url = "jdbc:octavius://localhost:5437/octavius_test"
+
     private fun properties(block: OctaviusProperties.() -> Unit) = OctaviusProperties().apply {
         user = "postgres"
         password = "1234"
@@ -59,6 +65,46 @@ class ChannelBindingIntegrationTest {
         } finally {
             session.close()
         }
+    }
+
+    @Test
+    fun `binds to a certificate signed with RSASSA-PSS`() {
+        // The name RSASSA-PSS carries no digest. The server reads SHA-384 out of the signature's
+        // parameters and hashes its certificate with it, so the login goes through only where the
+        // driver did the same.
+        getOctaviusSession(rsaPssUrl, properties {
+            sslMode = SslMode.REQUIRE
+            channelBinding = ChannelBinding.REQUIRE
+        }).close()
+    }
+
+    @Test
+    fun `refuses a certificate signed without a digest, under prefer as under require`() {
+        // Neither end can hash this certificate, and PREFER does not carry on unbound past it: what
+        // it would carry on with is a login an intermediary could relay. Refused before the SCRAM
+        // exchange begins.
+        for (binding in listOf(ChannelBinding.PREFER, ChannelBinding.REQUIRE)) {
+            val exception = assertThrows<InitializationException> {
+                getOctaviusSession(ed25519Url, properties {
+                    sslMode = SslMode.REQUIRE
+                    channelBinding = binding
+                })
+            }
+
+            assertEquals(InitializationExceptionReason.UNSUPPORTED_MECHANISM, exception.reason, "Under $binding")
+            assertTrue(
+                exception.details!!.contains("Ed25519") && exception.details!!.contains("channelBinding=disable"),
+                "The refusal should name the signature and the way out, under $binding: ${exception.details}"
+            )
+        }
+    }
+
+    @Test
+    fun `logs in unbound to a certificate signed without a digest when binding is disabled`() {
+        getOctaviusSession(ed25519Url, properties {
+            sslMode = SslMode.REQUIRE
+            channelBinding = ChannelBinding.DISABLE
+        }).close()
     }
 
     @Test

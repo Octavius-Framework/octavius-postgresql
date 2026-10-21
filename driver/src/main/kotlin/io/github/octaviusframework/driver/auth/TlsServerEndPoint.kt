@@ -2,9 +2,12 @@ package io.github.octaviusframework.driver.auth
 
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
+import java.io.IOException
+import java.security.AlgorithmParameters
 import java.security.GeneralSecurityException
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
+import java.security.spec.PSSParameterSpec
 
 /**
  * Computes the `tls-server-end-point` channel binding data of RFC 5929 - the hash of the server's
@@ -14,15 +17,19 @@ import java.security.cert.X509Certificate
  */
 internal object TlsServerEndPoint {
 
+    /** `id-RSASSA-PSS`, the signature whose digest is in its parameters rather than in its name. */
+    private const val RSASSA_PSS = "1.2.840.113549.1.1.10"
+
     /**
-     * Hashes the DER encoding of [certificate] with the digest named by the certificate's own
-     * signature algorithm, which is the rule the server follows to arrive at the same bytes.
+     * Hashes the DER encoding of [certificate] with the digest [digestFor] picks - the one the
+     * server hashes its own certificate with, so that both ends arrive at the same bytes.
      *
+     * @return The hash, or null when the signature names no digest to hash with.
      * @throws InitializationException if the certificate cannot be encoded or the digest is
      *   unavailable in this JVM - either way there is nothing to bind to.
      */
-    fun hash(certificate: X509Certificate): ByteArray {
-        val algorithm = digestFor(certificate.sigAlgName)
+    fun hash(certificate: X509Certificate): ByteArray? {
+        val algorithm = digestFor(certificate) ?: return null
         return try {
             MessageDigest.getInstance(algorithm).digest(certificate.encoded)
         } catch (e: GeneralSecurityException) {
@@ -36,17 +43,58 @@ internal object TlsServerEndPoint {
     }
 
     /**
-     * SHA-256 covers every case the rule leaves open: RFC 5929 demands it in place of a broken MD5
-     * or SHA-1 signature, and it is the only sane reading of a signature algorithm whose name
-     * carries no digest at all.
+     * The digest PostgreSQL hashes its certificate with, or null where it has none.
+     *
+     * The server asks OpenSSL's `X509_get_signature_info` which digest the certificate was signed
+     * with and uses that one, except that MD5 and SHA-1 become SHA-256: RFC 5929 will not bind to a
+     * broken digest. The JDK names a signature after its digest - `SHA384withECDSA`,
+     * `SHA3-256withRSA` - so the name says it, except for RSASSA-PSS. That name is the same whatever
+     * the digest, which sits in the parameters beside it, and OpenSSL reads it from there.
+     *
+     * A name with no digest in it - Ed25519, Ed448 - is a signature made without one, and RFC 5929
+     * leaves the binding undefined there. The server has nothing to hash with either, and fails a
+     * bound login with `could not find digest for NID UNDEF`.
      */
-    private fun digestFor(signatureAlgorithm: String): String {
-        val name = signatureAlgorithm.uppercase().replace("-", "")
-        return when {
-            name.startsWith("SHA512") -> "SHA-512"
-            name.startsWith("SHA384") -> "SHA-384"
-            name.startsWith("SHA224") -> "SHA-224"
-            else -> "SHA-256"
+    private fun digestFor(certificate: X509Certificate): String? {
+        val signedWith = if (certificate.sigAlgOID == RSASSA_PSS) {
+            pssDigest(certificate)
+        } else {
+            val name = certificate.sigAlgName
+            val with = name.indexOf("with", ignoreCase = true)
+            if (with > 0) name.substring(0, with) else null
+        }
+        return when (val digest = signedWith?.let(::standardName)) {
+            "MD5", "SHA-1" -> "SHA-256"
+            else -> digest
+        }
+    }
+
+    /**
+     * The digest an RSASSA-PSS signature was made with, from its parameters: SHA-1 where they leave
+     * it out, as RFC 4055 has it, and null where there are none to read.
+     */
+    private fun pssDigest(certificate: X509Certificate): String? {
+        val parameters = certificate.sigAlgParams ?: return null
+        return try {
+            val decoded = AlgorithmParameters.getInstance("RSASSA-PSS").apply { init(parameters) }
+            decoded.getParameterSpec(PSSParameterSpec::class.java).digestAlgorithm
+        } catch (_: GeneralSecurityException) {
+            null
+        } catch (_: IOException) {
+            null
+        }
+    }
+
+    /**
+     * `SHA384` as `SHA-384`, so that a digest goes by one name whether it came out of a signature's
+     * name or its parameters. A SHA-3 name has its hyphen already, after the 3.
+     */
+    private fun standardName(digest: String): String {
+        val name = digest.uppercase()
+        return if (name.startsWith("SHA") && name.getOrNull(3)?.isDigit() == true && !name.startsWith("SHA3-")) {
+            "SHA-" + name.substring(3)
+        } else {
+            name
         }
     }
 }

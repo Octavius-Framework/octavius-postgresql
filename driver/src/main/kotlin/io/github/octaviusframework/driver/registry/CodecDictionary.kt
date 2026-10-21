@@ -6,7 +6,11 @@ import io.github.octaviusframework.driver.codec.dynamic.DynamicDomainCodec
 import io.github.octaviusframework.driver.codec.dynamic.DynamicEnumCodec
 import io.github.octaviusframework.driver.codec.standard.*
 import io.github.octaviusframework.driver.container.*
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.driver.type.UNRESOLVED_OID
+import io.github.octaviusframework.driver.util.reflection.sealedFamily
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlin.reflect.KClass
 
@@ -41,13 +45,7 @@ class CodecDictionary private constructor(
             fun register(codec: TypeCodec<*>) {
                 registeredCodecsList.add(codec)
                 if (codec.isDefaultForKotlinType) {
-                    classMap[codec.kotlinClass] = codec
-
-                    if (codec.kotlinClass.isSealed) {
-                        codec.kotlinClass.sealedSubclasses.forEach { subclass ->
-                            classMap[subclass] = codec
-                        }
-                    }
+                    for (kClass in codec.kotlinClass.sealedFamily()) classMap[kClass] = codec
                 }
                 if (codec.oid != null) {
                     oidMap[codec.oid!!] = codec
@@ -115,8 +113,15 @@ class CodecDictionary private constructor(
      * @return a new instance of [CodecDictionary] containing the newly registered codec.
      * @throws io.github.octaviusframework.driver.exception.TypeException `TYPE_NOT_FOUND` where [codec] names a
      *   schema-qualified type the catalog does not describe.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` where [codec] declares OID `0`.
      */
     internal fun withRegisteredCodec(codec: TypeCodec<*>, dictionary: TypeDictionary): CodecDictionary {
+        if (codec.oid == UNRESOLVED_OID) throw InvalidOperationException(
+            InvalidOperationExceptionReason.INVALID_ARGUMENT,
+            details = "Codec ${codec::class.simpleName ?: codec::class} declares OID 0, which PostgreSQL gives to " +
+                "no type. Leave oid null to bind the codec by its type name."
+        )
+
         val result = build(this.registeredCodecs + codec, dictionary)
 
         // A schema-qualified type the catalog does not describe is a mistake in the registration, and this is the
@@ -153,12 +158,7 @@ class CodecDictionary private constructor(
 
         for ((index, codec) in registered.withIndex()) {
             if (codec.isDefaultForKotlinType) {
-                newClassMap[codec.kotlinClass] = codec
-                if (codec.kotlinClass.isSealed) {
-                    codec.kotlinClass.sealedSubclasses.forEach { subclass ->
-                        newClassMap[subclass] = codec
-                    }
-                }
+                for (kClass in codec.kotlinClass.sealedFamily()) newClassMap[kClass] = codec
             }
 
             val declaredOid = codec.oid

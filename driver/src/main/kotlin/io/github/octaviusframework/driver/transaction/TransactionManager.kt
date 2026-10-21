@@ -174,7 +174,13 @@ class TransactionManager internal constructor(
                 )
             }
             statementTimeout?.let { add("SET LOCAL statement_timeout = ${it.inWholeMilliseconds}") }
-            transactionTimeout?.let { add("SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}") }
+            // The server starts a transaction's clock with whatever transaction_timeout is in force - its own
+            // default, the database's, the role's or the session's - and a later value leaves a running clock as
+            // it is, SHOW reporting the new one all the same. 0 stops it, and the value starts it again.
+            transactionTimeout?.let {
+                add("SET LOCAL transaction_timeout = 0")
+                add("SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}")
+            }
         }
 
         connection.deferTransactionTerms(statements.joinToString("; "))

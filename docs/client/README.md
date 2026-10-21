@@ -98,7 +98,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [What It Does Not Scan](scanner.md#what-it-does-not-scan) — Converters, and why their order is not a scanner's to decide
 
 ### Performance
-- [What the Client Costs](performance.md#what-the-client-costs) — The ladder from driver to builder, and where its 702 bytes go
+- [What the Client Costs](performance.md#what-the-client-costs) — The ladder from driver to builder, and where its 649 bytes go
 - [Against Other Stacks](performance.md#against-other-stacks) — Spring and JDBI, and why only one row compares libraries
 - [A Composite or a `dynamic_dto`](performance.md#a-composite-or-a-dynamic_dto) — Written, read and filtered on, flat and nested
 

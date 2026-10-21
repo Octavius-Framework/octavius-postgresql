@@ -56,7 +56,7 @@ internal class OctaviusSessionImpl(
     // manager holds the stream itself, and a listener loop reads messages off it directly - so the
     // check belongs at the point they are handed out. The rest are gated for one rule rather than a
     // rule with exceptions.
-    override val typeManager: TypeManager = TypeManager(octaviusConnection.catalogHolder) { octaviusConnection.getSearchPath() }
+    override val typeManager: TypeManager = TypeManager(octaviusConnection.catalogHolder) { octaviusConnection.getTypeLookupOrder() }
         get() { checkOpen(); return field }
 
     override val notifications: NotificationManager = NotificationManager(this)
@@ -180,7 +180,11 @@ internal class OctaviusSessionImpl(
 
     // Answers rather than raises on a session already given up, the way JDBC has `isValid` answer
     // for a closed connection - a health check is the one question a dead session can still settle.
-    override fun isValid(timeout: Int): Boolean = !sessionClosed && rawConnection.isValid(timeout)
+    override fun isValid(timeout: Int): Boolean = !sessionClosed && try {
+        rawConnection.isValid(timeout)
+    } catch (e: SQLExceptionWrapper) {
+        throw e.wrappedException
+    }
 
     override fun commit() = unwrapSqlException { rawConnection.commit() }
 

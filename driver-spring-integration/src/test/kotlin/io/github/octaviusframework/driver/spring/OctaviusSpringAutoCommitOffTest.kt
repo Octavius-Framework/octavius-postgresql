@@ -6,10 +6,11 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.annotation.EnableTransactionManagement
 import org.springframework.transaction.annotation.Transactional
 
@@ -20,10 +21,11 @@ import org.springframework.transaction.annotation.Transactional
  *
  * Counted from a session of the test's own, outside the pool, so what it sees is what was committed.
  */
+@ImportAutoConfiguration(OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class)
 @SpringBootTest(
-    classes = [AutoCommitOffTestApplication::class, OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class],
+    classes = [AutoCommitOffTestApplication::class],
     properties = [
-        "spring.datasource.url=${TestDatabase.URL}",
+        TEST_DATASOURCE_URL,
         "spring.datasource.username=${TestDatabase.USER}",
         "spring.datasource.password=${TestDatabase.PASSWORD}",
         "spring.datasource.driver-class-name=io.github.octaviusframework.driver.jdbc.OctaviusDriver",
@@ -75,7 +77,7 @@ class OctaviusSpringAutoCommitOffTest {
     }
 }
 
-@TestConfiguration
+@Configuration
 @EnableTransactionManagement
 open class AutoCommitOffTestApplication {
 

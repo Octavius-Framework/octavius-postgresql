@@ -74,12 +74,18 @@ class TypeDictionary private constructor(
     /**
      * Resolves the OID of a type given its name and an optional schema.
      *
+     * A name with no schema is found on [searchPath] or not at all, as the server finds it. One the path does not
+     * reach is refused even where a single schema has it: that schema can be one this session's role may not see,
+     * or another tenant's, and which it is would depend on what else the database holds. The refusal names the
+     * schemas that do have it.
+     *
      * @param typeName the name of the type.
      * @param requestedSchema the schema where the type belongs (can be empty).
      * @param isArray whether to resolve the OID for the array type of the given type.
-     * @param searchPath the list of schemas to search if the schema is not explicitly provided.
+     * @param searchPath the schemas to search, in order, if the schema is not explicitly provided: the server's
+     *   order for type names, with the schemas it searches unlisted already in it, rather than the setting.
      * @return the resolved OID.
-     * @throws TypeException if the type cannot be found or is ambiguous.
+     * @throws TypeException if the type cannot be found, in the requested schema or on the search path.
      */
     internal fun resolveOid(
         typeName: String,
@@ -104,13 +110,16 @@ class TypeDictionary private constructor(
                     break
                 }
             }
-            // 3. If not in search_path, check for unambiguous match
+            // 3. Off the path it is not found, whoever else has it
             if (resolvedOid == UNRESOLVED_OID) {
-                if (schemasForName.size == 1) {
-                    resolvedOid = schemasForName.values.first()
-                } else {
-                    throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, typeName = typeName, details = "Ambiguous type '$typeName'. Schema must be specified.")
-                }
+                val schemas = schemasForName.keys.sorted().joinToString { "'$it'" }
+                val holders = if (schemasForName.size == 1) "schema $schemas has" else "schemas $schemas have"
+                throw TypeException(
+                    TypeExceptionReason.TYPE_NOT_FOUND,
+                    typeName = typeName,
+                    details = "Type '$typeName' is not on the search path $searchPath, but $holders it. " +
+                        "Name the schema, or put it on the search path."
+                )
             }
         }
 
@@ -156,7 +165,7 @@ class TypeDictionary private constructor(
     /**
      * The OID of one named type in one named schema, or `null` where this dictionary has no such type.
      *
-     * What [resolveOid] does without the search path, the ambiguity and the raising: a fully qualified name
+     * What [resolveOid] does without the search path and the raising: a fully qualified name
      * identifies at most one type, `pg_type` being unique on name and namespace.
      */
     internal fun findOid(typeName: String, schema: String): Int? = typesByName[typeName]?.get(schema)
@@ -196,8 +205,8 @@ class TypeDictionary private constructor(
      * none for it.
      *
      * Unlike the rest of the lookups here, a miss is an ordinary answer rather than a failure: the type load
-     * skips composites in `pg_catalog` and `information_schema`, and a relation created since the load has no
-     * row type here yet. Callers are naming something for a reader, not resolving a type they have to have.
+     * skips composites in `pg_catalog` and `information_schema` and every type in a temporary schema, and a
+     * relation created since the load has no row type here yet. Callers are naming something for a reader, not resolving a type they have to have.
      *
      * @param relationOid the OID of the relation (`pg_class.oid`).
      */

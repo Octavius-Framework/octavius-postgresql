@@ -30,7 +30,7 @@ PostgreSQL identifies every type by an **OID** (Object Identifier). Built-in OID
 
 So the driver asks. On the first physical connection to a given database within the JVM, `GlobalCatalogStore.ensureLoaded` fires `CatalogLoader`, which reads the whole catalog in a **single** query. One round trip, paid by whoever connects first; every later connection to the same database reuses the result.
 
-The loader deliberately skips noise: composites belonging to `pg_catalog` and `information_schema`, and all pseudo-types except `void`, `record` and `_record`.
+The loader deliberately skips noise: composites belonging to `pg_catalog` and `information_schema`, and all pseudo-types except `void`, `record` and `_record`. It also leaves out every temporary schema, whose types belong to one session where the catalog belongs to all of them — see [the search path](#what-is-per-session-the-search-path) for what that means for a temporary table.
 
 What comes back is classified into a sealed `PgType` hierarchy:
 
@@ -236,14 +236,42 @@ whenever it moves, so whatever moved it — this session, or any other code hold
 up here with no round trip of its own. A setter would be a second way to say it, and one that could disagree
 with the first.
 
-Resolution order for a name with no explicit schema:
+`searchPath` lists the schemas as the server reads the setting: unquoted names in lower case, quoted ones as
+written, every name cut to 63 bytes, and `$user` and `pg_temp` as they stand. A path stored as written, by
+`set_config` or a startup parameter, is read the same way, so `set_config('search_path', 'Imperium', false)`
+reads back as `[imperium]`.
+
+A type name given without a schema resolves to the type PostgreSQL would resolve it to in this session, and where
+PostgreSQL would find none, it is refused:
 
 1. An explicitly requested schema always wins (and throws if the type isn't there).
-2. Otherwise, schemas are tried in `search_path` order — first match wins.
-3. If the name doesn't appear in the search path at all but exists in exactly **one** schema, that one is used.
-4. If it exists in several schemas and none is in the search path: `TypeException` — *"Ambiguous type. Schema must be specified."*
+2. Otherwise, schemas are tried in the order PostgreSQL tries them for a type name — first match wins. That is
+   the search path with two schemas the setting does not spell out:
+   * `pg_catalog` comes first unless the path lists it. A type of yours named like a built-in one — `money`,
+     `point`, `box` — loses to the built-in, as it does in SQL; list `pg_catalog` after your schema to turn that
+     round.
+   * `$user` is the schema named after the session user, where there is one, so a path of `"$user", public` finds
+     each user's own types ahead of the shared ones.
+3. A name the path does not reach is refused with `TypeException(TYPE_NOT_FOUND)`, even where only one schema has
+   it, and the refusal names the schemas that do: *"Type 'legio_status' is not on the search path [pg_catalog,
+   public], but schema 'imperium' has it. Name the schema, or put it on the search path."*
 
-So two sessions with different search paths can resolve the same type name to different OIDs, even though they share one catalog. If you have a multi-schema database with colliding type names, pass the schema explicitly at registration time (`registerEnum<LegioStatus>(schema = "imperium")`).
+So two sessions with different search paths — or one `"$user"` path under different users — can resolve the same type name to different OIDs, even though they share one catalog. A type in a schema off the path, an extension installed into `extensions` among them, is reached by naming the schema — at registration (`registerEnum<LegioStatus>(schema = "imperium")`) or in `withPgType` — or by putting the schema on the path.
+
+Three things set the driver's answer apart from the server's:
+
+* **`SET ROLE`.** PostgreSQL does not report the current role, so after `SET ROLE` the driver still reads `$user`
+  as the session user, where the server reads it as the role. That matters only where schemas are named after
+  roles and `$user` is on the path: a type the role's schema shares with `public` resolves to `public`'s, and one
+  only the role's schema has is refused. Set the path in plain names along with the role —
+  `SET ROLE legatus; SET search_path = legatus, public` — and the driver follows it, `search_path` being
+  reported. `SET SESSION AUTHORIZATION` is reported as well, and followed.
+* **`USAGE`.** A schema on the path the current role may not use is skipped by the server, not by the driver.
+* **Temporary types are outside the catalog**, a temporary table's row type among them — even a table made `OF`
+  a permanent type has a temporary row type of its own. The server searches the session's temporary schema first,
+  or where `pg_temp` stands in the path; the driver never resolves a name to a temporary type, and a column of
+  one, such as the whole row of a temporary table, fails when the result is described, `reloadTypes()` or not.
+  Cast it to a permanent composite with the same attributes: `SELECT e::imperium.edict FROM edicts e`.
 
 ### Query-scoped overrides
 
@@ -447,7 +475,7 @@ The same extensions run the other way, for the parameter you are about to send:
 
 Going the other way, `toDurationExact()` is the one that can refuse: an interval carrying months or days has no fixed length in absolute time, so it throws `IllegalArgumentException` rather than pick a convention on your behalf. That is easier to run into than it sounds — `age(a, b)` comes back as `1 year 7 mons 15 days`, and even a plain `a - b` between two timestamps counts in days. Keep it for intervals you know are pure time, and reach for `toDurationApproximate()` or `toDateTimePeriod()` wherever calendar units can appear.
 
-If your application consistently wants, say, an approximate `Duration`, writing and registering a custom `ResultConverter` lets you intercept and convert `PgInterval` values everywhere, automatically.
+If your application consistently wants, say, an approximate `Duration`, a `ResultConverter` registered under `PgInterval::class` intercepts and converts `PgInterval` values everywhere, automatically — `Finite` and both infinities alike, a converter under a sealed class being offered [every class below it](#how-a-converter-gets-chosen).
 
 ### PgTyped
 
@@ -497,10 +525,10 @@ These translate your Kotlin objects into a shape the codec layer can serialize.
 
 ### How a converter gets chosen
 
-**Result converters** are indexed by `supportedSourceClass` — the runtime class of the *decoded* value, not the class you asked for. Lookup goes:
+**Result converters** are indexed by `supportedSourceClass` — the runtime class of the *decoded* value, not the class you asked for. A sealed class stands for every class below it, since a decoded value is always one of those: a converter registered under `PgInterval` is offered `PgInterval.Finite`, `PgInterval.Infinity` and `PgInterval.MinusInfinity`. A class below an open one is not covered, there being no list of them to read. Lookup goes:
 
-1. The query's own converters, newest first: those registered for that exact source class, then those registered under `Any::class`.
-2. Then the catalog's, registered for that exact source class, **newest first**, taking the first whose `canConvert(sourceClass, expectedType, sourceType, context)` returns `true`.
+1. The query's own converters, newest first: those registered for the source class or a sealed class above it, then those registered under `Any::class`.
+2. Then the catalog's, registered for the source class or a sealed class above it, **newest first**, taking the first whose `canConvert(sourceClass, expectedType, sourceType, context)` returns `true`. A converter under a sealed class and one under a class below it are one queue, so whichever was registered later is asked first.
 3. Then the catalog's `Any::class` converters, again newest first — a catch-all slot for converters that key off the PostgreSQL type rather than the decoded class.
 4. Then the identity fallback, then `MappingException(NO_CONVERTER_FOUND)`.
 
@@ -668,13 +696,13 @@ A codec is bound to OIDs in one of three ways, depending on what it declares:
 
 | Declared                     | Binding behavior                                                                                                                                                                 |
 |:-----------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `oid` set                    | Bound directly to that OID. No catalog lookup, works before the catalog is loaded.                                                                                               |
+| `oid` set                    | Bound directly to that OID. No catalog lookup, works before the catalog is loaded. `0` is refused with `InvalidOperationException(INVALID_ARGUMENT)`: no type has it.            |
 | `oid` null, `pgSchema` set   | The OID is resolved from the catalog at registration time; an unknown name throws `TypeException`.                                                                               |
 | `oid` null, `pgSchema` empty | Bound to **every** OID in the catalog whose type name matches, across all schemas. The OID used for outbound parameters is resolved in-flight against the session's search path. |
 
 Naming a schema the catalog does not have is refused at the registration. A reload that later leaves a registered codec bound to nothing does not raise — the database changing is not the registration's fault — but it says so at `warn`, because otherwise the column simply comes back in a different shape. The `oid` row is the one that goes stale that way: a type dropped and recreated has a new OID, and a codec pinned to the old one is never reached again.
 
-Set `isDefaultForKotlinType = true` if the codec should also be chosen when the driver only knows the Kotlin class of a parameter and not its target OID. For a sealed class, that also registers all of its sealed subclasses.
+Set `isDefaultForKotlinType = true` if the codec should also be chosen when the driver only knows the Kotlin class of a parameter and not its target OID. For a sealed class, that also covers every class below it, through sealed classes all the way down.
 
 Registered codecs are remembered and re-bound on every catalog reload, so a codec bound by type name alone can be registered before its type exists and starts working after the next `reloadTypes()`. One that names a schema as well cannot: the type has to be there when it is registered.
 
@@ -691,7 +719,7 @@ Registration is last-wins in both layers, so overriding the defaults means regis
 * **`reloadTypes()` after runtime DDL** — including `CREATE TABLE`, whose row type is a composite. Without it, new types resolve to nothing.
 * **Register before running the query, not before building it.** A query pins the catalog when a terminal runs, so a `registerCodec(...)` or a converter registration between `createNativeQuery(...)` and the `fetch*` call is picked up. What it will not do is reach a terminal already in flight, or rows a previous terminal returned.
 * **Same database, different credentials, same catalog.** The cache key is the servers and the database only.
-* **Ambiguous type names need a schema.** If the same type name exists in several schemas and none is on the search path, resolution throws instead of guessing.
+* **A type off the search path needs a schema.** A name the path does not reach is refused, naming the schemas that have it, rather than taken from whichever schema happens to define it.
 * **Empty collections need `PgTyped`.** Erasure leaves nothing in an `emptyList()` for the driver to infer an element type from — the same goes for a list of nothing but nulls.
 * **Not every PostgreSQL type has a codec.** `money`, `timetz`, `tsvector`, `tsquery`, `jsonpath` and friends throw `TypeException(MISSING_CODEC)`. Cast them in SQL or write the codec.
 * **`MappingException.path` points at the failure.** For nested composites and arrays, read the path before reading the message.

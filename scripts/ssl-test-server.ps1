@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Stands up a throwaway PostgreSQL with TLS enabled, for the SSL and channel binding tests.
+    Stands up throwaway PostgreSQL servers with TLS enabled, for the SSL and channel binding tests.
 
 .DESCRIPTION
     The TLS-gated tests need a server with `ssl = on` and a certificate to bind to, which the
@@ -8,17 +8,22 @@
     entirely inside `.ssl-test/` at the repository root, so nothing about an existing install is
     touched and `remove` really does remove all of it.
 
-    It is meant to be run for as long as the tests take and then thrown away - `remove` when you
-    are done, so there is no second server sitting in the background.
+    Beside it stand two servers that differ from it only in their certificate, one signed with
+    RSASSA-PSS and one with Ed25519. Channel binding hashes the certificate with the digest its
+    signature was made with, and a server presents one certificate, so each signature the tests
+    bind to needs a server of its own.
 
-    On Linux and macOS the same server is easier to get from Docker; the recipe CI uses is in
+    It is meant to be run for as long as the tests take and then thrown away - `remove` when you
+    are done, so there are no servers left sitting in the background.
+
+    On Linux and macOS the same servers are easier to get from Docker; the recipe CI uses is in
     `.github/workflows/tests.yml`, job `test-ssl`.
 
 .PARAMETER Action
-    start   Create the instance if needed, then start it and report how to run the tests.
-    stop    Stop the server, keeping the data directory and certificates for next time.
-    remove  Stop the server and delete `.ssl-test/` outright.
-    status  Report whether the instance exists and whether it is listening.
+    start   Create whatever is missing, then start the servers and report how to run the tests.
+    stop    Stop the servers, keeping the data directories and certificates for next time.
+    remove  Stop the servers and delete `.ssl-test/` outright.
+    status  Report whether each instance exists and whether it is listening.
 
 .EXAMPLE
     .\scripts\ssl-test-server.ps1 start
@@ -35,16 +40,38 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# SslIntegrationTest connects to this port and logs in with this password, so neither can change here alone. The
-# port is 5433 to stay clear of an ordinary install on 5432.
-$Port = 5433
+# SslIntegrationTest and ChannelBindingIntegrationTest log in with this password and connect to the ports below,
+# so none of them can change here alone.
 $Password = '1234'
 
 $root     = Split-Path -Parent $PSScriptRoot
 $base     = Join-Path $root '.ssl-test'
-$dataDir  = Join-Path $base 'data'
 $certDir  = Join-Path $base 'certs'
-$logFile  = Join-Path $base 'server.log'
+
+function New-Server {
+    param([string]$Name, [int]$Port, [string]$Cert, [string]$Key)
+
+    # The first server keeps the names it had before there were others, so an existing `.ssl-test/` stays usable.
+    $suffix = if ($Name) { "-$Name" } else { '' }
+    [pscustomobject]@{
+        Name = if ($Name) { $Name } else { 'main' }
+        Port = $Port
+        Cert = $Cert
+        Key  = $Key
+        Data = Join-Path $base "data$suffix"
+        Log  = Join-Path $base "server$suffix.log"
+        Out  = Join-Path $base "pg_ctl$suffix.out"
+        Err  = Join-Path $base "pg_ctl$suffix.err"
+    }
+}
+
+# 5433 stays clear of an ordinary install on 5432. The servers after it differ from it only in the certificate
+# they present.
+$servers = @(
+    New-Server -Port 5433 -Cert 'server.crt' -Key 'server.key'
+    New-Server -Name 'rsapss' -Port 5436 -Cert 'server-rsapss.crt' -Key 'server.key'
+    New-Server -Name 'ed25519' -Port 5437 -Cert 'server-ed25519.crt' -Key 'server-ed25519.key'
+)
 
 function Find-PostgresBin {
     $onPath = Get-Command initdb -ErrorAction SilentlyContinue
@@ -83,9 +110,11 @@ function Find-OpenSsl {
 }
 
 function Test-Listening {
+    param([int]$OnPort)
+
     try {
         $client = [System.Net.Sockets.TcpClient]::new()
-        $connect = $client.BeginConnect('localhost', $Port, $null, $null)
+        $connect = $client.BeginConnect('localhost', $OnPort, $null, $null)
         $ok = $connect.AsyncWaitHandle.WaitOne(500)
         if ($ok) { $client.EndConnect($connect) }
         $client.Close()
@@ -152,8 +181,39 @@ function New-Certificates {
     }
 }
 
+# The server certificate signed again, with RSASSA-PSS over SHA-384, for a server of its own. The name of that
+# signature is the same whatever the digest, which is in its parameters - and channel binding has to hash with it.
+# Made apart from the rest, so that an older `.ssl-test/` gains it without losing what it has.
+function New-RsaPssCertificate {
+    $openssl = Find-OpenSsl
+
+    & $openssl x509 -req -days 3650 -in (Join-Path $certDir 'server.csr') `
+        -CA (Join-Path $certDir 'ca.crt') -CAkey (Join-Path $certDir 'ca.key') -CAcreateserial `
+        -sha384 -sigopt rsa_padding_mode:pss -sigopt rsa_pss_saltlen:digest `
+        -out (Join-Path $certDir 'server-rsapss.crt') 2>$null
+
+    if (-not (Test-Path (Join-Path $certDir 'server-rsapss.crt'))) {
+        throw "Certificate generation failed - no server-rsapss.crt was produced."
+    }
+}
+
+# A server certificate signed with Ed25519, for a server of its own. That signature is made without a digest, so
+# channel binding has nothing to hash the certificate with, on either end. Self-signed, since only an Ed25519 key
+# makes an Ed25519 signature.
+function New-Ed25519Certificate {
+    $openssl = Find-OpenSsl
+
+    & $openssl req -new -x509 -days 3650 -nodes -newkey ed25519 `
+        -out (Join-Path $certDir 'server-ed25519.crt') -keyout (Join-Path $certDir 'server-ed25519.key') `
+        -subj '/CN=localhost' 2>$null
+
+    if (-not (Test-Path (Join-Path $certDir 'server-ed25519.crt'))) {
+        throw "Certificate generation failed - no server-ed25519.crt was produced."
+    }
+}
+
 function New-Instance {
-    param([string]$Bin)
+    param([string]$Bin, $Server)
 
     New-Item -ItemType Directory -Force -Path $base | Out-Null
 
@@ -163,38 +223,38 @@ function New-Instance {
         Write-Warning "Found PostgreSQL $version. Octavius requires 18 or newer, so most tests will fail."
     }
 
-    New-Certificates
-
     $pwFile = Join-Path $base 'pwfile.txt'
     Set-Content -Path $pwFile -Value $Password -NoNewline
 
-    Write-Host "Creating data directory at $dataDir"
-    & (Join-Path $Bin 'initdb.exe') -D $dataDir -U postgres --auth=scram-sha-256 --pwfile=$pwFile -E UTF8 | Out-Null
+    Write-Host "Creating data directory at $($Server.Data)"
+    & (Join-Path $Bin 'initdb.exe') -D $Server.Data -U postgres --auth=scram-sha-256 --pwfile=$pwFile -E UTF8 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "initdb failed with exit code $LASTEXITCODE." }
 
     Remove-Item $pwFile -Force
 
     # PostgreSQL wants the key beside its own files; on Windows it skips the permission check
     # that would otherwise reject a world-readable one.
-    Copy-Item (Join-Path $certDir 'server.crt'), (Join-Path $certDir 'server.key'), (Join-Path $certDir 'ca.crt') `
-        -Destination $dataDir
+    Copy-Item (Join-Path $certDir $Server.Cert), (Join-Path $certDir $Server.Key), (Join-Path $certDir 'ca.crt') `
+        -Destination $Server.Data
 
-    Add-Content -Path (Join-Path $dataDir 'postgresql.conf') -Value @"
+    Add-Content -Path (Join-Path $Server.Data 'postgresql.conf') -Value @"
 
 # --- added by scripts/ssl-test-server.ps1 ---
-port = $Port
+port = $($Server.Port)
 listen_addresses = 'localhost'
 ssl = on
-ssl_cert_file = 'server.crt'
-ssl_key_file = 'server.key'
+ssl_cert_file = '$($Server.Cert)'
+ssl_key_file = '$($Server.Key)'
 ssl_ca_file = 'ca.crt'
 "@
+
+    if ($Server.Name -ne 'main') { return }
 
     # One role authenticating the way an ldap, pam or radius setup makes the server ask - with the
     # password in the clear. Rules go above the defaults because pg_hba is first-match, and both a
     # TLS and a plaintext line are here so the tests can check that the driver sends the password
     # over one and refuses over the other.
-    $hba = Join-Path $dataDir 'pg_hba.conf'
+    $hba = Join-Path $Server.Data 'pg_hba.conf'
     $existing = Get-Content $hba -Raw
     Set-Content -Path $hba -Value @"
 # --- added by scripts/ssl-test-server.ps1 ---
@@ -208,43 +268,49 @@ $existing
 }
 
 function Start-Instance {
-    param([string]$Bin)
+    param([string]$Bin, $Server)
 
-    if (Test-Listening) {
-        Write-Host "Already listening on port $Port."
+    if (Test-Listening $Server.Port) {
+        Write-Host "Already listening on port $($Server.Port)."
         return
     }
 
-    Write-Host "Starting server on port $Port"
+    Write-Host "Starting server on port $($Server.Port)"
     Start-Process -FilePath (Join-Path $Bin 'pg_ctl.exe') `
-        -ArgumentList @('-D', $dataDir, '-l', $logFile, 'start') `
+        -ArgumentList @('-D', $Server.Data, '-l', $Server.Log, 'start') `
         -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $base 'pg_ctl.out') `
-        -RedirectStandardError (Join-Path $base 'pg_ctl.err')
+        -RedirectStandardOutput $Server.Out `
+        -RedirectStandardError $Server.Err
 
     $ready = $false
     foreach ($attempt in 1..30) {
         Start-Sleep -Seconds 1
-        & (Join-Path $Bin 'pg_isready.exe') -h localhost -p $Port -q 2>$null
+        & (Join-Path $Bin 'pg_isready.exe') -h localhost -p $Server.Port -q 2>$null
         if ($LASTEXITCODE -eq 0) { $ready = $true; break }
     }
 
     if (-not $ready) {
-        throw "Server did not become ready. See $logFile."
+        throw "Server did not become ready. See $($Server.Log)."
     }
 
     $env:PGPASSWORD = $Password
-    $exists = & (Join-Path $Bin 'psql.exe') -h localhost -p $Port -U postgres -d postgres -tAc `
+    # The bookkeeping below needs no TLS and goes without it: libpq, like the driver, cannot log in to the Ed25519
+    # server over TLS without turning channel binding off.
+    $env:PGSSLMODE = 'disable'
+    $exists = & (Join-Path $Bin 'psql.exe') -h localhost -p $Server.Port -U postgres -d postgres -tAc `
         "SELECT 1 FROM pg_database WHERE datname = 'octavius_test'"
     if (-not $exists) {
-        & (Join-Path $Bin 'createdb.exe') -h localhost -p $Port -U postgres octavius_test
+        & (Join-Path $Bin 'createdb.exe') -h localhost -p $Server.Port -U postgres octavius_test
+        if ($LASTEXITCODE -ne 0) { throw "createdb failed with exit code $LASTEXITCODE." }
         Write-Host "Created database octavius_test."
     }
 
-    $roleExists = & (Join-Path $Bin 'psql.exe') -h localhost -p $Port -U postgres -d postgres -tAc `
+    if ($Server.Name -ne 'main') { return }
+
+    $roleExists = & (Join-Path $Bin 'psql.exe') -h localhost -p $Server.Port -U postgres -d postgres -tAc `
         "SELECT 1 FROM pg_roles WHERE rolname = 'cleartext_user'"
     if (-not $roleExists) {
-        & (Join-Path $Bin 'psql.exe') -h localhost -p $Port -U postgres -d postgres -c `
+        & (Join-Path $Bin 'psql.exe') -h localhost -p $Server.Port -U postgres -d postgres -c `
             "CREATE ROLE cleartext_user LOGIN PASSWORD 'senatus'" | Out-Null
         Write-Host "Created role cleartext_user (cleartext password authentication)."
     }
@@ -252,7 +318,7 @@ function Start-Instance {
 
 function Write-TestInstructions {
     Write-Host ""
-    Write-Host "Ready. To run the TLS-gated tests against it:" -ForegroundColor Green
+    Write-Host "Ready. To run the TLS-gated tests against them:" -ForegroundColor Green
     Write-Host ""
     Write-Host "  `$env:TEST_SSL = `"true`""
     Write-Host "  `$env:SSL_ROOT_CERT = `"$(Join-Path $certDir 'ca.crt')`""
@@ -270,33 +336,42 @@ function Write-TestInstructions {
 }
 
 function Stop-Instance {
-    param([string]$Bin)
+    param([string]$Bin, $Server)
 
-    if (-not (Test-Path (Join-Path $dataDir 'postmaster.pid'))) {
-        Write-Host "Not running."
+    if (-not (Test-Path (Join-Path $Server.Data 'postmaster.pid'))) {
+        Write-Host "Port $($Server.Port): not running."
         return
     }
 
-    & (Join-Path $Bin 'pg_ctl.exe') -D $dataDir -m fast stop | Out-Null
-    Write-Host "Stopped."
+    & (Join-Path $Bin 'pg_ctl.exe') -D $Server.Data -m fast stop | Out-Null
+    Write-Host "Port $($Server.Port): stopped."
 }
 
 $bin = Find-PostgresBin
 
 switch ($Action) {
     'start' {
-        if (-not (Test-Path $dataDir)) { New-Instance -Bin $bin }
-        Start-Instance -Bin $bin
+        if (-not (Test-Path (Join-Path $certDir 'server.crt'))) { New-Certificates }
+        if (-not (Test-Path (Join-Path $certDir 'server-rsapss.crt'))) { New-RsaPssCertificate }
+        if (-not (Test-Path (Join-Path $certDir 'server-ed25519.crt'))) { New-Ed25519Certificate }
+        foreach ($server in $servers) {
+            if (-not (Test-Path $server.Data)) { New-Instance -Bin $bin -Server $server }
+            Start-Instance -Bin $bin -Server $server
+        }
         Write-TestInstructions
     }
 
     'stop' {
-        if (-not (Test-Path $dataDir)) { Write-Host "Nothing to stop - no instance at $base."; break }
-        Stop-Instance -Bin $bin
+        if (-not (Test-Path $base)) { Write-Host "Nothing to stop - no instance at $base."; break }
+        foreach ($server in $servers) {
+            if (Test-Path $server.Data) { Stop-Instance -Bin $bin -Server $server }
+        }
     }
 
     'remove' {
-        if (Test-Path $dataDir) { Stop-Instance -Bin $bin }
+        foreach ($server in $servers) {
+            if (Test-Path $server.Data) { Stop-Instance -Bin $bin -Server $server }
+        }
         if (Test-Path $base) {
             Remove-Item $base -Recurse -Force
             Write-Host "Removed $base."
@@ -306,12 +381,14 @@ switch ($Action) {
     }
 
     'status' {
-        if (-not (Test-Path $dataDir)) {
-            Write-Host "No instance at $base."
-        } elseif (Test-Listening) {
-            Write-Host "Listening on port $Port. Data directory: $dataDir"
-        } else {
-            Write-Host "Instance exists at $dataDir but is not listening on port $Port."
+        foreach ($server in $servers) {
+            if (-not (Test-Path $server.Data)) {
+                Write-Host "No instance at $($server.Data)."
+            } elseif (Test-Listening $server.Port) {
+                Write-Host "Listening on port $($server.Port), presenting $($server.Cert). Data directory: $($server.Data)"
+            } else {
+                Write-Host "Instance exists at $($server.Data) but is not listening on port $($server.Port)."
+            }
         }
     }
 }

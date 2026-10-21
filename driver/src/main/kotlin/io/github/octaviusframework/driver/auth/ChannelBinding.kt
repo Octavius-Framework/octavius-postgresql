@@ -16,7 +16,12 @@ enum class ChannelBinding(val value: String) {
     /** Never offer channel binding; the exchange declares no support for it. */
     DISABLE("disable"),
 
-    /** Bind when the connection is encrypted and the server offers it, carry on when not. Default. */
+    /**
+     * Bind when the connection is encrypted and the server offers it, carry on when not. Default.
+     *
+     * A server certificate that cannot be bound to - one signed with Ed25519 or Ed448 - is refused
+     * here as under [REQUIRE], not carried past unbound.
+     */
     PREFER("prefer"),
 
     /** Refuse to authenticate at all unless the exchange is bound to the TLS channel. */

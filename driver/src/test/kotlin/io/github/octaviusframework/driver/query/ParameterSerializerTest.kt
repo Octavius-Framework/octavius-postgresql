@@ -117,8 +117,9 @@ class ParameterSerializerTest {
     fun testPgTypedSerialization() {
         val registry = CatalogHolder()
         registry.update { it.withTypes(mapOf(PgStandardType.INT8.oid to PgType.Base(PgStandardType.INT8.oid, PgStandardType.INT8.typeName, "pg_catalog"))) }
-        
-        val typeManager = TypeManager(registry)
+
+        // The name goes out unqualified, and a session's path always has pg_catalog on it.
+        val typeManager = TypeManager(registry) { listOf("pg_catalog") }
         val parameterMapper = ParameterMapper(registry.catalog, null, typeManager.lookup)
         val serializer = ParameterSerializer(typeManager.lookup, parameterMapper)
 

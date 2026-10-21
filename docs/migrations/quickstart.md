@@ -124,7 +124,7 @@ startup, before the application has served anything.
 
 Without it, the first query against a type the migration just created fails to map, and the
 `TypeException(TYPE_NOT_FOUND)` it raises
-[says nothing about migrations](../driver/exceptions.md#13-typeexception) — it is a question about a registry,
+[says nothing about migrations](../driver/exceptions.md#14-typeexception) — it is a question about a registry,
 asked hours after the answer was decided.
 
 ### Where it goes in a startup sequence
