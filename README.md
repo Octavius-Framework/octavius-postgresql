@@ -125,8 +125,8 @@ to use is a minor, and so is a function that disappears, because either reaches 
 thing. **A patch is a fix, or documentation.**
 
 None of the three is a compatibility promise. Where a release changes what existing code already does, the
-changelog entry says so in bold — 1.1.0 was a minor and added a constant to a public enum, which is enough to
-stop an exhaustive `when` from compiling. Those sentences are the ones to read before upgrading.
+changelog entry is tagged `[BREAKING]` — 1.1.0 was a minor and added a constant to a public enum, which is enough
+to stop an exhaustive `when` from compiling. Those entries are the ones to read before upgrading.
 
 Nothing is deprecated first. A name that goes is gone in the release that takes it, named in the changelog
 beside whatever replaced it.

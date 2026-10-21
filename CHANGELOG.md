@@ -17,15 +17,15 @@
 
 #### Changed
 
-- `ExecutionAbortedExceptionReason` and `ExecutionAbortedException.reason` are gone: `25P03` and `25P04` are
-  `SessionTerminatedException(TRANSACTION_TIMEOUT)` now. **A `when` over the enum or code reading `reason` stops
-  compiling, and a `catch` of `ExecutionAbortedException` no longer sees either timeout.**
+- **[BREAKING]** `ExecutionAbortedExceptionReason` and `ExecutionAbortedException.reason` are gone: `25P03` and `25P04`
+  are `SessionTerminatedException(TRANSACTION_TIMEOUT)` now. A `when` over the enum or code reading `reason` stops
+  compiling, and a `catch` of `ExecutionAbortedException` no longer sees either timeout.
 
-- A `FATAL` is `SessionTerminatedException` whatever its SQLSTATE, where an `ERROR` with the same code routes as
-  before: `FATAL 57P01` is not a `DatabaseSystemException`, nor `FATAL 40001` a `ConcurrencyException`.
+- **[BREAKING]** A `FATAL` is `SessionTerminatedException` whatever its SQLSTATE, where an `ERROR` with the same code
+  routes as before: `FATAL 57P01` is not a `DatabaseSystemException`, nor `FATAL 40001` a `ConcurrencyException`.
 
-- A login the server refuses is `InitializationException` whatever its SQLSTATE - `SERVER_REJECTED_CREDENTIALS` for
-  class `28`, `CONNECTION_ERROR` with the code in `sqlState` for the rest.
+- **[BREAKING]** A login the server refuses is `InitializationException` whatever its SQLSTATE -
+  `SERVER_REJECTED_CREDENTIALS` for class `28`, `CONNECTION_ERROR` with the code in `sqlState` for the rest.
 
 - A `SQLExceptionWrapper` over a terminated session chains a next exception with SQLSTATE `08006`, so a pool evicts
   the connection at once rather than at its next validation.
@@ -36,22 +36,23 @@
 - `OctaviusJdbcTransactionManager` stays quiet on a rollback that finds the connection gone, where the rollback's
   failure replaced the application's exception.
 
-- `writeToCopy` reports a row the server rejected rather than sending the next chunk, and the `InputStream` overload
-  of `copyIn` stops reading its input there. **A `catch` around `endCopy()` alone no longer sees a row rejected
-  mid-transfer.**
+- **[BREAKING]** `writeToCopy` reports a row the server rejected rather than sending the next chunk, and the
+  `InputStream` overload of `copyIn` stops reading its input there. A `catch` around `endCopy()` alone no longer sees a
+  row rejected mid-transfer.
 
-- The auto-configured transaction manager stands back from any `TransactionManager` the application declares, as
-  Boot's does, a reactive one included. **An application with a reactive one has to declare Octavius's itself.**
+- **[BREAKING]** The auto-configured transaction manager stands back from any `TransactionManager` the application
+  declares, as Boot's does, a reactive one included. An application with a reactive one has to declare Octavius's
+  itself.
 
-- An unqualified type name the search path does not reach is refused, naming the schemas that have it, where the
-  driver took it from the one schema defining it. **A registration or a `withPgType` name without its schema fails
-  where the path does not reach it.**
+- **[BREAKING]** An unqualified type name the search path does not reach is refused, naming the schemas that have it,
+  where the driver took it from the one schema defining it. A registration or a `withPgType` name without its schema
+  fails where the path does not reach it.
 
-- No temporary type is in the catalog, a temporary table's row type among them. **A whole row of a temporary table
-  now fails when the result is described; cast it to a permanent composite.**
+- **[BREAKING]** No temporary type is in the catalog, a temporary table's row type among them. A whole row of a
+  temporary table now fails when the result is described; cast it to a permanent composite.
 
-- A codec declaring OID `0` is refused by `registerCodec`, with `InvalidOperationException(INVALID_ARGUMENT)`.
-  **A registration declaring `0` throws where it used to pass.**
+- **[BREAKING]** A codec declaring OID `0` is refused by `registerCodec`, with
+  `InvalidOperationException(INVALID_ARGUMENT)`. A registration declaring `0` throws where it used to pass.
 
 - A data class mapped reflectively allocates about half as much read, and as much as a hand-written converter
   written as a composite.
@@ -77,10 +78,10 @@
 - The auto-configured transaction manager can be injected as `OctaviusJdbcTransactionManager` by a bean created
   before it.
 
-- The JDBC `Statement` fails in a `SQLExceptionWrapper`, as the connection does, so Spring's script runner
-  recognizes the failure: `spring.sql.init.continue-on-error` carries on past it, and without it the failure names
-  its script and statement. **A `catch` of the driver's exception around a `Statement` no longer sees it;
-  `wrappedException` holds it.**
+- **[BREAKING]** The JDBC `Statement` fails in a `SQLExceptionWrapper`, as the connection does, so Spring's script
+  runner recognizes the failure: `spring.sql.init.continue-on-error` carries on past it, and without it the failure
+  names its script and statement. A `catch` of the driver's exception around a `Statement` no longer sees it;
+  `wrappedException` holds it.
 
 - A server certificate signed with RSASSA-PSS is hashed for channel binding with the digest in the signature's
   parameters, as the server hashes it: over SHA-384 or SHA-512 a login under `channelBinding=prefer` failed.
@@ -89,21 +90,21 @@
   `channelBinding=prefer` as under `require`, with `InitializationException(UNSUPPORTED_MECHANISM)` naming
   `channelBinding=disable`.
 
-- An unqualified type name resolves to the type the server picks for it, the reported `search_path` being read as
-  the server reads it: `$user`, `pg_catalog` first unless listed, unquoted names folded. **A type of your own named
-  like a built-in one - `money`, `point` - now resolves to the built-in where no schema is given, and a schema
-  named after the user is searched where `$user` stands.**
+- **[BREAKING]** An unqualified type name resolves to the type the server picks for it, the reported `search_path` being
+  read as the server reads it: `$user`, `pg_catalog` first unless listed, unquoted names folded. A type of your own
+  named like a built-in one - `money`, `point` - now resolves to the built-in where no schema is given, and a schema
+  named after the user is searched where `$user` stands.
 
-- A result converter registered under a sealed class is offered every class below it, as a codec for a sealed
-  class already was: one under `PgInterval` was never asked about an `interval`. **Such a converter is now asked
-  ahead of those under `Any::class`.**
+- **[BREAKING]** A result converter registered under a sealed class is offered every class below it, as a codec for a
+  sealed class already was: one under `PgInterval` was never asked about an `interval`. Such a converter is now asked
+  ahead of those under `Any::class`.
 
 ### Client
 
 #### Changed
 
-- A login the server refuses is thrown under `dbResult`, `transactionResult` and `asResult`, as every session that
-  could not be obtained is. **A `Failure` branch that handled `53300` or `57P03` no longer sees them.**
+- **[BREAKING]** A login the server refuses is thrown under `dbResult`, `transactionResult` and `asResult`, as every
+  session that could not be obtained is. A `Failure` branch that handled `53300` or `57P03` no longer sees them.
 
 ## Version 2.5.0 (v2.5.0)
 
@@ -111,51 +112,51 @@
 
 #### Added
 
-- **Several servers in one URL, chosen among the way `libpq` does** - `jdbc:octavius://db1:5432,db2,db3:5433/curia`,
+- Several servers in one URL, chosen among the way `libpq` does - `jdbc:octavius://db1:5432,db2,db3:5433/curia`,
   or the same list in `serverName` or a `host` parameter - with `target_session_attrs` and
   `load_balance_hosts=random`.
 
-- **The servers of one list share one type catalog**, and a server of another cluster is passed over with a `warn`.
+- The servers of one list share one type catalog, and a server of another cluster is passed over with a `warn`.
 
 #### Changed
 
-- **Every address a host name resolves to is tried**, not only the first.
+- Every address a host name resolves to is tried, not only the first.
 
-- **An IPv6 address without a port reads as an address in a URL, unbracketed** - `jdbc:octavius://::1/curia` - not
+- An IPv6 address without a port reads as an address in a URL, unbracketed - `jdbc:octavius://::1/curia` - not
   as the host `:` on port 1.
 
-- **One composite or enum type name for two classes is refused, and so is one class under two names**, with
+- **[BREAKING]** One composite or enum type name for two classes is refused, and so is one class under two names, with
   `InvalidOperationException(INVALID_ARGUMENT)` - and an enum registered again with other conventions. The same
   registration again changes nothing.
 
-- **An enum registered with a schema is read as `Any` ahead of one registered without**, as a composite already was.
+- An enum registered with a schema is read as `Any` ahead of one registered without, as a composite already was.
 
-- **A transaction's `BEGIN` goes out with its first statement in one write**, terms included: a `required { }`
+- A transaction's `BEGIN` goes out with its first statement in one write, terms included: a `required { }`
   around one statement costs two round trips instead of three.
 
 #### Fixed
 
-- **A cancel request goes to the address its connection reached**, not to its host name resolved again.
+- A cancel request goes to the address its connection reached, not to its host name resolved again.
 
-- **A port in the URL's address that is not a whole number is refused** instead of being ignored.
+- A port in the URL's address that is not a whole number is refused instead of being ignored.
 
-- **`reloadTypes()` re-reads the catalog its session reads** after `GlobalCatalogStore.removeCatalog`, not the one
+- `reloadTypes()` re-reads the catalog its session reads after `GlobalCatalogStore.removeCatalog`, not the one
   that took the dropped one's place.
 
 ### Client
 
 #### Added
 
-- **`InsertQuery.overriding(OverridingValue.SYSTEM)` and `USER`**, rendering `OVERRIDING … VALUE`.
+- `InsertQuery.overriding(OverridingValue.SYSTEM)` and `USER`, rendering `OVERRIDING … VALUE`.
 
-- **`SelectQuery.window(definitions)`**, rendering a `WINDOW` clause.
+- `SelectQuery.window(definitions)`, rendering a `WINDOW` clause.
 
-- **`onConflict { onColumns(…, where = predicate) }`**, rendering a partial unique index's predicate.
+- `onConflict { onColumns(…, where = predicate) }`, rendering a partial unique index's predicate.
 
 #### Changed
 
-- **`SelectQuery.forUpdate(of, mode)` and `LockWaitMode` are gone, replaced by `locking(clause)`**, which takes the
-  locking clause as SQL.
+- **[BREAKING]** `SelectQuery.forUpdate(of, mode)` and `LockWaitMode` are gone, replaced by `locking(clause)`, which
+  takes the locking clause as SQL.
 
 ## Version 2.4.0 (v2.4.0)
 
@@ -163,51 +164,51 @@
 
 #### Added
 
-- **PostgreSQL 18 behind a pooler that speaks protocol 3.0 is accepted.** The driver still asks for 3.2, but nothing
+- PostgreSQL 18 behind a pooler that speaks protocol 3.0 is accepted. The driver still asks for 3.2, but nothing
   it does depends on it beyond the length of the cancel key.
 
 #### Changed
 
-- **PostgreSQL 17 and older are refused after login rather than at the handshake**, still with
+- PostgreSQL 17 and older are refused after login rather than at the handshake, still with
   `UNSUPPORTED_SERVER_VERSION`.
 
-- **A login that does not report `search_path` is refused with `MISSING_PROTOCOL_PARAMETER`** - the mark of a pooler
-  or a proxy that does not pass it on.
+- **[BREAKING]** A login that does not report `search_path` is refused with `MISSING_PROTOCOL_PARAMETER` - the mark of a
+  pooler or a proxy that does not pass it on.
 
-- **`SQLExceptionWrapper` no longer records a stack trace.** The exception it wraps keeps its own.
+- `SQLExceptionWrapper` no longer records a stack trace. The exception it wraps keeps its own.
 
-- **A transaction's `BEGIN` goes out with its first statement, not when auto-commit is turned off**, and `commit()`
+- A transaction's `BEGIN` goes out with its first statement, not when auto-commit is turned off, and `commit()`
   and `rollback()` no longer chain the next one. Between transactions the backend is `idle` rather than
   `idle in transaction`, and a transaction that runs no statement sends nothing.
 
-- **A value that cannot be sent names its parameter on the `path`**, as the `$n` of the statement sent:
+- A value that cannot be sent names its parameter on the `path`, as the `$n` of the statement sent:
   `PATH: $2 -> tribute`.
 
-- **A column that cannot be decoded is named on the `path`**, as one that cannot be mapped already was.
+- A column that cannot be decoded is named on the `path`, as one that cannot be mapped already was.
 
 #### Fixed
 
-- **`now()` in a transaction that follows a `commit()` or `rollback()` is the time of its first statement**, not of
+- `now()` in a transaction that follows a `commit()` or `rollback()` is the time of its first statement, not of
   the commit.
 
-- **A term the server refuses rolls the `required` block back and leaves auto-commit on.** It used to leave the
+- A term the server refuses rolls the `required` block back and leaves auto-commit on. It used to leave the
   session in an aborted transaction with auto-commit off.
 
-- **A session closed with a manual transaction unfinished rolls it back** instead of leaving it on the connection
+- A session closed with a manual transaction unfinished rolls it back instead of leaving it on the connection
   for the next borrower to commit.
 
-- **A connection that could not be obtained leaves `OctaviusTemplate` and `OctaviusJdbcTransactionManager` as
-  `OctaviusDataAccessException` over an `InitializationException`** - `CONNECTION_UNAVAILABLE` for a pool with none
+- A connection that could not be obtained leaves `OctaviusTemplate` and `OctaviusJdbcTransactionManager` as
+  `OctaviusDataAccessException` over an `InitializationException` - `CONNECTION_UNAVAILABLE` for a pool with none
   free - instead of Hikari's `PoolInitializationException`, `UncategorizedSQLException` or
   `CannotCreateTransactionException`.
 
-- **`DataSource.getOctaviusSession()` raises the driver's exception when a pool started on the first borrow could
-  not start**, instead of Hikari's `PoolInitializationException`.
+- `DataSource.getOctaviusSession()` raises the driver's exception when a pool started on the first borrow could
+  not start, instead of Hikari's `PoolInitializationException`.
 
-- **`OctaviusJdbcTransactionManager` is registered ahead of Boot's own by declaration**, no longer because its class
+- `OctaviusJdbcTransactionManager` is registered ahead of Boot's own by declaration, no longer because its class
   name sorts first.
 
-- **An array element whose converter fails is named by its index whatever the converter threw**, not only on a
+- An array element whose converter fails is named by its index whatever the converter threw, not only on a
   `MappingException`.
 
 ## Version 2.3.0 (v2.3.0)
@@ -216,32 +217,32 @@
 
 #### Added
 
-- **An array reads as `Array<T>`, and each dimension of a multidimensional one as any shape an array reads as** -
+- An array reads as `Array<T>`, and each dimension of a multidimensional one as any shape an array reads as -
   `List<IntArray>`, `Array<List<Int>>`, `List<Array<IntArray>>`. A list or an `Array` of primitive arrays goes out
   as a multidimensional array.
 
-- **An `Array<T>` with no non-null element goes out as an array of `T`.** `emptyArray<String>()` is `text[]`; a
+- An `Array<T>` with no non-null element goes out as an array of `T`. `emptyArray<String>()` is `text[]`; a
   list in the same state still needs `withPgType`.
 
-- **An array reads as any collection type an `ArrayList` or a `LinkedHashSet` fits**, `HashSet` included.
+- An array reads as any collection type an `ArrayList` or a `LinkedHashSet` fits, `HashSet` included.
 
-- **`SerializationContext.defaultOidForClass(kClass)` gives the OID a value of a class would be declared as, from
-  the class alone** - for a converter of a container with no element to ask.
+- `SerializationContext.defaultOidForClass(kClass)` gives the OID a value of a class would be declared as, from
+  the class alone - for a converter of a container with no element to ask.
 
 #### Fixed
 
-- **A multidimensional array read into a type whose inner levels are not lists no longer comes back as lists.**
-  `List<IntArray>` failed with a `ClassCastException` at the first element read. A type shallower than the array
-  throws `NO_CONVERTER_FOUND`, and **`IntArray` and the other primitive arrays throw `CONVERSION_ERROR` against
-  more than one dimension instead of flattening it.**
+- **[BREAKING]** A multidimensional array read into a type whose inner levels are not lists no longer comes back as
+  lists. `List<IntArray>` failed with a `ClassCastException` at the first element read. A type shallower than the array
+  throws `NO_CONVERTER_FOUND`, and `IntArray` and the other primitive arrays throw `CONVERSION_ERROR` against more than
+  one dimension instead of flattening it.
 
-- **A `NULL` element read into `IntArray` or another primitive array throws `REQUIRED_ATTRIBUTE_MISSING` with its
-  index in the path, as `List<Int>` does.**
+- A `NULL` element read into `IntArray` or another primitive array throws `REQUIRED_ATTRIBUTE_MISSING` with its
+  index in the path, as `List<Int>` does.
 
-- **A list of values whose codec is registered by type name goes out as an array of that type** instead of failing
+- A list of values whose codec is registered by type name goes out as an array of that type instead of failing
   with `TYPE_NOT_FOUND`.
 
-- **Ragged nesting is refused on the way out.** `[[1,2],[3,4,5],[6]]` went out as `{{1,2},{3,4},{5,6}}`.
+- Ragged nesting is refused on the way out. `[[1,2],[3,4,5],[6]]` went out as `{{1,2},{3,4},{5,6}}`.
 
 ## Version 2.2.0 (v2.2.0)
 
@@ -249,7 +250,7 @@
 
 #### Changed
 
-- **Every integration test class starts from an empty database.** `test-support`, a module nothing publishes,
+- Every integration test class starts from an empty database. `test-support`, a module nothing publishes,
   names the test database once and drops every schema and the driver's type catalog before each class, so
   nothing one class creates or registers reaches the next. Test tasks of different modules take turns on it.
 
@@ -257,24 +258,24 @@
 
 #### Added
 
-- **`TypeManager.attach(type) { }` keeps a value for a layer built on the driver in the database's catalog, and
-  `TypeCatalog.attachment(type)` reads it back.** One per database, like the driver's own registrations:
+- `TypeManager.attach(type) { }` keeps a value for a layer built on the driver in the database's catalog, and
+  `TypeCatalog.attachment(type)` reads it back. One per database, like the driver's own registrations:
   carried across a reload, dropped by `removeCatalog`, pinned for an execution.
 
 ### Client
 
 #### Fixed
 
-- **`dynamic_dto` names belong to the database, as the documentation said, rather than to each client.** Once a
+- `dynamic_dto` names belong to the database, as the documentation said, rather than to each client. Once a
   second client on the same database registered a class, reads as `Any` or a supertype and writes where
-  `dynamic_dto` was declared failed for the classes only the first one knew. **A class is registered once per
-  database now**, and written on the strategy and read with the `Json` of the client that registered it,
+  `dynamic_dto` was declared failed for the classes only the first one knew. A class is registered once per
+  database now, and written on the strategy and read with the `Json` of the client that registered it,
   whichever client runs the query.
 
-- **One class under two names is refused, as the documentation said, and so is a class registered again on
-  another `DynamicWriteStrategy`.** The same class under the same name again changes nothing.
+- One class under two names is refused, as the documentation said, and so is a class registered again on
+  another `DynamicWriteStrategy`. The same class under the same name again changes nothing.
 
-- **Reading a `dynamic_dto` as `DynamicDto` no longer needs its name registered.**
+- Reading a `dynamic_dto` as `DynamicDto` no longer needs its name registered.
 
 ## Version 2.1.2 (v2.1.2)
 
@@ -282,7 +283,7 @@
 
 #### Fixed
 
-- **Rows keep the query's own converters as their terminal found them.** 2.0.0 said a converter registered on
+- Rows keep the query's own converters as their terminal found them. 2.0.0 said a converter registered on
   a query after a terminal returned does not reach the rows it returned, and that held only for a query that
   had none of its own. Each terminal copies the query's converters now, so the rows answer as they did
   when they came back, and the next terminal is the one that sees the new converter.
@@ -293,10 +294,10 @@
 
 #### Fixed
 
-- **A `RESTRICT` foreign key refusing a delete or a key change reports `FOREIGN_KEY_VIOLATION`, and
-  `RESTRICT_VIOLATION` is gone.** An application handles that refusal the same way whichever action the key
-  declares, and `sqlState` still tells them apart: `23001` for `RESTRICT`, `23503` for `NO ACTION`. **Code
-  naming `RESTRICT_VIOLATION` no longer compiles; `FOREIGN_KEY_VIOLATION` replaces it.**
+- **[BREAKING]** A `RESTRICT` foreign key refusing a delete or a key change reports `FOREIGN_KEY_VIOLATION`, and
+  `RESTRICT_VIOLATION` is gone. An application handles that refusal the same way whichever action the key declares, and
+  `sqlState` still tells them apart: `23001` for `RESTRICT`, `23503` for `NO ACTION`. Code naming `RESTRICT_VIOLATION`
+  no longer compiles; `FOREIGN_KEY_VIOLATION` replaces it.
 
 ## Version 2.1.0 (v2.1.0)
 
@@ -304,10 +305,10 @@
 
 #### Changed
 
-- **A `RESTRICT` foreign key refusing a delete or a key change reports `RESTRICT_VIOLATION` rather than
-  `UNKNOWN`.** PostgreSQL 18 raises `23001` there. A `NO ACTION` key still raises `23503`, which stays
-  `FOREIGN_KEY_VIOLATION`. **This adds a constant to a public enum: an exhaustive `when` over
-  `ConstraintViolationExceptionReason` with no `else` needs a branch for it.**
+- **[BREAKING]** A `RESTRICT` foreign key refusing a delete or a key change reports `RESTRICT_VIOLATION` rather than
+  `UNKNOWN`. PostgreSQL 18 raises `23001` there. A `NO ACTION` key still raises `23503`, which stays
+  `FOREIGN_KEY_VIOLATION`. This adds a constant to a public enum: an exhaustive `when` over
+  `ConstraintViolationExceptionReason` with no `else` needs a branch for it.
 
 ## Version 2.0.0 (v2.0.0) - Tabularium
 
@@ -315,11 +316,11 @@
 
 #### Added
 
-- **`TypeManager.detached()` returns a `TypeLookup` on the same database with no session behind it**, for
+- `TypeManager.detached()` returns a `TypeLookup` on the same database with no session behind it, for
   something that outlives the session it was reached through and only wants to read registrations. It has no
   search path, so `resolveOid` on it resolves only fully qualified names.
 
-- **A registered codec that is bound to nothing says so, at `warn`.** A codec keyed on an OID stops being
+- A registered codec that is bound to nothing says so, at `warn`. A codec keyed on an OID stops being
   reached the moment that type is dropped and recreated, and one keyed on a name the catalog no longer has
   never was - in both cases the column comes back through the driver's own codec instead, in a different shape
   and without an error. The catalog load and every `reloadTypes()` now name the codec that ended up
@@ -327,47 +328,45 @@
 
 #### Changed
 
-- **A query pins one catalog for the whole of an execution.** Everything a terminal touches, comes from one
-  immutable `TypeCatalog`, read once when the terminal starts. **Two behaviours change with it**: a converter
-  registered on a query object *after* a terminal returned no longer applies to the rows it returned (it
-  applies from the next terminal), and a `registerCodec(...)` between `createNativeQuery(...)` and the
-  `fetch*` call is now picked up, where it used to be missed.
+- **[BREAKING]** A query pins one catalog for the whole of an execution. Everything a terminal touches, comes from one
+  immutable `TypeCatalog`, read once when the terminal starts. Two behaviours change with it: a converter registered on
+  a query object *after* a terminal returned no longer applies to the rows it returned (it applies from the next
+  terminal), and a `registerCodec(...)` between `createNativeQuery(...)` and the `fetch*` call is now picked up, where
+  it used to be missed.
 
-- **`ConverterRegistry`, `ResultConverterRegistry` and `ParameterConverterRegistry` are gone, replaced by
-  `TypeCatalog`.** **`typeManager.converterRegistry` becomes `typeManager.catalog`**, carrying
-  `registeredComposites`, `compositeClassByName` and `registeredEnums` unchanged, alongside `dictionary` and
-  `codecs`. A converter reading registrations through the context reads the pinned catalog:
-  `context.types.catalog.registeredComposites`. The `TypeException` message that named the registry names the
-  catalog now.
+- **[BREAKING]** `ConverterRegistry`, `ResultConverterRegistry` and `ParameterConverterRegistry` are gone, replaced by
+  `TypeCatalog`. `typeManager.converterRegistry` becomes `typeManager.catalog`, carrying `registeredComposites`,
+  `compositeClassByName` and `registeredEnums` unchanged, alongside `dictionary` and `codecs`. A converter reading
+  registrations through the context reads the pinned catalog: `context.types.catalog.registeredComposites`. The
+  `TypeException` message that named the registry names the catalog now.
 
-- **`Query.resultConverterRegistry` and `Query.parameterConverterRegistry` are gone.** A query keeps its own
-  converters in a list of its own rather than a registry chained to the session's, and
-  `registerResultConverter(…)` / `registerParameterConverter(…)` - the documented way to reach them - are
-  unchanged, precedence included.
+- **[BREAKING]** `Query.resultConverterRegistry` and `Query.parameterConverterRegistry` are gone. A query keeps its own
+  converters in a list of its own rather than a registry chained to the session's, and `registerResultConverter(…)` /
+  `registerParameterConverter(…)` - the documented way to reach them - are unchanged, precedence included.
 
-- **A converter is handed `TypeLookup`, not `TypeManager`.** `DeserializationContext` and
+- **[BREAKING]** A converter is handed `TypeLookup`, not `TypeManager`. `DeserializationContext` and
   `SerializationContext` now carry the reading half of the type system - `catalog`, `dictionary`, `codecs`,
   `containers`, `resolveOid` - and nothing that registers.
 
-- **A conversion context reads `context.types`, and the two dictionaries are `dictionary` and `codecs`.**
-  `TypeLookup.typeDictionary` and `codecDictionary` lose the stutter and take the names `TypeCatalog` already
-  uses for the same two things, and `TypeManager` follows.
+- **[BREAKING]** A conversion context reads `context.types`, and the two dictionaries are `dictionary` and `codecs`.
+  `TypeLookup.typeDictionary` and `codecDictionary` lose the stutter and take the names `TypeCatalog` already uses for
+  the same two things, and `TypeManager` follows.
 
-- **`GlobalTypeRegistry` is `GlobalCatalogStore`, and `removeRegistry(url)` is `removeCatalog(url)`.** It
-  holds one catalog per database, keyed by `DatabaseKey` - what `RegistryKey` was called. **The logger
-  category is `io.github.octaviusframework.driver.registry.GlobalCatalogStore` now** - a logback rule naming
-  the old one stops matching the catalog load.
+- **[BREAKING]** `GlobalTypeRegistry` is `GlobalCatalogStore`, and `removeRegistry(url)` is `removeCatalog(url)`. It
+  holds one catalog per database, keyed by `DatabaseKey` - what `RegistryKey` was called. The logger category is
+  `io.github.octaviusframework.driver.registry.GlobalCatalogStore` now - a logback rule naming the old one stops
+  matching the catalog load.
 
-- **The `fetch*` and `forEach*` families are `inline` only for `typeOf<T>()` now.** Each one is a single call
+- The `fetch*` and `forEach*` families are `inline` only for `typeOf<T>()` now. Each one is a single call
   into the driver rather than a body inlined into the caller, so `sql`, `queryExecutor`, `resultMapper`,
   `parameterSerializer` and the context helpers are no longer `@PublishedApi` and the execution path is no
   longer part of the binary interface. The `block` a `forEach*` takes is `noinline`, which changes nothing at
   a call site - `crossinline` already refused a non-local return.
 
-- **`QueryExecutor`, `ResultMapper` and `ParameterSerializer` are `internal`.** They were public only because
+- **[BREAKING]** `QueryExecutor`, `ResultMapper` and `ParameterSerializer` are `internal`. They were public only because
   the terminals were inlined through them. `Row`, `RowMetadata` and the converter SPI - `ResultConverter`,
-  `ParameterConverter`, `DeserializationContext`, `SerializationContext` - are unchanged and remain the way
-  into the conversion chain.
+  `ParameterConverter`, `DeserializationContext`, `SerializationContext` - are unchanged and remain the way into the
+  conversion chain.
 
 ## Version 1.1.0 (v1.1.0)
 
@@ -375,71 +374,71 @@
 
 #### Changed
 
-- **A data source with no connection free reports `CONNECTION_UNAVAILABLE` rather than `CONNECTION_ERROR`.**
-  Both are `InitializationException`. It is read off JDBC's `SQLTransientConnectionException`. **This adds a constant to
-  a public enum: an exhaustive `when` over `InitializationExceptionReason` with no `else` needs a branch for it.**
+- **[BREAKING]** A data source with no connection free reports `CONNECTION_UNAVAILABLE` rather than `CONNECTION_ERROR`.
+  Both are `InitializationException`. It is read off JDBC's `SQLTransientConnectionException`. This adds a constant to a
+  public enum: an exhaustive `when` over `InitializationExceptionReason` with no `else` needs a branch for it.
 
-- **The driver's performance page is re-measured.** Performance pages name Kotlin and
+- The driver's performance page is re-measured. Performance pages name Kotlin and
   `kotlin-reflect` in their environment notes now.
 
 #### Fixed
 
-- **`commit()` refuses a transaction an earlier error aborted, instead of reporting a commit that never
-  happened.** PostgreSQL answers a `COMMIT` there with a `ROLLBACK` and no error, and the driver took that for
-  success. It raises `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)` now without sending anything, 
-  and so does setting `autoCommit` back to `true`. **A caller that swallowed a failure inside a transaction and returned
-  normally now gets an exception at the commit**, where it used to get nothing - and nothing saved either way.
+- **[BREAKING]** `commit()` refuses a transaction an earlier error aborted, instead of reporting a commit that never
+  happened. PostgreSQL answers a `COMMIT` there with a `ROLLBACK` and no error, and the driver took that for success. It
+  raises `InvalidOperationException(COMMIT_OF_FAILED_TRANSACTION)` now without sending anything, and so does setting
+  `autoCommit` back to `true`. A caller that swallowed a failure inside a transaction and returned normally now gets an
+  exception at the commit, where it used to get nothing - and nothing saved either way.
 
-- **A record read as a `Map` converts its keys instead of stringifying them.** the key half of each pair went through 
-  `toString()` where the value half went through the converter chain. Three shapes lost a field to it - a `NULL` key, 
-  a key equal to one already read, and an `int4` `1` beside a `text` `'1'` - each collapsing two fields into one entry, 
-  and `get<Map<Int, String>>` returned `String` keys that failed as a `ClassCastException` far from the conversion. 
-  Both halves go through the chain now, and the three are refused like any other conversion. **`get<Map<String, Any?>>` 
-  against a record with non-text keys now fails with `NO_CONVERTER_FOUND`** rather than stringifying them; 
-  name the key type the record carries.
+- **[BREAKING]** A record read as a `Map` converts its keys instead of stringifying them. the key half of each pair went
+  through `toString()` where the value half went through the converter chain. Three shapes lost a field to it - a `NULL`
+  key, a key equal to one already read, and an `int4` `1` beside a `text` `'1'` - each collapsing two fields into one
+  entry, and `get<Map<Int, String>>` returned `String` keys that failed as a `ClassCastException` far from the
+  conversion. Both halves go through the chain now, and the three are refused like any other conversion.
+  `get<Map<String, Any?>>` against a record with non-text keys now fails with `NO_CONVERTER_FOUND` rather than
+  stringifying them; name the key type the record carries.
 
 ### Client
 
 #### Added
 
-- **[A performance page of its own](docs/client/performance.md).** What the layer costs over calling the
+- [A performance page of its own](docs/client/performance.md). What the layer costs over calling the
   driver by hand, how the stack lands beside Spring's `NamedParameterJdbcTemplate` and JDBI, and whether a
   column should hold a composite or a `dynamic_dto`.
 
-- **The client says what it logs, which is nothing.**
+- The client says what it logs, which is nothing.
 
-- **The Quickstart stops sending `largeObjects` and `notifications` through `db.execute { }`.**
+- The Quickstart stops sending `largeObjects` and `notifications` through `db.execute { }`.
 
-- **Transaction Plans says what a plan has that a block has not, and what a
-  transaction around one does to it.**
+- Transaction Plans says what a plan has that a block has not, and what a
+  transaction around one does to it.
 
-- **`dynamic_dto` says where else it goes** - three shapes that
+- `dynamic_dto` says where else it goes - three shapes that
   were in octavius-database's documentation and worked here, unmentioned and untested. `DynamicDtoTest` covers
   them now.
 
 #### Changed
 
-- **The `dynamic_dto` page's "cheaper in every direction" has figures under it.**
+- The `dynamic_dto` page's "cheaper in every direction" has figures under it.
 
-- **`client` stops declaring `kotlin-logging` and `slf4j-api`.** It writes no log lines of its own and never
+- `client` stops declaring `kotlin-logging` and `slf4j-api`. It writes no log lines of its own and never
   used either; both arrive through the driver regardless, so nothing changes on a runtime classpath.
 
 #### Fixed
 
-- **`DefaultSessionProvider` binds the session it borrows, so nested client calls share it instead of
-  borrowing one each.** `execute` bound nothing outside a transaction, so a client call made from inside
-  another took a connection of its own. **A query made from inside a `forEach*` block or a
-  `ResultConverter` now raises `InvalidOperationException(CONNECTION_BUSY)` whether or not a transaction is
-  open**, where outside one it used to take a second connection quietly.
+- **[BREAKING]** `DefaultSessionProvider` binds the session it borrows, so nested client calls share it instead of
+  borrowing one each. `execute` bound nothing outside a transaction, so a client call made from inside another took a
+  connection of its own. A query made from inside a `forEach*` block or a `ResultConverter` now raises
+  `InvalidOperationException(CONNECTION_BUSY)` whether or not a transaction is open, where outside one it used to take a
+  second connection quietly.
 
-- **Plans merged the wrong way round are refused before they run.** A step can hold another plan's handle and
+- Plans merged the wrong way round are refused before they run. A step can hold another plan's handle and
   `addPlan` appends, so merging the plan that uses a handle ahead of the plan that produces it put the step
   before the result it needs. It failed partway through the transaction where the documentation said such a
   plan could not be written at all; it is refused before the transaction opens now, still as
   `INVALID_ARGUMENT` and naming both steps.
 
-- **[The Combination That Misleads](docs/client/transactions-failures.md#the-combination-that-misleads) said a
-  commit went through that never did.** For a failure the server raised, the `transaction { }` around a
+- [The Combination That Misleads](docs/client/transactions-failures.md#the-combination-that-misleads) said a
+  commit went through that never did. For a failure the server raised, the `transaction { }` around a
   `dbResult` did not commit over it - the server had rolled the work back. The page and the KDoc of
   `transactionResult` and `dbResult` say what happens now that the driver refuses that commit.
 
@@ -447,20 +446,20 @@
 
 #### Added
 
-- **[Logging](docs/migrations/logging.md) is a page, as the driver's is.**
+- [Logging](docs/migrations/logging.md) is a page, as the driver's is.
 
-- **[When a Run Is Refused](docs/migrations/exceptions.md) covers `MigrationException`.** Seven reasons were
+- [When a Run Is Refused](docs/migrations/exceptions.md) covers `MigrationException`. Seven reasons were
   in the enum and two were named anywhere. They are laid out in the order a run can reach them, so what has
   not happened yet is visible.
 
-- **The Quickstart says to call `reloadTypes()` after a run.** The driver says it in three places;
+- The Quickstart says to call `reloadTypes()` after a run. The driver says it in three places;
   migrations, which is the thing that actually runs DDL after the pool is up, said it in none, and the
   `TypeException(TYPE_NOT_FOUND)` that follows a migration creating a type says nothing about migrations.
   With it, where it sits in a startup sequence, and a short Spring section.
 
 #### Fixed
 
-- **A migration's label has no `V` in it, and the KDoc of both `label` properties now agrees.** They gave
+- A migration's label has no `V` in it, and the KDoc of both `label` properties now agrees. They gave
   `V2 add indexes` as the example where the code renders `2 add indexes`, the prefix being a marker in the
   file name rather than part of the version.
 
@@ -470,23 +469,23 @@
 
 #### Added
 
-- **Octavius is not an ORM, it is a ROME.** A Relational-Object Mapping Engine, because all queries lead to
+- Octavius is not an ORM, it is a ROME. A Relational-Object Mapping Engine, because all queries lead to
   ROME. The line comes over from `octavius-database` — under the badges in the README, above a new
-  **Philosophy** section stating the five principles that hold here. It stays in the old repository too.
-- **Every artifact in the README carries the Roman office it does the work of** — `driver` the road, `client`
+  Philosophy section stating the five principles that hold here. It stays in the old repository too.
+- Every artifact in the README carries the Roman office it does the work of — `driver` the road, `client`
   the praetor, `client-scanner` the census, `migrations` the surveyor, `pg-model` the codex and
   `driver-spring-integration` the treaty.
-- **[Design Philosophy](DESIGN_PHILOSOPHY.md).** What was decided and what was rejected: why the protocol is
+- [Design Philosophy](DESIGN_PHILOSOPHY.md). What was decided and what was rejected: why the protocol is
   spoken rather than a driver wrapped, why the type registry is global per database, why registration order
   is the only override mechanism there is, why nothing is created behind your back, and why every query
   blocks while `LISTEN`/`NOTIFY` is the one part of the API that suspends.
-- **`pg-model`'s tests now run in CI.** It is the multiplatform module and has no `test` task, so
+- `pg-model`'s tests now run in CI. It is the multiplatform module and has no `test` task, so
   `./gradlew test` built its jar and ran none of them. The step is `./gradlew test :pg-model:allTests` now,
   covering both targets it publishes.
 
 #### Fixed
 
-- **The API reference no longer carries `hikari-integration-tests`.** It is not published and its `main` source
+- The API reference no longer carries `hikari-integration-tests`. It is not published and its `main` source
   set is empty, but it was in the Dokka aggregation all the same, so the generated site listed an empty module
   beside the six real ones. `benchmarks` was already out; this one was the leftover.
 
@@ -494,94 +493,92 @@
 
 #### Added
 
-- **`Row` answers two questions it used to make you work around.** `hasColumn(name)` is what
+- `Row` answers two questions it used to make you work around. `hasColumn(name)` is what
   `getColumnIndex` answered by raising, for a result whose shape is not fixed. `getRaw(name)` is the
   counterpart of `getRaw(index)`, which stood alone.
-- **`MappingException` gains `BLOCK_FAILED`.** An exception thrown by your own block inside `forEachRow`,
-  `forEachObject` or `forEachField` used to arrive as `CONVERSION_ERROR`. It is still wrapped, and what the
-  block threw is still the `cause`. **Anything matching on `CONVERSION_ERROR` to find these has to match on
-  the new one.**
-- **`required` and `nested` take the terms the transaction runs under.** `isolation`, `readOnly`,
+- **[BREAKING]** `MappingException` gains `BLOCK_FAILED`. An exception thrown by your own block inside `forEachRow`,
+  `forEachObject` or `forEachField` used to arrive as `CONVERSION_ERROR`. It is still wrapped, and what the block threw
+  is still the `cause`. Anything matching on `CONVERSION_ERROR` to find these has to match on the new one.
+- `required` and `nested` take the terms the transaction runs under. `isolation`, `readOnly`,
   `statementTimeout` and `transactionTimeout`, all optional and all scoped to that transaction, joined into
   one statement sent right after the `BEGIN`. Ask for none and nothing is sent at all.
   `TransactionIsolationLevel` gains `sqlName`.
-- **Which leaves nothing on the connection to clean up.** The session properties
+- Which leaves nothing on the connection to clean up. The session properties
   `transactionIsolationLevel` and `readOnly` outlive a transaction and a pool has to restore them; these
   parameters end with it. The cost is that those two no longer describe a transaction opened this way — a
   `SERIALIZABLE` block runs while `transactionIsolationLevel` still answers what the *session* is on.
-- **A joined transaction honours none of them, and says which it dropped.** Isolation and read-only cannot
+- A joined transaction honours none of them, and says which it dropped. Isolation and read-only cannot
   change once a transaction has begun, and `SET LOCAL` would bind a timeout to somebody else's. Same on
   `nested`'s savepoint path. It warns rather than raising.
-- **A column reads as `row["cognomen"]`.** The reified `get` is now an `operator`, by name and by index
+- A column reads as `row["cognomen"]`. The reified `get` is now an `operator`, by name and by index
   alike, so the expected type fixes `T` and its nullability with it: `val name: String = row["cognomen"]`
   refuses a `NULL`. `get<String>("cognomen")` is unchanged.
-- **And so do the containers underneath it.** `PgComposite`, `PgArray` and `PgRecord` read as
+- And so do the containers underneath it. `PgComposite`, `PgArray` and `PgRecord` read as
   `composite["cognomen"]`, `array[0]` and `record[0]` now — `PgMultirange` already did.
   Purely additive: every `get<T>(…)` call goes on working unchanged.
-- **`compositesAsMaps()` reads one query's composites as maps, whatever they are registered as.** Registered
+- `compositesAsMaps()` reads one query's composites as maps, whatever they are registered as. Registered
   on a query, discarded with it, and it collapses the whole subtree. `compositesAsMaps(name, schema)` names
   one type, the `Collection<QualifiedName>` overload several. Naming a class still answers with the class.
 
 #### Fixed
 
-- **A mapping failure names the column whichever route reached it.** `fetchObjects` named it and `Row.get`
+- A mapping failure names the column whichever route reached it. `fetchObjects` named it and `Row.get`
   did not, so one route read `PATH: city` and the other `PATH: residence -> city`. Container accessors name
   the attribute, element or bound too, so a hand-written converter no longer stops one level short. A lookup
   that finds nothing still adds no segment. See [Exceptions](docs/driver/exceptions.md).
 
 #### Changed
 
-- **Five SSL properties are camelCase like everything beside them.** `sslmode`, `sslrootcert`, `sslcert`,
-  `sslkey` and `sslpassword`- on `OctaviusProperties` and on `OctaviusDataSource` alike. They were the only lowercase names. 
-  **A pool setting bean properties by name is the one caller that has to move** — `addDataSourceProperty` resolves a name to a setter, so
-  HikariCP wants `sslPassword` where it took `sslpassword`.
-- **`LargeObjectMode` and `SeekWhence` are enums.**
-- **`session.getSearchPath()` is `session.searchPath`.**
-- **`DataSource.getOctaviusSession(username, pass)` calls its second parameter `password`.** Every other
+- **[BREAKING]** Five SSL properties are camelCase like everything beside them. `sslmode`, `sslrootcert`, `sslcert`,
+  `sslkey` and `sslpassword`- on `OctaviusProperties` and on `OctaviusDataSource` alike. They were the only lowercase
+  names. A pool setting bean properties by name is the one caller that has to move — `addDataSourceProperty` resolves a
+  name to a setter, so HikariCP wants `sslPassword` where it took `sslpassword`.
+- **[BREAKING]** `LargeObjectMode` and `SeekWhence` are enums.
+- **[BREAKING]** `session.getSearchPath()` is `session.searchPath`.
+- **[BREAKING]** `DataSource.getOctaviusSession(username, pass)` calls its second parameter `password`. Every other
   signature that takes one does. Only a caller passing it by name is affected.
-- **`path` is on `OctaviusException` rather than on `MappingException`.** It sits beside `queryContext`,
-  both being things a layer can add without replacing the exception. `MappingException.path` reads as it
-  did. **The rendering moved from `Path: a -> b` inside `getDetailedMessage()` to `PATH: a -> b` in the
-  exception's own frame**, so anything matching the old line has to be matched again.
-- **`TransactionIsolationLevel.fromJdbcValue` raises what its sibling raises.** It documented
+- **[BREAKING]** `path` is on `OctaviusException` rather than on `MappingException`. It sits beside `queryContext`, both
+  being things a layer can add without replacing the exception. `MappingException.path` reads as it did. The rendering
+  moved from `Path: a -> b` inside `getDetailedMessage()` to `PATH: a -> b` in the exception's own frame, so anything
+  matching the old line has to be matched again.
+- `TransactionIsolationLevel.fromJdbcValue` raises what its sibling raises. It documented
   `IllegalArgumentException` and threw `NoSuchElementException`. Now `InvalidOperationException`
   (`INVALID_ARGUMENT`), which `setTransactionIsolation` already raised for the same value going the other
   way.
-- **Two KDocs that were wrong are right.** `TransactionState.fromChar` promised `IllegalArgumentException`
+- Two KDocs that were wrong are right. `TransactionState.fromChar` promised `IllegalArgumentException`
   where `error()` raises `IllegalStateException`; `ParameterConverter.getDefaultTypeName` linked
   `[expectedOid]`, which is a parameter of `convert`. Dokka now generates the repository with no unresolved
   links at all.
-- **The type dictionary names itself when it loads.** `Loaded 47 types for localhost:5432/mydb in 12ms`
-  becomes `ROME (Relational-Object Mapping Engine) open for localhost:5432/mydb - 47 types read in 12ms`,
-  and the reload beside it says `ROME rebuilt`. Both stay at INFO, but **anything matching the old text has
-  to be matched again**.
+- **[BREAKING]** The type dictionary names itself when it loads. `Loaded 47 types for localhost:5432/mydb in 12ms`
+  becomes `ROME (Relational-Object Mapping Engine) open for localhost:5432/mydb - 47 types read in 12ms`, and the reload
+  beside it says `ROME rebuilt`. Both stay at INFO, but anything matching the old text has to be matched again.
 
 ### Client
 
 #### Added
 
-- **[Queries](docs/client/queries.md#a-name-that-comes-from-outside) says what passing SQL through unread
-  costs.** The builders write the placeholder for a value themselves, so a value is never part of the
+- [Queries](docs/client/queries.md#a-name-that-comes-from-outside) says what passing SQL through unread
+  costs. The builders write the placeholder for a value themselves, so a value is never part of the
   statement — but a name has nowhere else to go, and `orderBy`, `from`, `insertInto(table)` and the keys of
   `values(map)` are all SQL text. Documentation only; no signature changed.
 
 #### Changed
 
-- **`SelectQuery.offset` takes `null`, as `limit` already did.** A page bound that may or may not be there
+- `SelectQuery.offset` takes `null`, as `limit` already did. A page bound that may or may not be there
   needed a `?.let` on one of the two and not on the other. `null` leaves the clause out, which is what `0`
   did and still does.
-- **Every failure a step of a `TransactionPlan` raises names that step.** Resolving its parameters already
+- Every failure a step of a `TransactionPlan` raises names that step. Resolving its parameters already
   did; running its statement and mapping its result did not, so a unique violation on the fourth of twenty
   identical inserts said nothing about which. The executor records `step N` on the `path`, leaving the
   exception otherwise untouched: `PATH: step 1 -> tribute`.
-- **`DefaultSessionProvider` opens a transaction in two round trips instead of five.** It set isolation and
+- `DefaultSessionProvider` opens a transaction in two round trips instead of five. It set isolation and
   read-only as session characteristics before the `BEGIN` and each timeout as its own `SET LOCAL` after it,
   with two more on the way back as HikariCP restored them. It is the driver's `required(...)` now.
   `applyTimeouts` and `warnIfSettingsCannotBeHonoured` are gone from the class.
 
 #### Fixed
 
-- **A `dynamic_dto` no longer goes where a composite was declared.** Under `PREFER_DYNAMIC_DTO` a class
+- A `dynamic_dto` no longer goes where a composite was declared. Under `PREFER_DYNAMIC_DTO` a class
   registered both ways went out as one into composite attributes and array elements too, which the server
   refuses as `42804`. A known destination type decides now — which also makes `value.withPgType("honour")`
   the counterpart of `toDynamicDto`. See
@@ -591,23 +588,23 @@
 
 #### Added
 
-- **Placeholders in `.sql` migrations.** `MigratorConfig.placeholders` is a map, and `${name}` in a file
-  becomes what `name` maps to — a schema, a role, a tablespace. A paste and nothing more: no quoting, and no
-  idea of where in the statement it landed. `.sql` only. **The parameter sits third in `MigratorConfig`**, so
-  a config built positionally has to move.
-- **Off until the map has an entry, and loud once it does.** Empty, nothing is scanned for, so a migration
+- **[BREAKING]** Placeholders in `.sql` migrations. `MigratorConfig.placeholders` is a map, and `${name}` in a file
+  becomes what `name` maps to — a schema, a role, a tablespace. A paste and nothing more: no quoting, and no idea of
+  where in the statement it landed. `.sql` only. The parameter sits third in `MigratorConfig`, so a config built
+  positionally has to move.
+- Off until the map has an entry, and loud once it does. Empty, nothing is scanned for, so a migration
   holding a `${` of its own costs nothing. With one entry, a `${name}` without a value is refused by file and
   line before anything runs. `\${name}` is literal text; substitution happens once.
-- **The checksum is taken over the file as written, before substitution.** Changing a value is therefore not
+- The checksum is taken over the file as written, before substitution. Changing a value is therefore not
   a change to the migration, and a database that ran it under one value does not refuse it under another.
   The cost is the other side of the same coin: the history records that the file ran, not what it expanded
   to.
 
 #### Changed
 
-- **`MigrationState` is `MigrationOutcome`.** It sat next to `MigrationStatus` — one letter apart, in the
+- **[BREAKING]** `MigrationState` is `MigrationOutcome`. It sat next to `MigrationStatus` — one letter apart, in the
   same module. The history table's `state` column is untouched.
-- **`baselineVersion` and `target` are read where they are written.** `MigratorConfig` parses both as it is
+- `baselineVersion` and `target` are read where they are written. `MigratorConfig` parses both as it is
   built, so `baselineVersion = "1.x"` is refused by whoever wrote it down rather than by the first
   `migrate()` that reaches it. Same `MIGRATION_EXCEPTION:CONFIGURATION`; only the frame it is raised from
   moves. Both stay `String` — where you hold a `MigrationVersion`, pass `canonical`.
@@ -618,16 +615,16 @@
 
 #### Changed
 
-- **The repository is now `octavius-postgresql`.** `octavius-driver` named one of the six artifacts inside it
+- The repository is now `octavius-postgresql`. `octavius-driver` named one of the six artifacts inside it
   rather than the thing itself, and collided with the `driver` module every time either was written down.
   GitHub redirects the old URL; GitHub Pages does not, so the API reference has moved to
   https://octavius-framework.github.io/octavius-postgresql/. No Maven coordinate holds the repository name.
-- **The `annotations` module is now `pg-model`,** coordinate included -
-  `io.github.octavius-framework:annotations` becomes `io.github.octavius-framework:pg-model`. It stopped being
-  a module of annotations: it now carries a multiplatform `BigDecimal`, the serializers a JSON payload needs
-  to keep one, and the case converter that decides what a type is called. Nothing changed package, so only the
-  dependency line moves, and anyone taking `driver` takes it transitively either way.
-- **Every published artifact carries its own POM name and description.** They were derived in the root build
+- **[BREAKING]** The `annotations` module is now `pg-model`, coordinate included -
+  `io.github.octavius-framework:annotations` becomes `io.github.octavius-framework:pg-model`. It stopped being a module
+  of annotations: it now carries a multiplatform `BigDecimal`, the serializers a JSON payload needs to keep one, and the
+  case converter that decides what a type is called. Nothing changed package, so only the dependency line moves, and
+  anyone taking `driver` takes it transitively either way.
+- Every published artifact carries its own POM name and description. They were derived in the root build
   from a `when` over the module name and two fell through it, so `client-scanner` was published with the
   client's description and `driver-spring-integration` with the driver's. Each module declares both itself
   now, and applying the publish plugin is what marks a module as published.
@@ -636,27 +633,27 @@
 
 #### Added
 
-- **`octaviusSerializersModule` and `octaviusJson`,** for the types whose JSON form does not match their
+- `octaviusSerializersModule` and `octaviusJson`, for the types whose JSON form does not match their
   column form mostly for `dynamic_dto` payload. `BigDecimal` has no serializer at
   all, so the class does not encode; a `LocalDate`, `LocalDateTime` or `Instant` holding PostgreSQL's
   `infinity` is written out as the far-away timestamp the constant nominally is, which a `date` or `timestamp`
   will not read back at all and a `timestamptz` reads back quietly as something that is not `infinity`. All
   four are answered contextually, so `@Contextual` on the property is what turns it on. `octaviusJson` is that
   module on a stock `Json`, for the frontend or the HTTP layer that reads the same classes.
-- **A date in a payload is spelled the way PostgreSQL spells it**, not the way ISO-8601 does. No single string
+- A date in a payload is spelled the way PostgreSQL spells it, not the way ISO-8601 does. No single string
   satisfies both once a year leaves `0001`..`9999`: ISO signs a longer year and PostgreSQL reads that sign as
   the start of a timezone offset, so `+5874897-12-31` is refused for a year a `date` holds perfectly well, and
   ISO counts through a year zero where PostgreSQL counts BC from one. The serializers write PostgreSQL's
-  spelling and read **either** back, so a payload built in SQL decodes and so does one written before this
+  spelling and read either back, so a payload built in SQL decodes and so does one written before this
   existed.
-- **`BigDecimalAsNumberSerializer`** writes an unquoted JSON number rather than a string, so `jsonb` stores it
+- `BigDecimalAsNumberSerializer` writes an unquoted JSON number rather than a string, so `jsonb` stores it
   as a `numeric` and `jsonb_typeof` says `number` - arithmetic, casts and an index on the value all work
   without a cast written by hand. Reading goes back through the raw token, so a value longer than a `Double`
   survives the round trip.
-- **`EnumWithCaseConventionSerializer`**, for an enum inside a payload. Subclass it with the conventions
+- `EnumWithCaseConventionSerializer`, for an enum inside a payload. Subclass it with the conventions
   `registerEnum` was given - which are also its defaults - and the payload agrees with the column. The client
   does this for you on a `dynamic_dto`; this is the same thing for a `Json` assembled elsewhere.
-- **`io.github.octaviusframework.type.BigDecimal`**, a `typealias` for `java.math.BigDecimal` on the JVM and
+- `io.github.octaviusframework.type.BigDecimal`, a `typealias` for `java.math.BigDecimal` on the JVM and
   the decimal's text on JS, so a class in `commonMain` can declare a `numeric` property at all. Being an alias
   and not a wrapper, it *is* what the driver's codec produces, so nothing converts. The digits are kept as
   text on JS because a `Number` there is a 64-bit float and would round exactly what `numeric` was chosen to
@@ -664,13 +661,13 @@
 
 #### Changed
 
-- **`CaseConverter` and the date/time infinity markers moved here from the driver.**
+- **[BREAKING]** `CaseConverter` and the date/time infinity markers moved here from the driver.
   `driver.identifier.CaseConverter` is now `io.github.octaviusframework.identifier.CaseConverter`, next to the
-  `CaseConvention` it takes, and `driver.type.datetime.DISTANT_PAST` / `DISTANT_FUTURE` / `LocalTime.MIN` /
-  `MAX` / `DateTimePeriod.INFINITY` / `MINUS_INFINITY` are now `io.github.octaviusframework.type.datetime`.
-  Both are needed in `commonMain` and both were in a JVM-only module. Same declarations and same values, now
-  covered by tests on both targets; `pg-model` is an `api` dependency of the driver, so nothing is added to a
-  build file and only the imports change. `PgInterval` and the rest of `driver.type.datetime` stayed.
+  `CaseConvention` it takes, and `driver.type.datetime.DISTANT_PAST` / `DISTANT_FUTURE` / `LocalTime.MIN` / `MAX` /
+  `DateTimePeriod.INFINITY` / `MINUS_INFINITY` are now `io.github.octaviusframework.type.datetime`. Both are needed in
+  `commonMain` and both were in a JVM-only module. Same declarations and same values, now covered by tests on both
+  targets; `pg-model` is an `api` dependency of the driver, so nothing is added to a build file and only the imports
+  change. `PgInterval` and the rest of `driver.type.datetime` stayed.
 
 ### Driver
 
@@ -701,7 +698,7 @@
 
 #### Added
 
-- **A registered enum is written into a `dynamic_dto` payload under the label PostgreSQL holds**, and read
+- A registered enum is written into a `dynamic_dto` payload under the label PostgreSQL holds, and read
   back from it. kotlinx.serialization never saw `registerEnum` and wrote the Kotlin name, so one value read
   two ways depending on where it was stored and a query filtering on `payload ->> 'office'` matched neither
   reliably. The labels come off the driver's registry, so the enum named at `registerEnum` and the one a scan
@@ -709,31 +706,30 @@
 - `dynamicTypes.enumSerializers` is that module on its own, for a `Json` built elsewhere - an HTTP layer, or a
   `jsonb` column written through the driver rather than through a `dynamic_dto`. It answers for the enums
   registered when it is read.
-- **`TransactionPlan.describe()`,** which renders the plan as text: every step's index, its SQL, and where
+- `TransactionPlan.describe()`, which renders the plan as text: every step's index, its SQL, and where
   each of its parameters comes from. A step whose query cannot be rendered says so in place of its SQL rather than throwing.
 
 #### Changed
 
-- **`dynamicJson` defaults to `octaviusJson` rather than to a stock `Json`.** A `dynamic_dto` payload is JSON,
+- `dynamicJson` defaults to `octaviusJson` rather than to a stock `Json`. A `dynamic_dto` payload is JSON,
   so a registered class with a `BigDecimal` property did not encode at all and one holding an unbounded date
   encoded to a year PostgreSQL will not read back. It is otherwise the same strict `Json` it was, so a payload
   carrying a field the class does not declare is still an error. A `Json` passed in explicitly is untouched -
   put `octaviusSerializersModule` on it yourself; the enum serializers are folded onto whichever `Json` is in
   use, per conversion rather than once, so an enum registered between two queries applies to the second.
-- **A `StepHandle` in a `TransactionPlan` reaches one thing, `value()`.** `field(name, rowIndex)` and
-  `column(name)` are gone: both threw away the type the step's terminal declared, handing back `Any?` and
-  `List<Any?>` for the caller to cast. `value()` carries that type, so taking a column is
-  `map { it.get<Int>("id") }` - checked where it is written, and a `List<Int>` the driver sends as an array.
-  Asking a scalar or an object result for a column it has not got no longer runs and fails; it does not
-  compile.
-- **`row(rowIndex)` is replaced by `spread()`**, which marks a value to fill its parameter slot with entries
+- **[BREAKING]** A `StepHandle` in a `TransactionPlan` reaches one thing, `value()`. `field(name, rowIndex)` and
+  `column(name)` are gone: both threw away the type the step's terminal declared, handing back `Any?` and `List<Any?>`
+  for the caller to cast. `value()` carries that type, so taking a column is `map { it.get<Int>("id") }` - checked where
+  it is written, and a `List<Int>` the driver sends as an array. Asking a scalar or an object result for a column it has
+  not got no longer runs and fails; it does not compile.
+- **[BREAKING]** `row(rowIndex)` is replaced by `spread()`, which marks a value to fill its parameter slot with entries
   of its own rather than with one value.
 - The shape failures the plan raised of its own - a result with no columns to take, a column the rows have not
   got, a row index past the end, a row that was not there to spread - are gone from it. Two the compiler
   refuses outright; the other two are whatever the caller's own `map` raised, wrapped as a `MappingException`
   naming the parameter or passed through as the driver's own `COLUMN_NOT_FOUND`.
-- **Everything a plan raises while resolving a step's parameters names the step, and every `map` in a chain is
-  numbered.** It now reads `Step 1 of the plan, parameter 'amount': map #2 over step 0.map(#1) threw NumberFormatException`;
+- Everything a plan raises while resolving a step's parameters names the step, and every `map` in a chain is
+  numbered. It now reads `Step 1 of the plan, parameter 'amount': map #2 over step 0.map(#1) threw NumberFormatException`;
   `TransactionValue.Transformed` renders as that chain where it rendered as an identity hash, and the driver's
   own failure inside a transformation picks the same three up on its `path`. The number is where the step sits
   in the plan being run, not the index the handle was created at, which after `addPlan` is no longer the same.
@@ -748,13 +744,13 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
   as `.sql` files or as Kotlin classes, checksums, an advisory lock, and a history table it keeps itself.
   `OctaviusMigrator(dataSource, MigratorConfig(...)).migrate()` is the whole entry point, and `info()` answers
   the same question without applying anything or creating anything.
-- **Two transaction paths, differing in where the history row sits.** By default a migration and its history
+- Two transaction paths, differing in where the history row sits. By default a migration and its history
   row go into one transaction, so a failure leaves neither the work nor a record of it - nothing to repair,
   and no `repair` command to do it with. A file whose header carries `-- octavius:no-transaction` runs
   statement by statement instead, which is what `CREATE INDEX CONCURRENTLY`, `VACUUM` and `ALTER SYSTEM` need;
   a failure there records which statement stopped it, and the next run refuses to go on until somebody has
   looked.
-- **A migration class is read as a name and never constructed by the scan.** `V2_1__Add_indexes` is version
+- A migration class is read as a name and never constructed by the scan. `V2_1__Add_indexes` is version
   2.1 - a class name cannot hold a `.`, so `_` separates the parts there - and the class is built once,
   immediately before it runs.
 - Checksums for `.sql` files are CRC32. A class records no checksum unless it declares one.
@@ -779,34 +775,34 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 #### Changed
 
-- **Breaking:** `@PgName` and `CaseConvention` move to the `annotations` module —
+- **[BREAKING]** `@PgName` and `CaseConvention` move to the `annotations` module —
   `io.github.octaviusframework.annotation` and `io.github.octaviusframework.identifier`. Imports change and
   nothing else does. The driver takes the module as `api`.
-- **Breaking:** `TypeManager.registerEnum`'s non-reified overload takes `KClass<*>`, not `KClass<T>` where
+- **[BREAKING]** `TypeManager.registerEnum`'s non-reified overload takes `KClass<*>`, not `KClass<T>` where
   `T : Enum<T>`. Source-compatible for `MyEnum::class`; a caller holding a scanned class no longer needs an
   unchecked cast. Being an enum is checked inside and refused as `InvalidOperationException(INVALID_ARGUMENT)`.
-- **Breaking:** the abstract base of `NativeQuery` and `NamedParameterQuery` is `Query`, not `OctaviusQuery` —
+- **[BREAKING]** The abstract base of `NativeQuery` and `NamedParameterQuery` is `Query`, not `OctaviusQuery` —
   the prefix exists to separate a driver type from the `java.sql` interface it implements and for main entry points, and nothing named
   `Query` was in the way. Only a signature naming the base type by hand changes: `Query<*>`.
-- **Breaking:** `RoutineExecutionException` is two classes. A routine saying no on purpose is
+- **[BREAKING]** `RoutineExecutionException` is two classes. A routine saying no on purpose is
   `RoutineRaiseException` (`P0001`, `P0000`) and carries no reason enum; a routine whose own assertion failed
   is `RoutineAssertionException` (`NO_DATA_FOUND`, `TOO_MANY_ROWS`, `ASSERT_FAILURE`). One is the database
   deciding, the other is database code being wrong, and only a type lets a caller branch on that.
-- **Breaking:** SQLSTATE class `25` is `TransactionStateException`, and
+- **[BREAKING]** SQLSTATE class `25` is `TransactionStateException`, and
   `StatementExceptionReason.INVALID_TRANSACTION_STATE` is gone. Nothing is wrong with those statements — the
   transaction is — and the server sends no error position for any of them. `25P03` and `25P04` are untouched.
-- **Breaking:** `MISSING_NAMED_PARAMETER` and `INCORRECT_RESULT_SIZE` move to
+- **[BREAKING]** `MISSING_NAMED_PARAMETER` and `INCORRECT_RESULT_SIZE` move to
   `InvalidOperationExceptionReason`, both being the caller's mistake rather than the server's.
-- **Breaking:** six reasons fewer across three enums, each a distinction `details` was already making.
-- **Breaking:** `DatabaseSystemException.errorMessage` is `details`, which is what the other nine exceptions
+- **[BREAKING]** Six reasons fewer across three enums, each a distinction `details` was already making.
+- **[BREAKING]** `DatabaseSystemException.errorMessage` is `details`, which is what the other nine exceptions
   call the same thing.
-- **Breaking:** `setSchema`, `getSchema`, `setCatalog` and `getCatalog` raise
+- **[BREAKING]** `setSchema`, `getSchema`, `setCatalog` and `getCatalog` raise
   `InvalidOperationException(FEATURE_NOT_SUPPORTED)`. Neither is connection state in PostgreSQL: the setters
   accepted anything and did nothing, so a pool configured with a schema set none.
-- **Breaking:** a connection property whose value does not parse is refused where it is set, rather than
+- **[BREAKING]** A connection property whose value does not parse is refused where it is set, rather than
   leaving the default to apply quietly — `sslmode=verify-fll` used to connect as `prefer`, and `ssl=yes` meant
   `ssl=false`. Raised before any socket exists, so a pool fails while being built.
-- **Breaking:** the driver internals are no longer public by omission. Fifteen more classes are `internal` or
+- **[BREAKING]** The driver internals are no longer public by omission. Fifteen more classes are `internal` or
   take an internal constructor and three very general `String` extensions are gone. Nothing documented moved.
 - `sslpassword` decrypts the client private key, which is what it means to libpq and pgjdbc; before, an
   encrypted `sslkey` failed to load whatever was set. The cipher is resolved from the file, and an encrypted
@@ -853,7 +849,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - The query builders — `select`, `insertInto`, `update`, `deleteFrom`. Every clause takes SQL and passes it
   through; what the builder contributes is the keywords, the column list paired with its own placeholders, and
   the clauses that disappear when they have nothing to say.
-- **An `UPDATE` or `DELETE` built here requires a `WHERE`.** Emptying a table is a statement worth having to
+- An `UPDATE` or `DELETE` built here requires a `WHERE`. Emptying a table is a statement worth having to
   mean, and `rawQuery` is where it says so.
 - `QueryFragment`, `withParam` and `join`, keeping a runtime-assembled condition and its parameters together.
   `join` drops empty fragments, parenthesises each one so a joined `OR` keeps its precedence, and refuses two
@@ -877,10 +873,10 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `RunnableQuery.asResult()` and `OctaviusClient.transactionResult`, the same boundary at two other widths.
   `transactionResult` is not sugar: a plain transaction rolls back on a throw and on nothing else, so a failure
   caught into a value inside one would be committed over.
-- One place decides what `dbResult` catches, `isCallerBug`, and it reads the exception's **type** and nothing
+- One place decides what `dbResult` catches, `isCallerBug`, and it reads the exception's type and nothing
   finer — never the `reason` enum, which exists for a log line. Anything unlisted becomes a `Failure`, future
   exception types included.
-- **A `fetch*Strict` that found no row is thrown, where octavius-database returned it as a failure.** A
+- A `fetch*Strict` that found no row is thrown, where octavius-database returned it as a failure. A
   deliberate correction: `Strict` asserts one row is there. Absence that is expected says so in the type —
   `fetchRow` returns `Row?`, `fetchField<String?>` returns `null`.
 - `TransactionPlan`, `StepHandle` and `executeTransactionPlan`, for when the sequence itself is data — built by
@@ -899,16 +895,16 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `dynamic_dto`: one column holding whichever of several unrelated shapes a row happens to carry — the case a
   `COMPOSITE` cannot cover, fixing the shape per row rather than at schema level. Values built in SQL read the
   same way.
-- `dynamic_dto` registration **states the name** rather than deriving it from the class. The discriminator is stored in the
+- `dynamic_dto` registration states the name rather than deriving it from the class. The discriminator is stored in the
   data, so deriving it means a rename silently orphaning every row written before it. `@DynamicallyMappable`
   declares one instead — `register<T>()` and `register(kClass)` read it — and being multiplatform it can sit on
   a class shared with another platform.
 - `DYNAMIC_DTO_DDL` and `dynamicTypes.install()`. The type is not created behind you: put the DDL in a
   migration, or call `install()`, which also reloads the catalogue a connection read when it opened.
-- **An instance of a registered class is written as a `dynamic_dto` without being wrapped.**
+- An instance of a registered class is written as a `dynamic_dto` without being wrapped.
   `DynamicWriteStrategy` says when, defaulting to `AUTOMATIC_WHEN_UNAMBIGUOUS`; `toDynamicDto` overrides all
   three and is the only way to make a `DynamicDto`, which is where the name is checked against the registry.
-- `DynamicDto.dataPayload` is JSON **text**, and no tree is built in either direction — `jsonb`'s codec encodes
+- `DynamicDto.dataPayload` is JSON text, and no tree is built in either direction — `jsonb`'s codec encodes
   and decodes a `String`, so text is the form both paths already pass through.
 - `dynamicJson` and `dynamicWriteStrategy` on `fromDataSource` and `fromSessionProvider`, plus
   `resultConverter(json)`, `parameterConverter(json)` and `toDynamicDto(value, json)` for one query at a time —
@@ -956,9 +952,9 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 #### Changed
 
-- **Breaking:** `IntObjectMap` is internal - the primitive-key map behind the OID lookups on the read path, public by
+- **[BREAKING]** `IntObjectMap` is internal - the primitive-key map behind the OID lookups on the read path, public by
   omission rather than by intent
-- **Breaking:** `RowMetadata.descriptors` is now `columns`, a list of `ColumnMetadata` rather than of
+- **[BREAKING]** `RowMetadata.descriptors` is now `columns`, a list of `ColumnMetadata` rather than of
   `FieldDescription`, and `FieldDescription` itself is internal - it was the wire form of a `RowDescription` field,
   every reference an OID and every modifier raw. `formatCode` and `dataTypeSize` are gone rather than renamed: one is
   the driver's own decision about how it asked for the data, the other a copy of `pg_type.typlen`
@@ -967,7 +963,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
   `anyarray` columns was non-null. The exception names the OID and is recorded and drained like a failed row mapping. 
   The type dictionary now starts seeded from the builtin codecs rather than empty, the catalog query being itself a result whose
   columns have to be described; `TypeDictionary.EMPTY` goes with it
-- **Breaking:** the block passed to `transaction.required` and `transaction.nested` is `crossinline`, so a bare `return`
+- **[BREAKING]** The block passed to `transaction.required` and `transaction.nested` is `crossinline`, so a bare `return`
   out of it no longer compiles - `return@required` / `return@nested` return from the block as before. A non-local return
   is not an exception, so it slipped past the `catch` while the `finally` still ran: out of `required` it committed
   whatever the block had already done, out of `nested` it left the savepoint standing until the outer transaction ended.
@@ -998,7 +994,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `QueryContext` rendered parameter values straight into the exception message, so a `ByteArray` printed as an identity
   hash rather than its size and a large `text` or `json` parameter printed in full. It now shares one formatter with
   `CodecException` and the trace log
-- That formatter bounds a value **as it renders it** rather than trimming the result - cutting `toString()` down to size
+- That formatter bounds a value as it renders it rather than trimming the result - cutting `toString()` down to size
   materialises the whole thing first, so a failed bulk insert used to assemble megabytes of string to keep a hundred
   characters of it. Collections, arrays and maps are walked element by element against a budget and then counted (
   `[0, 1, 2, ... +9990 more]`), Kotlin's primitive arrays render their contents instead of an identity hash, and a
@@ -1014,7 +1010,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `transaction.required` and `transaction.nested` lost the exception that sent them into the rollback whenever the
   cleanup failed in its turn - a rollback on a connection that had just died raised over the top of it, and a throw from
   restoring auto-commit replaced it outright. Both now attach the cleanup failure to the original as a suppressed
-  exception. Out of a scope that **committed** there is no original to attach to, and a failed restore is logged at
+  exception. Out of a scope that committed there is no original to attach to, and a failed restore is logged at
   `warn` instead of raised: the work is in the database, and an exception over a commit that succeeded reads as a failed
   transaction and invites a retry that writes everything twice
 - `session.transactionState` reported whatever the last ordinary statement had left, for as long as a `COPY` had run
@@ -1074,7 +1070,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 #### Changed
 
-- `fetchField` treats a missing row and a `NULL` value alike, and the nullability of `T` decides whether either is allowed** - `fetchField<String>()` used to return `null` on an empty result while raising `MappingException(REQUIRED_ATTRIBUTE_MISSING)` for a row carrying `NULL`; both now raise it, and `fetchField<String?>()` returns `null` for both.
+- `fetchField` treats a missing row and a `NULL` value alike, and the nullability of `T` decides whether either is allowed - `fetchField<String>()` used to return `null` on an empty result while raising `MappingException(REQUIRED_ATTRIBUTE_MISSING)` for a row carrying `NULL`; both now raise it, and `fetchField<String?>()` returns `null` for both.
 - `fetchField` returns `T` instead of `T?`, following from the above - a non-nullable `T` can no longer come back null, so nullability lives in `T` alone and survives the round trip, matching how `Row.get<T>()`, `fetchFields<T>` and `fetchFieldStrict<T>` have always read it.
 - `PgNotice` is a `data class` of named properties, carrying every field a notice can hold mirroring ServerErrorMessage.
 - `ServerErrorMessage.severity` and `code` are non-null, and a `localizedSeverity` joins them - the protocol requires both in every `ErrorResponse`.
@@ -1083,7 +1079,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - A cancel request's socket performs the same SSL handshake as the connection it cancels, instead of connecting in the clear
 - `ResultMapper` compares what a converter produced against the type that was requested - a converter whose `canConvert` accepts more than it can produce now raises `MappingException(CONVERSION_ERROR)` naming it, instead of a `ClassCastException` in the caller's own frame with nothing in the stack to identify it
 - The `unknown` pseudo-type is loaded into the type catalog.
-- A default value in a data class constructor covers an **absent** column or attribute only - SQL `NULL` is a value, reaching a nullable property as `null` and raising `REQUIRED_ATTRIBUTE_MISSING` for a non-nullable one whether a default is declared. Previously a default silently replaced any `NULL`
+- A default value in a data class constructor covers an absent column or attribute only - SQL `NULL` is a value, reaching a nullable property as `null` and raising `REQUIRED_ATTRIBUTE_MISSING` for a non-nullable one whether a default is declared. Previously a default silently replaced any `NULL`
 - `registerAutoComposite` rejects a class that is not a data class with `InvalidOperationException(INVALID_ARGUMENT)`.
 - `ReflectionCompositeParameterConverter` no longer claims an unregistered data class when the expected OID happens to name a composite
 - `PgNotice` carries `processId`. The id comes from the `BackendKeyData` of the startup handshake, so a notice raised before that handshake finished reports `-1`; it is unrelated to `PgNotification.processId`
