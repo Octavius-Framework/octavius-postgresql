@@ -51,7 +51,7 @@ There's no mutable cursor to walk with `.next()`. Octavius hydrates results stra
 The accessories go with the cursor: `setMaxRows()`, `setFetchSize()`, `setQueryTimeout()`, and generated-key retrieval (`RETURN_GENERATED_KEYS`, `getGeneratedKeys()`) all throw. The [migration map](#migration-map) below says what replaces each.
 
 ### 3. JDBC Batching
-`addBatch()` / `executeBatch()` aren't implemented in their standard JDBC shape — both throw. Octavius favors PostgreSQL-native bulk techniques instead: [`UNNEST`-based inserts](bulk-writes.md), which [match pgjdbc's fastest batching and run 3.7× faster than plain JDBC batching](performance.md#writing), and the [`COPY` protocol](copy.md) for genuinely large loads. The array form is the broader of the two — it covers `UPDATE` and `DELETE`, takes `RETURNING` and `ON CONFLICT`, and needs no change to the shape of your data.
+`addBatch()` / `executeBatch()` aren't implemented in their standard JDBC shape — both throw. Octavius favors PostgreSQL-native bulk techniques instead: [`UNNEST`-based inserts](bulk-writes.md), which [match pgjdbc's fastest batching and run 3.6× faster than plain JDBC batching](performance.md#writing), and the [`COPY` protocol](copy.md) for genuinely large loads. The array form is the broader of the two — it covers `UPDATE` and `DELETE`, takes `RETURNING` and `ON CONFLICT`, and needs no change to the shape of your data.
 
 ### 4. Legacy LOBs (BLOB, CLOB)
 `createBlob()` / `createClob()` don't exist here. Binary and text data map directly to plain Kotlin `ByteArray` and `String`, backed by PostgreSQL's `bytea` and `text` through the type catalog. For payloads past what a single `bytea` should carry, PostgreSQL's own large objects are exposed as [a first-class API](large-objects.md) on the session — no unwrapping to a vendor interface.
@@ -129,7 +129,7 @@ One row in that map has no counterpart at all, and it is worth a paragraph of it
 
 What you give up is plan reuse. Parsing and planning happen on every execution, which is real work for a trivial statement in a tight loop — and where that loop is the problem, fewer round trips through [`UNNEST`](bulk-writes.md) or [`COPY`](copy.md) buy more than a cached plan would.
 
-How much work is [measured rather than argued](performance.md#what-not-preparing-costs): **12.1 µs a statement**, taken with pgjdbc against itself, its own server-side prepare switched on and then off, on a primary-key lookup chosen so the figure would come out as large as it can. Octavius lands within 3 µs of pgjdbc's unprepared figure, so of its 15 µs behind the prepared one, 12 are the feature.
+How much work is [measured rather than argued](performance.md#what-not-preparing-costs): **19.6 µs a statement**, taken with pgjdbc against itself, its own server-side prepare switched on and then off, on a primary-key lookup chosen so the figure would come out as large as it can. Octavius lands on pgjdbc's unprepared figure, inside its interval, so the 19 µs it is behind the prepared one are the feature.
 
 What a cache brings with it is the other half of the trade:
 
@@ -138,7 +138,7 @@ What a cache brings with it is the other half of the trade:
 * **No stale cached plans.** `cached plan must not change result type`, the error that follows a migration on a long-lived pooled connection, has no cache to come from.
 * **Nothing to deallocate.** A connection returned to the pool carries no statements forward, and there is no leak to chase when a pool is large and the query set is larger.
 
-None of which makes the absence something to prefer. It is one side of a trade: 12 µs a statement, against a plan fitted to its arguments and a good deal of machinery kept out of the driver. Where plan reuse is worth more than that on your workload, pgjdbc's model is the one that has it.
+None of which makes the absence something to prefer. It is one side of a trade: ~20 µs a statement, against a plan fitted to its arguments and a good deal of machinery kept out of the driver. Where plan reuse is worth more than that on your workload, pgjdbc's model is the one that has it.
 
 ## Summary
 
