@@ -4,181 +4,106 @@
 
 #### Added
 
-- **`SessionTerminatedException`: a session the server ended arrives as the reason the server gave.** Any `FATAL`
-  or `PANIC` once the session is open, whatever its SQLSTATE - `TRANSACTION_TIMEOUT` (`25P04`, and `25P03` for
-  `idle_in_transaction_session_timeout`), `IDLE_SESSION_TIMEOUT` (`57P05`), `ADMINISTRATOR_COMMAND` (`57P01`:
-  `pg_terminate_backend()` or a shutdown), and `UNKNOWN` for the rest. The connection is gone with it: the next
-  call on the session names the server's reason, and a pool evicts the connection.
+- `SessionTerminatedException`: a session the server ended arrives as the reason the server gave -
+  `TRANSACTION_TIMEOUT`, `IDLE_SESSION_TIMEOUT`, `ADMINISTRATOR_COMMAND` or `UNKNOWN`. The next call on the session
+  names the same reason, and a pool evicts the connection.
 
-- **`@Transactional(timeout = …)` is enforced by `OctaviusJdbcTransactionManager`**, and so are a
-  `TransactionTemplate`'s timeout and `spring.transaction.default-timeout`; it did nothing before, being
-  `JdbcTemplate`'s to apply. `timeoutScope` decides how, each scope being one PostgreSQL setting. `STATEMENT`, the
-  default, sends `SET LOCAL statement_timeout`: a statement past it is cancelled and the connection stays. It holds
-  each statement to the timeout, not their sum, where `JdbcTemplate` gives each what is left of it. `TRANSACTION`
-  sends `SET LOCAL transaction_timeout`, which bounds the whole transaction on the server and ends the session when
-  it runs out. Either goes out as the transaction begins, and takes with it the `BEGIN` the driver would
-  otherwise hold back for the first statement - a round trip more for a transaction with a timeout, and none for
-  one without.
+- `@Transactional(timeout = …)` is enforced by `OctaviusJdbcTransactionManager`, and so are a
+  `TransactionTemplate`'s timeout and `spring.transaction.default-timeout`. `timeoutScope` picks the setting:
+  `STATEMENT` (`statement_timeout`, the default) or `TRANSACTION` (`transaction_timeout`).
 
-- **The auto-configured transaction manager takes Boot's transaction manager customizers**, as the one Boot makes
-  does: `spring.transaction.default-timeout`, `spring.transaction.rollback-on-commit-failure` and a
-  `TransactionManagerCustomizer<OctaviusJdbcTransactionManager>` bean all reach it.
+- The auto-configured transaction manager takes Boot's transaction manager customizers, so the
+  `spring.transaction.*` properties and a `TransactionManagerCustomizer` bean reach it.
 
 #### Changed
 
-- **`ExecutionAbortedExceptionReason` is gone, and `ExecutionAbortedException.reason` with it: `25P03` and `25P04`
-  are `SessionTerminatedException(TRANSACTION_TIMEOUT)`.** Both end the session where `57014` ends a statement, and
-  a `catch` of `ExecutionAbortedException` that retried on the same session retried on one that no longer existed.
-  That left `QUERY_CANCELED` as the only reason, which the type already says. **A `when` over
-  `ExecutionAbortedExceptionReason`, or code reading `reason`, stops compiling, and code that caught
-  `ExecutionAbortedException` for either timeout no longer sees it.**
+- `ExecutionAbortedExceptionReason` and `ExecutionAbortedException.reason` are gone: `25P03` and `25P04` are
+  `SessionTerminatedException(TRANSACTION_TIMEOUT)` now. **A `when` over the enum or code reading `reason` stops
+  compiling, and a `catch` of `ExecutionAbortedException` no longer sees either timeout.**
 
-- **A `FATAL` is `SessionTerminatedException` whatever its SQLSTATE**, where an `ERROR` with the same code routes
-  as before: `FATAL 57P01` is an administrator ending the session rather than a `DatabaseSystemException`, and
-  `FATAL 40001` - a standby ending a session over a recovery conflict - is not a `ConcurrencyException` to retry on
-  that session.
+- A `FATAL` is `SessionTerminatedException` whatever its SQLSTATE, where an `ERROR` with the same code routes as
+  before: `FATAL 57P01` is not a `DatabaseSystemException`, nor `FATAL 40001` a `ConcurrencyException`.
 
-- **A login the server refuses is `InitializationException`, whatever its SQLSTATE.** Class `28` keeps
-  `SERVER_REJECTED_CREDENTIALS`, and anything else is `CONNECTION_ERROR` with the code in `sqlState`. A database
-  that does not exist (`3D000`) was a `StatementException`, and too many connections (`53300`) or a server starting
-  up (`57P03`) a `DatabaseSystemException`. **A `catch` of those around connecting no longer sees them.**
+- A login the server refuses is `InitializationException` whatever its SQLSTATE - `SERVER_REJECTED_CREDENTIALS` for
+  class `28`, `CONNECTION_ERROR` with the code in `sqlState` for the rest.
 
-- **A `SQLExceptionWrapper` over a terminated session chains a next exception with SQLSTATE `08006`**, so a pool
-  evicts the connection at once rather than at its next validation - HikariCP reads neither `25P04` nor `57P05` as
-  a lost connection.
+- A `SQLExceptionWrapper` over a terminated session chains a next exception with SQLSTATE `08006`, so a pool evicts
+  the connection at once rather than at its next validation.
 
-- **Each exchange reads what the server sent since the last one before writing anything.** On a plain connection
-  that costs one look at the socket; on a TLS one it reaches only what the TLS layer has already decrypted.
-  Notifications, notices and parameter changes are taken in as they always were, and a `FATAL` among them is
-  reported without the statement being sent - which is what keeps it on a Windows client, where a reset provoked by
-  sending it discards whatever had not been read. A stock PostgreSQL server on Windows sends that reset by itself as
-  the backend exits, and there the `FATAL` is lost regardless.
+- Each exchange reads what the server sent since the last one before writing anything, so a `FATAL` that arrived
+  while the session sat idle is reported without the statement being sent.
 
-- **`OctaviusJdbcTransactionManager` stays quiet on a rollback that finds the connection gone**, as it already did
-  on one known to be gone beforehand. A session the server ended while nothing ran on it is found by the
-  `ROLLBACK`, and that failure replaced the application's exception. Its debug lines print their message now,
-  rather than the lambda meant to produce it.
+- `OctaviusJdbcTransactionManager` stays quiet on a rollback that finds the connection gone, where the rollback's
+  failure replaced the application's exception.
 
-- **`writeToCopy` reports a row the server rejected rather than sending the next chunk.** The server ends a `COPY`
-  the moment it rejects a row it can check as it reads it - a value that does not parse, a wrong column count,
-  `NOT NULL`, `CHECK` - and drops whatever data still arrives. `writeToCopy` reads that before writing, raises the
-  rejection and finishes the handle, where it went on sending until `endCopy()` collected the error, and the
-  `InputStream` overload of `copyIn` stops reading its input there. Foreign keys, checked when the statement ends,
-  still come from `endCopy()`, and a duplicate key whenever the server writes out the rows it has buffered. A
-  `FATAL` is caught the same way, before the chunk whose reset would make a Windows client discard it - where the
-  server closes gracefully, which a stock PostgreSQL on Windows does not. **A `catch` around `endCopy()` alone no
-  longer sees a row rejected mid-transfer.**
+- `writeToCopy` reports a row the server rejected rather than sending the next chunk, and the `InputStream` overload
+  of `copyIn` stops reading its input there. **A `catch` around `endCopy()` alone no longer sees a row rejected
+  mid-transfer.**
 
-- **The auto-configured transaction manager stands back from any `TransactionManager` the application declares, as
-  Boot's does**, a reactive one included, where only a `PlatformTransactionManager` made it stand back. **An
-  application with a reactive one that also used Octavius's has to declare Octavius's itself.**
+- The auto-configured transaction manager stands back from any `TransactionManager` the application declares, as
+  Boot's does, a reactive one included. **An application with a reactive one has to declare Octavius's itself.**
 
-- **An unqualified type name the search path does not reach is refused, naming the schemas that have it**, where
-  the driver took it from the one schema defining it. That schema could be one the role may not use, another
-  tenant's or another session's temporary one, and a parameter went out as its type, which the server accepts
-  even where it would not find the type by name. The refusal is `TypeException(TYPE_NOT_FOUND)`, giving the path
-  searched. **An enum, composite or codec registered without its schema, or a `withPgType` name without one, that
-  the path does not reach fails until it names the schema or the path includes it.**
+- An unqualified type name the search path does not reach is refused, naming the schemas that have it, where the
+  driver took it from the one schema defining it. **A registration or a `withPgType` name without its schema fails
+  where the path does not reach it.**
 
-- **No temporary type is in the catalog, a temporary table's row type among them.** The load and `reloadTypes()`
-  took in whatever temporary schemas existed at that moment, so whether a temporary type worked hung on when the
-  catalog was last read; once in, it was every session's to resolve and decode, and stayed as the OID of nothing
-  after its session ended. A column read from a temporary table keeps its `origin`, without names. **A whole row
-  of a temporary table, or any column of a temporary type, that read after a `reloadTypes()` now fails when the
-  result is described; cast it to a permanent composite (`SELECT e::imperium.edict FROM edicts e`).**
+- No temporary type is in the catalog, a temporary table's row type among them. **A whole row of a temporary table
+  now fails when the result is described; cast it to a permanent composite.**
 
-- **A codec declaring OID `0` is refused by `registerCodec`, with `InvalidOperationException(INVALID_ARGUMENT)`.**
-  No type has that OID: it is what a parameter is declared as for the server to infer its type, so a codec bound to
-  it sent its own binary layout under whatever type the server inferred from the statement. A negative OID is
-  still taken, OIDs being unsigned. **A registration that declared `0` used to pass, and now throws.**
+- A codec declaring OID `0` is refused by `registerCodec`, with `InvalidOperationException(INVALID_ARGUMENT)`.
+  **A registration declaring `0` throws where it used to pass.**
 
-- **A data class mapped reflectively allocates about half as much read, and as much as a hand-written converter
-  written as a composite.** Writing a `registerAutoComposite` class built a map of its properties for every value,
-  and reading one built a map of constructor arguments for every object and went through `callBy`. The property
-  map is built once with the class's metadata now, and the constructor is called directly unless a declared default
-  has a missing value to fill. Measured in one session, `SimpleDataBenchmark` and `CompositeInsertBenchmark` before
-  and after: 10 000 rows read went from 6.97 MB to 3.77 MB and from 0.192 ± 0.006 to 0.216 ± 0.005 ops/ms, the
-  hand-written converter beside it unchanged at 0.229; 10 000 composites written went from 4.93 MB to 2.05 MB,
-  which is what the hand-written converter allocates, and their time stayed within the noise.
+- A data class mapped reflectively allocates about half as much read, and as much as a hand-written converter
+  written as a composite.
 
 #### Fixed
 
-- **A `FATAL` is reported as itself, not as the closed connection after it.** The driver kept reading for a
-  `ReadyForQuery` that never follows one and reported what came instead - `CONNECTION_CLOSED_BY_PEER`, or
-  `CONNECTION_ERROR` over a reset - or, where the connection stayed open, waited for the close as long as the
-  socket timeout allowed, which by default is for good. A write that fails on a session the server ended reports
-  the `FATAL` waiting in the input too, on a plain connection: a `COPY IN` streaming into a transaction
-  `transaction_timeout` ended says so, instead of `Broken pipe`. Listener loops the server ends report it the same
-  way.
+- A `FATAL` is reported as itself, where the driver reported the closed connection after it, or waited for the
+  close for good under the default socket timeout. A failed write reports it too on a plain connection, and so does
+  a listener loop the server ends.
 
-- **A pooled session closed over a broken connection gives the connection up.** Closing it aborted a connection
-  that had already latched itself closed, the abort returned without the exception a pool evicts on, and the pool
-  counted the connection as borrowed for good - a single socket timeout exhausted a pool of one. The socket of
-  such a connection is closed now too, where it was left for the collector.
+- Closing a pooled session over a broken connection lets the pool evict the connection. The pool went on counting
+  it as borrowed, so a single socket timeout exhausted a pool of one.
 
-- **`cancelCopy()` on a connection that has gone does nothing**, so the `copyIn`/`copyOut` overloads that cancel on
-  failure report the failure, not the cancel's own on a dead socket.
+- `cancelCopy()` on a connection that has gone does nothing, so the `copyIn`/`copyOut` overloads that cancel on
+  failure report the failure, not the cancel's.
 
-- **A `transactionTimeout` holds where the server has a `transaction_timeout` of its own.** PostgreSQL starts a
-  transaction's clock with the value in force when the transaction begins - a database, role or session default -
-  and a later value leaves the running clock as it is, `SHOW` reporting the new one all the same. Wherever such a
-  default was set, a `transactionTimeout` was ignored, shorter and longer alike. The driver now stops the running
-  clock before starting its own.
+- A `transactionTimeout` holds under a `transaction_timeout` default set on the database, the role or the session,
+  where it was ignored.
 
-- **With several `DataSource` beans the Spring auto-configuration builds on the `@Primary` one, and with none
-  primary contributes nothing**, as Boot's own JDBC beans do; it failed the startup on a `DataSource` it could not
-  pick.
+- With several `DataSource` beans the Spring auto-configuration builds on the `@Primary` one, and with none primary
+  contributes nothing, instead of failing the startup.
 
-- **The auto-configured transaction manager can be injected as `OctaviusJdbcTransactionManager` by a bean created
-  before it.** It was declared as a `PlatformTransactionManager`, so by its own type it was found only once it
-  existed.
+- The auto-configured transaction manager can be injected as `OctaviusJdbcTransactionManager` by a bean created
+  before it.
 
-- **The JDBC `Statement` fails in a `SQLExceptionWrapper`, as the connection does**, so Spring's script runner
-  recognizes the failure: `spring.sql.init.continue-on-error` carries on past a statement the server rejects, and
-  without it the failure names its script and statement, where the driver's exception went past both. The
-  connection's `unwrap` to a type it is not, `isValid` with a negative timeout and `abort(null)` - now
-  `INVALID_ARGUMENT` rather than `FEATURE_NOT_SUPPORTED` - fail the same way, and so does `OctaviusDataSource.unwrap`.
-  **A `catch` of the driver's exception around those calls no longer sees it; `wrappedException` holds it.**
+- The JDBC `Statement` fails in a `SQLExceptionWrapper`, as the connection does, so Spring's script runner
+  recognizes the failure: `spring.sql.init.continue-on-error` carries on past it, and without it the failure names
+  its script and statement. **A `catch` of the driver's exception around a `Statement` no longer sees it;
+  `wrappedException` holds it.**
 
-- **A server certificate signed with RSASSA-PSS is hashed for channel binding with the digest in the signature's
-  parameters**, as the server hashes it. The driver hashed every such certificate with SHA-256, so over SHA-384 or
-  SHA-512 a login under the default `channelBinding=prefer` failed with `SERVER_REJECTED_CREDENTIALS` - the
-  server's `SCRAM channel binding check failed` - where `libpq` logs in.
+- A server certificate signed with RSASSA-PSS is hashed for channel binding with the digest in the signature's
+  parameters, as the server hashes it: over SHA-384 or SHA-512 a login under `channelBinding=prefer` failed.
 
-- **A server certificate signed with Ed25519 or Ed448 is refused before the SCRAM exchange, under
-  `channelBinding=prefer` as under `require`.** The refusal is `InitializationException(UNSUPPORTED_MECHANISM)`,
-  naming the signature and `channelBinding=disable`, which logs in unbound. Such a signature is made without a
-  digest, so neither end can hash the certificate: the login failed on the server's `could not find digest for NID
-  UNDEF`, as a `CONNECTION_ERROR`. `prefer` does not log in unbound past it, since an intermediary presenting such
-  a certificate of its own could relay that login.
+- A server certificate signed with Ed25519 or Ed448 is refused before the SCRAM exchange, under
+  `channelBinding=prefer` as under `require`, with `InitializationException(UNSUPPORTED_MECHANISM)` naming
+  `channelBinding=disable`.
 
-- **An unqualified type name resolves to the type the server picks for it, the reported `search_path` being read
-  as the server reads it.** `$user` is the schema named after the session user, taken from the reported
-  `session_authorization`: under the default `"$user", public` a user's own schema comes before `public`, and
-  with a schema for each user the name resolves to this user's rather than failing as ambiguous. `pg_catalog` is
-  searched first unless the path lists it. Unquoted names in a path stored as written - by `set_config` or a
-  startup parameter - are folded to lower case and cut to 63 bytes, so `Gallia` finds `gallia`, and `searchPath`
-  returns them that way. `SET ROLE`, a schema the role may not use and the session's temporary schema are still
-  not followed, the server reporting none of them. **A type of your own named like a built-in one - `money`,
-  `point` - now resolves to the built-in where no schema is given, and a schema named after the user is searched
-  where `$user` stands.**
+- An unqualified type name resolves to the type the server picks for it, the reported `search_path` being read as
+  the server reads it: `$user`, `pg_catalog` first unless listed, unquoted names folded. **A type of your own named
+  like a built-in one - `money`, `point` - now resolves to the built-in where no schema is given, and a schema
+  named after the user is searched where `$user` stands.**
 
-- **A result converter registered under a sealed class is offered every class below it**, as a codec for a sealed
-  class already was. A codec decodes to one concrete class and a converter was looked up by that class alone, so
-  one under `PgInterval` was never asked about an `interval` - what arrived was `PgInterval.Finite` or one of the
-  infinities - and `Any::class` was the only slot that reached them. A query's own converters are matched the same
-  way. Against a converter under a class below it, whichever was registered later is asked first. A codec for a
-  sealed class covers the classes below its sealed subclasses as well, where it stopped one level down. **A
-  converter under a sealed class that was never asked is asked now, ahead of those under `Any::class`.**
+- A result converter registered under a sealed class is offered every class below it, as a codec for a sealed
+  class already was: one under `PgInterval` was never asked about an `interval`. **Such a converter is now asked
+  ahead of those under `Any::class`.**
 
 ### Client
 
 #### Changed
 
-- **A login the server refuses is thrown under `dbResult`, `transactionResult` and `asResult`, as every session
-  that could not be obtained is.** Too many connections (`53300`) and a server starting up (`57P03`) were
-  `DatabaseSystemException`, and so a `Failure`; they are `InitializationException` now. **A `Failure` branch
-  that handled them no longer sees them.**
+- A login the server refuses is thrown under `dbResult`, `transactionResult` and `asResult`, as every session that
+  could not be obtained is. **A `Failure` branch that handled `53300` or `57P03` no longer sees them.**
 
 ## Version 2.5.0 (v2.5.0)
 
