@@ -27,6 +27,7 @@ the one that does.
 * [Why exceptions, and `DataResult` when you ask for it](#why-exceptions-and-dataresult-when-you-ask-for-it)
 * [Why `@name` and not `:name`](#why-name-and-not-name)
 * [Dynamic queries are just strings](#dynamic-queries-are-just-strings)
+* [Why the version number is not semver](#why-the-version-number-is-not-semver)
 * [The line this deliberately does not cross](#the-line-this-deliberately-does-not-cross)
 * [When this is not the right tool](#when-this-is-not-the-right-tool)
 
@@ -346,6 +347,26 @@ The line worth being careful about is that a *value* is never part of the statem
 placeholder themselves — but a *name* has nowhere else to go, so a column or table name taken from outside is
 SQL text and has to be treated as such. That is stated where it can be acted on, in
 [A name that comes from outside](docs/client/queries.md#a-name-that-comes-from-outside).
+
+## Why the version number is not semver
+
+The number says how far a change reaches. Semantic versioning asks it to say whether anything broke, and for a
+Kotlin library the answer is yes in most releases.
+
+A constant added to a public enum stops an exhaustive `when` from compiling, and so does a new subclass of a
+sealed class. Taken strictly, semver makes each of those a major. Of the first ten releases after 1.0.0, eight
+carried a `[BREAKING]` entry, a patch among them: eight majors under semver, in under seven weeks. A major that
+frequent stops telling anyone anything.
+
+It misses the other way too. Semver reads the API, and a library that queries pass through can change how all
+of them run and leave its API exactly as it was. The previous generation took 7.0.0 for replacing the
+`JdbcTemplate` that ran its queries with one of its own. Its API module did not change by a line, so by semver's
+measure that was a minor at most, while every query an application ran went through new code.
+
+So the two questions are carried apart. The number says how much runs differently, which is how much of an
+application is worth testing again. The `[BREAKING]` entries in the changelog say what has to change in your
+code, and they turn up in a minor or a patch as well as in a major. How each part of the number is decided is in
+[Versioning](README.md#versioning).
 
 ## The line this deliberately does not cross
 
