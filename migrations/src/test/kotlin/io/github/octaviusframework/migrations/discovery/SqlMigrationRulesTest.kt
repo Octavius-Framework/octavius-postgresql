@@ -78,6 +78,19 @@ class SqlMigrationRulesTest {
     }
 
     @Test
+    fun `the END of a BEGIN ATOMIC body is not transaction control`() {
+        // No dollar quotes here: the body is SQL the server parses, and its END stands at the top level.
+        control(
+            """
+            CREATE FUNCTION enroll(recruit text) RETURNS void LANGUAGE sql
+            BEGIN ATOMIC
+                INSERT INTO legionnaires VALUES (recruit);
+            END;
+            """.trimIndent()
+        )
+    }
+
+    @Test
     fun `a COMMIT hidden behind comments is still found`() {
         assertThrows<MigrationException> { control("-- why we do this\nCOMMIT;") }
         assertThrows<MigrationException> { control("/* a reason */ COMMIT;") }

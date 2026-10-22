@@ -1,3 +1,19 @@
+## Version 2.6.1 (v2.6.1)
+
+### Driver
+
+#### Fixed
+
+- `SqlScript.split` keeps a `BEGIN ATOMIC ... END` body inside its `CREATE FUNCTION` or `CREATE PROCEDURE`. It cut
+  the body at every `;` in it, and the `END` closing it came out as a statement of its own.
+
+### Migrations
+
+#### Fixed
+
+- A `.sql` migration that defines a function or procedure with a `BEGIN ATOMIC` body runs. The scan took the body's
+  closing `END` for a `COMMIT` and refused the file, and a file run without a transaction sent the body in pieces.
+
 ## Version 2.6.0 (v2.6.0)
 
 ### Driver
