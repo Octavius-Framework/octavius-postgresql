@@ -3,9 +3,9 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.octavius-framework/driver)](https://central.sonatype.com/namespace/io.github.octavius-framework)
 [![Build and Test](https://github.com/Octavius-Framework/octavius-postgresql/actions/workflows/tests.yml/badge.svg)](https://github.com/Octavius-Framework/octavius-postgresql/actions/workflows/tests.yml)
 [![API Reference](https://img.shields.io/badge/docs-API%20reference-blue)](https://octavius-framework.github.io/octavius-postgresql/)
-![License](https://img.shields.io/badge/license-Apache%202.0-blue)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-*Not an ORM. A **ROME** — a Relational-Object Mapping Engine. Because all queries lead to ROME.*
+*Not an ORM. A **ROME** — a Relational-Object Mapping Engine. Because all rows lead to ROME.*
 
 Everything Octavius has to say about talking to PostgreSQL from Kotlin: a driver that speaks the wire protocol
 directly, a data access layer built on it, and a migrator that keeps the schema up to date.
@@ -56,11 +56,11 @@ Not published: `hikari-integration-tests` (integration tests against a real pool
 All six live under `io.github.octavius-framework` and are released together on the same version:
 
 ```kotlin
-implementation("io.github.octavius-framework:driver:2.5.0")
-implementation("io.github.octavius-framework:client:2.5.0")
-implementation("io.github.octavius-framework:client-scanner:2.5.0")
-implementation("io.github.octavius-framework:migrations:2.5.0")
-implementation("io.github.octavius-framework:driver-spring-integration:2.5.0")
+implementation("io.github.octavius-framework:driver:2.6.0")
+implementation("io.github.octavius-framework:client:2.6.0")
+implementation("io.github.octavius-framework:client-scanner:2.6.0")
+implementation("io.github.octavius-framework:migrations:2.6.0")
+implementation("io.github.octavius-framework:driver-spring-integration:2.6.0")
 ```
 
 Take the ones you want and no more — each brings what it sits on. `client` brings the driver,
@@ -125,8 +125,8 @@ to use is a minor, and so is a function that disappears, because either reaches 
 thing. **A patch is a fix, or documentation.**
 
 None of the three is a compatibility promise. Where a release changes what existing code already does, the
-changelog entry says so in bold — 1.1.0 was a minor and added a constant to a public enum, which is enough to
-stop an exhaustive `when` from compiling. Those sentences are the ones to read before upgrading.
+changelog entry is tagged `[BREAKING]` — 1.1.0 was a minor and added a constant to a public enum, which is enough
+to stop an exhaustive `when` from compiling. Those entries are the ones to read before upgrading.
 
 Nothing is deprecated first. A name that goes is gone in the release that takes it, named in the changelog
 beside whatever replaced it.
@@ -156,4 +156,4 @@ been.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+Licensed under the [Apache License, Version 2.0](LICENSE).

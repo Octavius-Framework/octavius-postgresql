@@ -85,4 +85,4 @@ Spring Boot 4.x, on top of [the driver's own](../README.md#requirements) — Jav
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+Licensed under the [Apache License, Version 2.0](../LICENSE).
