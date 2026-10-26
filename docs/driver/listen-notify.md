@@ -42,7 +42,7 @@ Channel names are quoted as PostgreSQL identifiers, so a name with capitals or s
 
 Four rules decide whether a dispatch reaches you, and all four are PostgreSQL's:
 
-**Only on commit.** A `notify` issued inside a transaction is held until that transaction commits. Verified: with the notifier sitting in an open transaction, the listener saw nothing; the moment the notifier committed, the message arrived. A rolled-back transaction sends nothing at all.
+**Only on commit.** A `notify` issued inside a transaction is held until that transaction commits. A rolled-back transaction sends nothing at all.
 
 **Only between the listener's transactions.** A listening session inside a transaction is handed nothing until that transaction ends, however many queries it runs in the meantime; what was sent to it arrives once it commits or rolls back.
 
