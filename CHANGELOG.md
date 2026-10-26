@@ -19,6 +19,13 @@
   nothing to join has it, ends before Spring gives the connection back. It ended after, and its reset ran on a
   connection already back in the pool, where another thread could have borrowed it.
 
+#### Changed
+
+- `startPollingListenerLoop` and `startInterruptibleListenerLoop` throw `InvalidOperationException(CONNECTION_BUSY)`
+  when a transaction is open on the server, and leave the session as it was. PostgreSQL holds notifications back
+  until a listener's transaction ends, and nothing could end it while the loop holds the connection, so such a loop
+  waited without ever receiving anything.
+
 ### Migrations
 
 #### Fixed

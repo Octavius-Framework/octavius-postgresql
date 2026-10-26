@@ -40,9 +40,11 @@ Channel names are quoted as PostgreSQL identifiers, so a name with capitals or s
 
 ## When a notification is actually delivered
 
-Three rules decide whether a dispatch reaches you, and all three are PostgreSQL's:
+Four rules decide whether a dispatch reaches you, and all four are PostgreSQL's:
 
 **Only on commit.** A `notify` issued inside a transaction is held until that transaction commits. Verified: with the notifier sitting in an open transaction, the listener saw nothing; the moment the notifier committed, the message arrived. A rolled-back transaction sends nothing at all.
+
+**Only between the listener's transactions.** A listening session inside a transaction is handed nothing until that transaction ends, however many queries it runs in the meantime; what was sent to it arrives once it commits or rolls back.
 
 **Including back to the sender.** A session listening on a channel receives its own notifications too — it is not excluded.
 
@@ -76,6 +78,8 @@ A listener loop is what you need when the connection would otherwise sit idle �
 ## Listener loops
 
 Both are suspending functions; launch one in a coroutine after subscribing.
+
+Neither starts while a transaction is open on the connection: a loop holds the connection, so nothing could end that transaction, and nothing would ever arrive. Both throw `InvalidOperationException(CONNECTION_BUSY)` instead and leave the session as it was — commit or roll back first. A session with auto-commit off that has run nothing since is not in a transaction yet as far as the server is concerned, and its loop receives as usual.
 
 > [!IMPORTANT]
 > A running loop **holds the connection for its entire duration.** A query issued on that same session from another thread blocks until the loop is canceled — measured at over two seconds against a loop that was simply left running. Give a listener its own session; do not share it with query traffic.

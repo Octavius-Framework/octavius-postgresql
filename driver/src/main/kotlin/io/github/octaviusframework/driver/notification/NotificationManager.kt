@@ -1,9 +1,12 @@
 package io.github.octaviusframework.driver.notification
 
 import io.github.octaviusframework.driver.concurrent.OctaviusDispatchers
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.identifier.quoteAsPgIdentifier
 import io.github.octaviusframework.driver.session.OctaviusSessionImpl
+import io.github.octaviusframework.driver.session.TransactionState
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.SharedFlow
@@ -37,9 +40,12 @@ class NotificationManager internal constructor(private val session: OctaviusSess
      *
      * @param pollTimeoutMs The socket timeout used for polling in milliseconds.
      * @param dispatcher The coroutine dispatcher to run the loop on. Defaults to a virtual thread dispatcher if null.
+     * @throws InvalidOperationException `CONNECTION_BUSY` where a transaction is open on the server, which holds
+     * back every notification until it ends - and nothing could end it while the loop holds the connection.
      */
     suspend fun startPollingListenerLoop(pollTimeoutMs: Int = 500, dispatcher: CoroutineDispatcher? = null) {
         if (connection.isClosedFlag) return
+        refuseOpenTransaction()
 
         withContext(dispatcher ?: OctaviusDispatchers.Virtual) {
             val context = currentCoroutineContext()
@@ -80,9 +86,13 @@ class NotificationManager internal constructor(private val session: OctaviusSess
      * When the coroutine is cancelled, it simply closes the socket.
      *
      * @param dispatcher The coroutine dispatcher to run the loop on. Defaults to a virtual thread dispatcher if null.
+     * @throws InvalidOperationException `CONNECTION_BUSY` where a transaction is open on the server, as
+     * [startPollingListenerLoop] does. The connection is left as it was.
      */
     suspend fun startInterruptibleListenerLoop(dispatcher: CoroutineDispatcher? = null) {
         if (connection.isClosedFlag) return
+        // Before anything that could abort the connection on the way out: a refusal leaves it as it was.
+        refuseOpenTransaction()
 
         withContext(dispatcher ?: OctaviusDispatchers.Virtual) {
             val cancelJob = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -118,6 +128,24 @@ class NotificationManager internal constructor(private val session: OctaviusSess
                 }
             }
         }
+    }
+
+    /**
+     * Refuses to start a loop that would wait for nothing: PostgreSQL holds back every notification for a session
+     * inside a transaction until the transaction ends, and a running loop holds the connection, so nothing would
+     * end it.
+     *
+     * The server's state rather than the session's. With auto-commit off and no statement since, the `BEGIN` is
+     * still waiting and the server idle, and notifications arrive as they would without it.
+     */
+    private fun refuseOpenTransaction() {
+        if (connection.serverTransactionState == TransactionState.IDLE) return
+        throw InvalidOperationException(
+            InvalidOperationExceptionReason.CONNECTION_BUSY,
+            details = "A transaction is open on this connection, and PostgreSQL delivers no notification to it until " +
+                "the transaction ends - which nothing could do while the loop holds the connection. Commit or roll " +
+                "back before starting the loop."
+        )
     }
 
     /**
@@ -177,8 +205,9 @@ class NotificationManager internal constructor(private val session: OctaviusSess
      * that never called [listen] pay nothing.
      *
      * Sent as a statement about the connection rather than as the session's own work, so that it never
-     * opens the transaction a `BEGIN` may be waiting for. Inside one, `UNLISTEN` would take effect only at a
-     * commit - and a session being closed has no commit coming, only the rollback of what it left open.
+     * opens the transaction a `BEGIN` may be waiting for: inside one, `UNLISTEN` takes effect only at its
+     * commit. Where the session leaves open a transaction its connection's owner began, it goes out inside
+     * that one, and stands or falls with it as the session's `LISTEN`s there do.
      */
     internal fun releaseSubscriptions() {
         if (!hasSubscribed) return
