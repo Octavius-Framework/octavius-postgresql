@@ -57,7 +57,7 @@ The accessories go with the cursor: `setMaxRows()`, `setFetchSize()`, `setQueryT
 `createBlob()` / `createClob()` don't exist here. Binary and text data map directly to plain Kotlin `ByteArray` and `String`, backed by PostgreSQL's `bytea` and `text` through the type catalog. For payloads past what a single `bytea` should carry, PostgreSQL's own large objects are exposed as [a first-class API](large-objects.md) on the session — no unwrapping to a vendor interface.
 
 ### 5. DatabaseMetaData
-The heavyweight JDBC metadata API is skipped entirely. If you need metadata, query `pg_catalog` directly through `OctaviusSession`.
+The heavyweight JDBC metadata API is skipped. `getMetaData()` answers the two questions [listed below](#what-answers-quietly-instead-of-throwing), and every other method on it throws. If you need metadata, query `pg_catalog` directly through `OctaviusSession`.
 
 This is the omission with the longest shadow: Hibernate, Spring Data JDBC and JPA, Flyway and Liquibase all identify the database through `DatabaseMetaData` before they do anything else, so none of them run on Octavius. Schema migrations at startup, the usual reason to want one of them, are what [`migrations`](../migrations/README.md) does on the driver itself. Where one of those tools is non-negotiable all the same, the practical answer is a second `DataSource` on `pgjdbc` dedicated to it, with Octavius left to the application — under Spring Boot marked `@Primary`, the one [the auto-configuration](spring-integration.md#auto-configuration) builds on.
 
@@ -85,13 +85,14 @@ Octavius drops the pull-based trap entirely and pushes instead: notices reach a 
 
 `getWarnings()` **returns `null`** and `clearWarnings()` does nothing, rather than throwing — connection pools call both routinely on every borrow, so failing there would break pooling for no gain. The same reasoning covers a short list of other methods, each answering with a plausible constant:
 
-| Call                                            | What comes back          | Where the real answer lives                                              |
-|:------------------------------------------------|:-------------------------|:-------------------------------------------------------------------------|
-| `getWarnings()` / `clearWarnings()`             | `null` / nothing happens | A `NoticeHandler`                                                        |
-| `getClientInfo()`                               | An empty `Properties`    | — (the name-taking overload and both setters throw)                      |
-| `Statement.getUpdateCount()`                    | `-1`                     | The return value of `executeUpdate()`                                    |
-| `Statement.getResultSet()` / `getMoreResults()` | `null` / `false`         | — (`execute()` never produces rows)                                      |
-| `Driver.getPropertyInfo()`                      | An empty array           | [The configuration reference](initialization.md#configuration-reference) |
+| Call                                            | What comes back                                                                    | Where the real answer lives                                              |
+|:------------------------------------------------|:-----------------------------------------------------------------------------------|:-------------------------------------------------------------------------|
+| `getWarnings()` / `clearWarnings()`             | `null` / nothing happens                                                           | A `NoticeHandler`                                                        |
+| `getClientInfo()`                               | An empty `Properties`                                                              | — (the name-taking overload and both setters throw)                      |
+| `getMetaData()`                                 | `true` from `supportsSavepoints()`, `"PostgreSQL"` from `getDatabaseProductName()` | `pg_catalog`, queried through the session — every other method throws    |
+| `Statement.getUpdateCount()`                    | `-1`                                                                               | The return value of `executeUpdate()`                                    |
+| `Statement.getResultSet()` / `getMoreResults()` | `null` / `false`                                                                   | — (`execute()` never produces rows)                                      |
+| `Driver.getPropertyInfo()`                      | An empty array                                                                     | [The configuration reference](initialization.md#configuration-reference) |
 
 One of these is worth spelling out for anyone migrating: **your existing `getWarnings()` calls will not fail** — they will report nothing, forever. Move that logic to a `NoticeHandler`.
 

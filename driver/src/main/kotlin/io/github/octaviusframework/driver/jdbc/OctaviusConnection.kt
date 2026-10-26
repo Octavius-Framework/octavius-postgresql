@@ -113,7 +113,7 @@ internal class OctaviusConnection(
         return isClosedFlag
     }
 
-    override fun getMetaData(): DatabaseMetaData = unsupported()
+    override fun getMetaData(): DatabaseMetaData = OctaviusDatabaseMetaData // required by Spring
 
     override fun getWarnings(): SQLWarning? = null
     override fun clearWarnings() {} // required by Hikari

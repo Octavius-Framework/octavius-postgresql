@@ -69,8 +69,6 @@ open class OctaviusJdbcTransactionManager(dataSource: DataSource) : JdbcTransact
         // A failure raised while the manager itself is committing or rolling back arrives in
         // Spring's DataAccessException hierarchy rather than as a raw SQLException.
         exceptionTranslator = OctaviusExceptionTranslator()
-        // What makes @Transactional(propagation = NESTED) resolve to a savepoint.
-        isNestedTransactionAllowed = true
     }
 
     /**

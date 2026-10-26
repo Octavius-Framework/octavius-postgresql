@@ -62,18 +62,25 @@ class OctaviusSpringIntegrationTest {
     }
     
     @Test
-    fun `should work with nested transactions`() {
+    fun `should roll a failed nested transaction back to its savepoint`() {
         testService.createTable()
-        
-        try {
-            testService.insertWithNestedRollback()
-        } catch (e: RuntimeException) {
-            // expected
-        }
-        
-        val count = octaviusTemplate.execute { createNativeQuery("SELECT count(*) as c FROM test_spring").fetchRowStrict().get<Long>("c") }
-        assertEquals(1L, count) // Outer insert should be there, nested should be rolled back
+
+        testService.insertWithNestedRollback()
+
+        assertEquals(listOf("outer"), committedValues())
     }
+
+    @Test
+    fun `should commit a nested transaction with the one around it`() {
+        testService.createTable()
+
+        testService.insertWithNestedCommit()
+
+        assertEquals(listOf("nested", "outer"), committedValues())
+    }
+
+    private fun committedValues(): List<String> =
+        octaviusTemplate.execute { createNativeQuery("SELECT val FROM test_spring ORDER BY val").fetchFields<String>() }
 
     @Test
     fun `should translate octavius exceptions to OctaviusDataAccessException`() {
@@ -137,6 +144,8 @@ open class TestApplication {
     }
 }
 
+class NestedRollbackException : RuntimeException("Nested rollback")
+
 open class TestService(private val octaviusTemplate: OctaviusTemplate) {
 
     open fun createTable() {
@@ -179,15 +188,26 @@ open class TestService(private val octaviusTemplate: OctaviusTemplate) {
         octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('outer')").execute() }
         try {
             self.nestedRollback()
-        } catch (e: RuntimeException) {
-            // caught
+        } catch (_: NestedRollbackException) {
+            // Only the nested method's own failure. One from taking the savepoint leaves this method too.
         }
     }
 
     @Transactional(propagation = Propagation.NESTED)
     open fun nestedRollback() {
         octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('nested')").execute() }
-        throw RuntimeException("Nested rollback")
+        throw NestedRollbackException()
+    }
+
+    @Transactional
+    open fun insertWithNestedCommit() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('outer')").execute() }
+        self.nestedInsert()
+    }
+
+    @Transactional(propagation = Propagation.NESTED)
+    open fun nestedInsert() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('nested')").execute() }
     }
 
     @Transactional(readOnly = true)

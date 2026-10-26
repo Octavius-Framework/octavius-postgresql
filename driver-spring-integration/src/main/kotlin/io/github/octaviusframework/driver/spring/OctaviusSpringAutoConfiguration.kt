@@ -56,12 +56,10 @@ open class OctaviusSpringAutoConfiguration {
      *
      * It carries an [OctaviusExceptionTranslator], so a failure raised while the manager itself is
      * committing or rolling back arrives in Spring's `DataAccessException` hierarchy rather than as a
-     * raw `SQLException`, and it has nested transactions enabled, which is what makes
-     * `@Transactional(propagation = NESTED)` resolve to a savepoint instead of being rejected. What it
-     * adds over `JdbcTransactionManager` is the driver's exception for a transaction that never got a
-     * connection, an answer for one whose connection has already left - see the class for which
-     * way each of commit and rollback goes, and why they differ - and a transaction timeout that is
-     * enforced.
+     * raw `SQLException`. What it adds over `JdbcTransactionManager` is the driver's exception for a
+     * transaction that never got a connection, an answer for one whose connection has already left - see
+     * the class for which way each of commit and rollback goes, and why they differ - and a transaction
+     * timeout that is enforced.
      *
      * Boot's transaction manager customizers are applied to it, as they are to the one Boot would have
      * made: `spring.transaction.default-timeout` and `spring.transaction.rollback-on-commit-failure` reach

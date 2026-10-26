@@ -19,12 +19,22 @@
   nothing to join has it, ends before Spring gives the connection back. It ended after, and its reset ran on a
   connection already back in the pool, where another thread could have borrowed it.
 
+- `Propagation.NESTED` inside a running transaction takes a savepoint. It threw
+  `InvalidOperationException(FEATURE_NOT_SUPPORTED)` before the nested method ran, because Spring asks
+  `DatabaseMetaData.supportsSavepoints()` first and `getMetaData()` refused. A caller that caught the nested
+  method's failures caught this one too, and carried on without the nested work.
+
 #### Changed
 
 - `startPollingListenerLoop` and `startInterruptibleListenerLoop` throw `InvalidOperationException(CONNECTION_BUSY)`
   when a transaction is open on the server, and leave the session as it was. PostgreSQL holds notifications back
   until a listener's transaction ends, and nothing could end it while the loop holds the connection, so such a loop
   waited without ever receiving anything.
+
+- `getMetaData()` returns a `DatabaseMetaData` that answers `supportsSavepoints()` with `true` and
+  `getDatabaseProductName()` with `PostgreSQL`, where it threw `InvalidOperationException(FEATURE_NOT_SUPPORTED)`.
+  Every other method on it throws that exception. Actuator's `db` health indicator reports `UP` with no
+  `connection-test-query` set, so a `dbHealthIndicator` bean declared in its place, as the docs advised, can go.
 
 ### Migrations
 

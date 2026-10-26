@@ -61,11 +61,6 @@ called**, with the driver's own `InvalidOperationException(FEATURE_NOT_SUPPORTED
 exception, since a `RuntimeException` that was never a `SQLException` gives the translator nothing to
 translate.
 
-Actuator's `db` health indicator fails for a shallower reason and is worth replacing rather than working
-around: it labels its response with `getDatabaseProductName()` before checking anything, so the component sits
-permanently `DOWN` in front of a connection that is fine. One bean replaces it, in
-[the documentation](../docs/driver/spring-integration.md#replacing-actuators-database-health-check).
-
 Schema migrations need neither Flyway nor Liquibase: [`migrations`](../docs/migrations/README.md) runs on the
 driver. Where a tool genuinely needs full JDBC all the same, the practical answer is a second `DataSource` on
 `pgjdbc` dedicated to it, with the Octavius one left to the application and marked `@Primary`.
