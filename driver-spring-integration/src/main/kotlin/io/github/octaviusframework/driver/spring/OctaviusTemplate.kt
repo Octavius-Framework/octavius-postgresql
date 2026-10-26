@@ -87,7 +87,11 @@ class OctaviusTemplate(private val dataSource: DataSource, val exceptionTranslat
             // LISTEN registrations and any hand-written BEGIN before the connection goes back. A
             // transaction-scoped one is ended by its synchronization instead, once, at the end -
             // closing it here would reset a connection the transaction is still working on.
-            if (!transactionScoped) session?.close()
+            // Without synchronization a transaction manager still binds the connection it began a
+            // transaction on, and that transaction is Spring's to end; nothing else binds one.
+            if (!transactionScoped) {
+                if (DataSourceUtils.isConnectionTransactional(con, dataSource)) session?.close() else session?.closeRollingBack()
+            }
             DataSourceUtils.releaseConnection(con, dataSource)
         }
     }
@@ -103,7 +107,9 @@ class OctaviusTemplate(private val dataSource: DataSource, val exceptionTranslat
 
         val holder = OctaviusSessionHolder(session)
         TransactionSynchronizationManager.bindResource(sessionKey, holder)
-        TransactionSynchronizationManager.registerSynchronization(OctaviusSessionSynchronization(holder, sessionKey))
+        TransactionSynchronizationManager.registerSynchronization(
+            OctaviusSessionSynchronization(holder, sessionKey, TransactionSynchronizationManager.isActualTransactionActive())
+        )
         return true
     }
 

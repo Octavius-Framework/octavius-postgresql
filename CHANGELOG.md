@@ -7,6 +7,18 @@
 - `SqlScript.split` keeps a `BEGIN ATOMIC ... END` body inside its `CREATE FUNCTION` or `CREATE PROCEDURE`. It cut
   the body at every `;` in it, and the `END` closing it came out as a statement of its own.
 
+- Closing a session opened with `getOctaviusSession(ownsConnection = false)` leaves a transaction the connection was
+  already in - begun on the server, or waiting for its first statement with auto-commit off - for the connection's
+  owner to end. It rolled back any transaction open on the server, so the owner's `commit()` afterwards returned
+  normally with the work gone. A transaction the session began itself is still rolled back.
+
+- `OctaviusTemplate` under a transaction manager with synchronization switched off leaves its work in the transaction
+  for Spring to commit. Each `execute` closed its session on the way out, and the close rolled the transaction back.
+
+- A session `OctaviusTemplate` binds to synchronization with no transaction behind it, as `PROPAGATION_SUPPORTS` with
+  nothing to join has it, ends before Spring gives the connection back. It ended after, and its reset ran on a
+  connection already back in the pool, where another thread could have borrowed it.
+
 ### Migrations
 
 #### Fixed

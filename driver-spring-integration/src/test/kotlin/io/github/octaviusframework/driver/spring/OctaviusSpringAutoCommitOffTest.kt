@@ -12,6 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.annotation.EnableTransactionManagement
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 
 /**
@@ -70,6 +71,15 @@ class OctaviusSpringAutoCommitOffTest {
     }
 
     @Test
+    fun `a write where a transaction is only supported is rolled back as well`() {
+        service.insertWhereSupported(1)
+
+        assertEquals(0L, committedRows())
+        service.insertInTransaction(2)
+        assertEquals(1L, committedRows())
+    }
+
+    @Test
     fun `a write inside a transaction commits as it would anyway`() {
         service.insertInTransaction(1)
 
@@ -90,6 +100,12 @@ open class AutoCommitOffService(private val octaviusTemplate: OctaviusTemplate) 
 
     @Transactional
     open fun insertInTransaction(id: Int) {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES ($1)").update(id) }
+    }
+
+    // No transaction to join, so none is begun - but synchronization is on, and the session is bound to it.
+    @Transactional(propagation = Propagation.SUPPORTS)
+    open fun insertWhereSupported(id: Int) {
         octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES ($1)").update(id) }
     }
 }
