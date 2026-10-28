@@ -8,9 +8,11 @@ import org.junit.jupiter.api.Test
 import org.springframework.core.io.ByteArrayResource
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator
 import org.springframework.jdbc.datasource.init.ScriptStatementFailedException
+import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import java.sql.Connection
 import java.sql.DriverManager
+import javax.sql.DataSource
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -62,19 +64,43 @@ class OctaviusScriptPopulatorTest : AbstractIntegrationTest() {
         }
     }
 
+    /** Runs [sql] the way `@Sql` runs a script in a `@Transactional` test: on the connection `DataSourceUtils` finds. */
+    private fun runScript(sql: String, dataSource: DataSource) =
+        ResourceDatabasePopulator(ByteArrayResource(sql.toByteArray())).execute(dataSource)
+
+    private fun tables(vararg names: String): List<String> = TestDatabase.openSession().use {
+        it.createNativeQuery("SELECT tablename::text FROM pg_tables WHERE schemaname = 'public' ORDER BY 1")
+            .fetchFields<String>()
+            .filter { name -> name in names }
+    }
+
     @Test
     fun `a script run inside a transaction rolls back with it`() {
         TestDatabase.dataSource().use { dataSource ->
             TransactionTemplate(OctaviusJdbcTransactionManager(dataSource)).executeWithoutResult { status ->
-                // What @Sql does in a @Transactional test: the populator takes its connection through DataSourceUtils
-                ResourceDatabasePopulator(ByteArrayResource("CREATE TABLE cohors (numerus int)".toByteArray())).execute(dataSource)
+                runScript("CREATE TABLE cohors (numerus int)", dataSource)
                 status.setRollbackOnly()
             }
 
-            val tables = TestDatabase.openSession().use {
-                it.createNativeQuery("SELECT count(*) FROM pg_tables WHERE tablename = 'cohors'").fetchFieldStrict<Long>()
+            assertEquals(emptyList(), tables("cohors"), "the script ran on a connection of its own and committed")
+        }
+    }
+
+    @Test
+    fun `a script run around a REQUIRES_NEW transaction lands in the transaction it ran in`() {
+        TestDatabase.dataSource().use { dataSource ->
+            val manager = OctaviusJdbcTransactionManager(dataSource)
+            val requiresNew = TransactionTemplate(manager).apply {
+                propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
             }
-            assertEquals(0L, tables, "the script ran on a connection of its own and committed")
+
+            TransactionTemplate(manager).executeWithoutResult { status ->
+                requiresNew.executeWithoutResult { runScript("CREATE TABLE centuria (numerus int)", dataSource) }
+                runScript("CREATE TABLE manipulus (numerus int)", dataSource)
+                status.setRollbackOnly()
+            }
+
+            assertEquals(listOf("centuria"), tables("centuria", "manipulus"))
         }
     }
 }

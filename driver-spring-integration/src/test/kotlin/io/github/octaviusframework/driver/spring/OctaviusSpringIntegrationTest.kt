@@ -4,6 +4,7 @@ import io.github.octaviusframework.driver.exception.ConstraintViolationException
 import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.TransactionStateException
 import io.github.octaviusframework.driver.exception.TransactionStateExceptionReason
+import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -94,6 +95,23 @@ class OctaviusSpringIntegrationTest {
         val ex = assertThrows(TransactionStateException::class.java) { testService.nestedAfterAFailedStatement() }
 
         assertEquals(TransactionStateExceptionReason.IN_FAILED_TRANSACTION, ex.reason)
+    }
+
+    @Test
+    fun `should commit a REQUIRES_NEW transaction on its own when the one around it rolls back`() {
+        testService.createTable()
+
+        assertThrows(RuntimeException::class.java) { testService.insertAroundANewTransactionThenFail() }
+
+        assertEquals(listOf("inner"), committedValues())
+    }
+
+    @Test
+    fun `should give a transaction its own session back once a REQUIRES_NEW one inside it ends`() {
+        val (outer, inner, resumed) = testService.sessionsAroundANewTransaction()
+
+        assertNotSame(outer, inner)
+        assertSame(outer, resumed)
     }
 
     private fun committedValues(): List<String> =
@@ -231,6 +249,29 @@ open class TestService(private val octaviusTemplate: OctaviusTemplate) {
             // Caught, but the transaction it joined is marked rollback-only all the same
         }
     }
+
+    @Transactional
+    open fun insertAroundANewTransactionThenFail() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('outer')").execute() }
+        self.insertInANewTransaction()
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('resumed')").execute() }
+        throw RuntimeException("Rollback")
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    open fun insertInANewTransaction() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('inner')").execute() }
+    }
+
+    @Transactional
+    open fun sessionsAroundANewTransaction(): Triple<OctaviusSessionOperations, OctaviusSessionOperations, OctaviusSessionOperations> {
+        val outer = octaviusTemplate.execute { this }
+        val inner = self.sessionInANewTransaction()
+        return Triple(outer, inner, octaviusTemplate.execute { this })
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    open fun sessionInANewTransaction(): OctaviusSessionOperations = octaviusTemplate.execute { this }
 
     @Transactional
     open fun nestedAfterAFailedStatement() {
