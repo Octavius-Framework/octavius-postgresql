@@ -1,7 +1,6 @@
 package io.github.octaviusframework.driver.spring
 
 import io.github.octaviusframework.driver.session.OctaviusSession
-import io.github.octaviusframework.driver.spring.exception.OctaviusExceptionTranslator
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.AutoConfiguration
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass
@@ -54,14 +53,10 @@ open class OctaviusSpringAutoConfiguration {
      * `TransactionManager` of its own - JDBC, JPA or reactive alike, as for Boot's own. Declared as the class it
      * is, so a bean created before it can inject it by that type.
      *
-     * It carries an [OctaviusExceptionTranslator], so a failure raised while the manager itself is
-     * committing or rolling back arrives in Spring's `DataAccessException` hierarchy rather than as a
-     * raw `SQLException`, and it has nested transactions enabled, which is what makes
-     * `@Transactional(propagation = NESTED)` resolve to a savepoint instead of being rejected. What it
-     * adds over `JdbcTransactionManager` is the driver's exception for a transaction that never got a
-     * connection, an answer for one whose connection has already left - see the class for which
-     * way each of commit and rollback goes, and why they differ - and a transaction timeout that is
-     * enforced.
+     * It does for the `DataSource` what `DataSourceTransactionManager` does, and adds the driver's own
+     * exception for a transaction that failed to begin, commit or roll back, an answer for one whose
+     * connection has already left - see the class for which way each of commit and rollback goes, and
+     * why they differ - and a transaction timeout that is enforced.
      *
      * Boot's transaction manager customizers are applied to it, as they are to the one Boot would have
      * made: `spring.transaction.default-timeout` and `spring.transaction.rollback-on-commit-failure` reach

@@ -3,7 +3,6 @@ package io.github.octaviusframework.driver.spring
 import io.github.octaviusframework.driver.exception.ExecutionAbortedException
 import io.github.octaviusframework.driver.exception.SessionTerminatedException
 import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionReason
-import io.github.octaviusframework.driver.spring.exception.OctaviusDataAccessException
 import io.github.octaviusframework.testsupport.TestDatabase
 import io.github.octaviusframework.testsupport.assumeUnreadFatalSurvives
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -74,9 +73,8 @@ class OctaviusSpringTransactionTimeoutTest {
     fun `a statement that runs past the timeout is cancelled, and the connection stays`() {
         val before = backendPid()
 
-        val ex = assertThrows(OctaviusDataAccessException::class.java) { service.sleepWithinOneSecond() }
+        val aborted = assertThrows(ExecutionAbortedException::class.java) { service.sleepWithinOneSecond() }
 
-        val aborted = assertInstanceOf<ExecutionAbortedException>(ex.octaviusException)
         assertEquals("57014", aborted.sqlState)
         assertEquals(before, backendPid())
     }
@@ -99,9 +97,8 @@ class OctaviusSpringTransactionTimeoutTest {
     @Test
     fun `a commit on a session the server ended says why it did not happen`() {
         assumeUnreadFatalSurvives()
-        val ex = assertThrows(OctaviusDataAccessException::class.java) { service.terminatedThenCommit() }
+        val terminated = assertThrows(SessionTerminatedException::class.java) { service.terminatedThenCommit() }
 
-        val terminated = assertInstanceOf<SessionTerminatedException>(ex.octaviusException)
         assertEquals(SessionTerminatedExceptionReason.ADMINISTRATOR_COMMAND, terminated.reason)
     }
 }
@@ -152,9 +149,8 @@ class OctaviusSpringTransactionScopeTest {
     fun `a statement that runs past the timeout ends the session, and the caller hears the timeout`() {
         val before = backendPid()
 
-        val ex = assertThrows(OctaviusDataAccessException::class.java) { service.sleepWithinOneSecond() }
+        val terminated = assertThrows(SessionTerminatedException::class.java) { service.sleepWithinOneSecond() }
 
-        val terminated = assertInstanceOf<SessionTerminatedException>(ex.octaviusException)
         assertEquals(SessionTerminatedExceptionReason.TRANSACTION_TIMEOUT, terminated.reason)
         // The connection went with the session, and the pool opened another
         assertNotEquals(before, backendPid())
@@ -163,9 +159,8 @@ class OctaviusSpringTransactionScopeTest {
     @Test
     fun `a transaction left idle past the timeout fails its commit with the timeout`() {
         assumeUnreadFatalSurvives()
-        val ex = assertThrows(OctaviusDataAccessException::class.java) { service.idlePastTheTimeoutWithinOneSecond() }
+        val terminated = assertThrows(SessionTerminatedException::class.java) { service.idlePastTheTimeoutWithinOneSecond() }
 
-        val terminated = assertInstanceOf<SessionTerminatedException>(ex.octaviusException)
         assertEquals(SessionTerminatedExceptionReason.TRANSACTION_TIMEOUT, terminated.reason)
     }
 }

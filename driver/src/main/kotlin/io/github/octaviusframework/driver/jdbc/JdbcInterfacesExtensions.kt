@@ -156,7 +156,9 @@ fun DataSource.getOctaviusSession(username: String, password: String): OctaviusS
  * is when the session is what the connection was opened for. Pass `false` when something else owns
  * the connection and will give it back itself - Spring's `DataSourceUtils`, a pool borrowed from by
  * hand - and closing the session then undoes the state it left behind and stops there, rather than
- * returning a connection its owner still believes it holds.
+ * returning a connection its owner still believes it holds. A transaction the connection was already in
+ * when the session was opened - begun on the server, or waiting for its first statement with auto-commit
+ * off - is the owner's, and is left open for the owner to end; one the session began is rolled back.
  * @return An [OctaviusSession] instance.
  * @throws InitializationException if a session could not be opened over this connection.
  */

@@ -7,6 +7,7 @@ import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.TransactionState
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Test
+import java.sql.Connection
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 
@@ -235,5 +236,59 @@ class PooledSessionCleanupTest {
         }
 
         observer.close()
+    }
+
+    // ------------------------------------------------------- a connection the session does not own
+
+    private fun committedRows(table: String, work: (Connection) -> Unit): Long {
+        val observer = TestDatabase.openSession()
+        observer.createNativeQuery("CREATE TABLE IF NOT EXISTS $table (id INT)").execute()
+        observer.createNativeQuery("TRUNCATE $table").execute()
+
+        pool().use { pool -> pool.connection.use(work) }
+
+        val count = observer.createNativeQuery("SELECT count(*) FROM $table").fetchFieldStrict<Long>()
+        observer.createNativeQuery("DROP TABLE IF EXISTS $table").execute()
+        observer.close()
+        return count
+    }
+
+    @Test
+    fun `a transaction its owner began with auto-commit off is left to the owner`() {
+        val count = committedRows("pool_cleanup_owned_1") { conn ->
+            conn.autoCommit = false
+            conn.getOctaviusSession(ownsConnection = false).use {
+                it.createNativeQuery("INSERT INTO pool_cleanup_owned_1 VALUES (1)").update()
+            }
+            conn.commit()
+        }
+
+        assertEquals(1L, count, "closing the session rolled back a transaction its owner then committed")
+    }
+
+    @Test
+    fun `a transaction its owner began by hand is left to the owner`() {
+        val count = committedRows("pool_cleanup_owned_2") { conn ->
+            conn.createStatement().use { it.execute("BEGIN") }
+            conn.getOctaviusSession(ownsConnection = false).use {
+                it.createNativeQuery("INSERT INTO pool_cleanup_owned_2 VALUES (1)").update()
+            }
+            conn.createStatement().use { it.execute("COMMIT") }
+        }
+
+        assertEquals(1L, count, "closing the session rolled back a transaction its owner then committed")
+    }
+
+    @Test
+    fun `a transaction the session began itself is still rolled back`() {
+        val count = committedRows("pool_cleanup_owned_3") { conn ->
+            conn.getOctaviusSession(ownsConnection = false).use {
+                it.createNativeQuery("BEGIN").execute()
+                it.createNativeQuery("INSERT INTO pool_cleanup_owned_3 VALUES (1)").update()
+            }
+            conn.createStatement().use { it.execute("COMMIT") } // the owner commits whatever is open
+        }
+
+        assertEquals(0L, count, "the session's abandoned work reached its owner's commit")
     }
 }

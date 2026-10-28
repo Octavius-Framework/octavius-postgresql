@@ -7,9 +7,10 @@ import io.github.octaviusframework.driver.exception.StatementExceptionReason
  * Walks SQL text, recognising the constructs whose contents mean nothing to whoever is reading it.
  *
  * Two things read SQL here and neither of them parses it: [SqlParameterParser] looks for `@name`, and
- * [SqlScript] looks for the `;` that separate statements. Both have the same and only hard problem - a
- * quoted string, a dollar-quoted function body or a comment can hold anything at all, `@name` and `;`
- * included, and none of it counts. That problem is solved once, here.
+ * [SqlScript] looks for the `;` that separate statements. Both have the same hard problem - a quoted
+ * string, a dollar-quoted function body or a comment can hold anything at all, `@name` and `;` included,
+ * and none of it counts. That problem is solved once, here. A standard-SQL function body holds `;` too, but
+ * unquoted, and only [SqlScript] has to know where one ends.
  */
 internal object SqlScanner {
 

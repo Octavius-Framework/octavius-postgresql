@@ -16,7 +16,6 @@ import org.springframework.context.annotation.Primary
 import org.springframework.core.Ordered
 import org.springframework.jdbc.datasource.DataSourceTransactionManager
 import org.springframework.jdbc.datasource.DriverManagerDataSource
-import org.springframework.jdbc.support.JdbcTransactionManager
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionManager
 import org.springframework.transaction.support.TransactionTemplate
@@ -41,10 +40,7 @@ class OctaviusSpringAutoConfigurationTest {
             assertTrue(context.containsBean("transactionManager"))
             
             val tm = context.getBean<PlatformTransactionManager>()
-            // Still a JdbcTransactionManager, so everything keyed off that type keeps working; what
-            // the subclass adds is an answer for a transaction whose connection has already left.
             assertInstanceOf(OctaviusJdbcTransactionManager::class.java, tm)
-            assertInstanceOf(JdbcTransactionManager::class.java, tm)
         }
     }
 

@@ -2,12 +2,13 @@
 
 *The legions were Roman, but half the army was not. Auxiliary cohorts marched in Roman order and took orders from Roman
 officers while keeping their own weapons and their own way of fighting — useful precisely because they had not been made
-into legionaries. This module is that arrangement: Octavius takes its orders from Spring's transaction manager and
-reports failure in Spring's vocabulary, without pretending to be the JDBC driver it never was.*
+into legionaries. This module is that arrangement: Octavius takes its orders from Spring's transaction manager but
+fights with its own weapons — a failure stays the driver's own exception — and does not pretend to be the JDBC driver
+it never was.*
 
 Octavius provides seamless integration with the Spring Framework and Spring Boot via the `driver-spring-integration` module.
 
-The module is deliberately small — one template, one transaction manager, one exception translator. What it does *not* do is turn Octavius into an ordinary JDBC driver: `JdbcTemplate`, Spring Data and Hibernate all need the JDBC surface Octavius throws away, and none of them work here. [What else in Spring works](#what-else-in-spring-works) is the section to read before planning an application around it.
+The module is deliberately small — one template and one transaction manager. What it does *not* do is turn Octavius into an ordinary JDBC driver: `JdbcTemplate`, Spring Data and Hibernate all need the JDBC surface Octavius throws away, and none of them work here. [What else in Spring works](#what-else-in-spring-works) is the section to read before planning an application around it.
 
 Contents:
 * [Setup](#setup)
@@ -50,32 +51,21 @@ spring:
 `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`.
 It contributes two beans:
 
-| Bean                             | What it gives you                                                                                                                                              |
-|:---------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `OctaviusTemplate`               | Runs a block against an `OctaviusSession` on the current transaction's connection, translating exceptions on the way out.                                      |
-| `OctaviusJdbcTransactionManager` | The `PlatformTransactionManager`: exception translation, nested transactions, enforced timeouts, and a truthful answer when a connection dies mid-transaction. |
+| Bean                             | What it gives you                                                                                                                                                    |
+|:---------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `OctaviusTemplate`               | Runs a block against an `OctaviusSession` on the current transaction's connection.                                                                                   |
+| `OctaviusJdbcTransactionManager` | The `PlatformTransactionManager`: the driver's own exceptions, nested transactions, enforced timeouts, and a truthful answer when a connection dies mid-transaction. |
 
-Exception translation follows from that second bean and from the template, and the rule is one sentence: **if the
-failure came from Octavius, `octaviusException` hands you back the driver's own exception** — its type, its reason enum,
-its SQLSTATE and its query context all intact. What it was wrapped in on the way does not matter and never reaches you;
-the JDBC surface adds a layer to satisfy `SQLException`, a pool adds another, and both are unwrapped however deep they
-sit. A connection HikariCP could not hand over arrives as an `InitializationException`, never as the pool's own
-`SQLException` — carrying the driver's reason where there was one underneath, and `CONNECTION_UNAVAILABLE` where the
-pool simply had none free. Genuinely foreign `SQLException`s go through Spring's `SQLStateSQLExceptionTranslator` and
-land in the standard `DataAccessException` hierarchy.
+What fails in either reaches you by one rule: **a failure that came from Octavius arrives as the driver's own
+exception**, the one a session used directly would throw, with its type, its reason enum, its SQLSTATE and its query
+context all intact. What it was wrapped in on the way does not matter and never reaches you; the JDBC surface adds a
+layer to satisfy `SQLException`, a pool adds another, and both are unwrapped. A connection
+HikariCP could not hand over arrives as an `InitializationException`, never as the pool's own exception —
+carrying the driver's reason where there was one underneath, and `CONNECTION_UNAVAILABLE` where the pool simply had
+none free. None of it is a `DataAccessException`; see [Exceptions](#exceptions).
 
 Declaring an `OctaviusTemplate` of your own replaces the first, and declaring any `TransactionManager` replaces the
-second, as it replaces Boot's. Declaring the template is the hook for a custom `SQLExceptionTranslator`:
-
-```kotlin
-@Configuration
-class OctaviusConfig {
-
-    @Bean
-    fun octaviusTemplate(dataSource: DataSource): OctaviusTemplate =
-        OctaviusTemplate(dataSource, MyExceptionTranslator())
-}
-```
+second, as it replaces Boot's.
 
 With several `DataSource` beans the auto-configuration builds on the `@Primary` one, and where none is primary it
 contributes nothing — the rule Boot's own JDBC beans follow.
@@ -162,7 +152,7 @@ class UserService(private val template: OctaviusTemplate) {
 
 ### Connection lifetime
 
-`execute` takes its connection through `DataSourceUtils`, so it joins an active `@Transactional` transaction rather than opening its own, and hands the connection back at the end. The connection's lifetime belongs to Spring. The session's does not, and the two are kept apart: closing a session opened over a Spring-owned connection undoes the state it left and stops there, rather than returning a connection Spring still counts as borrowed.
+`execute` joins an active `@Transactional` transaction rather than opening its own, and outside one it borrows a connection for the call and hands it back at the end. The connection's lifetime belongs to Spring. The session's does not, and the two are kept apart: closing a session opened over a Spring-owned connection undoes the state it left and stops there, rather than returning a connection Spring still counts as borrowed.
 
 **Inside a transaction, one session is bound to it** and every `execute` in that transaction works through the same one — so the notification, copy and type managers are built once rather than per call, and there is a single point at which the session's state is undone. That point is after the commit or rollback and before Spring releases the connection. It has to be after, because a transaction that failed on the server is still failed until the rollback goes through, and PostgreSQL ignores every statement sent in the meantime (`25P02`). Cleaning up any earlier would raise on exactly those transactions, and a session that cannot reset its connection gives the connection up — so every failed transaction would cost one. **Outside a transaction, the session ends with the `execute` call that opened it.**
 
@@ -197,7 +187,7 @@ When a global registration is too broad, converters can also be scoped to a sing
 
 ## Transaction management
 
-The auto-configured `PlatformTransactionManager` supports Spring's declarative transaction management (`@Transactional`). Connections are properly synchronized, meaning `template.execute` will reuse the active transaction's session.
+The auto-configured `PlatformTransactionManager` supports Spring's declarative transaction management (`@Transactional`). Inside a transaction `template.execute` runs on the transaction's session.
 
 By default, **nested transactions are allowed**. This means you can use `Propagation.NESTED` safely with the Octavius driver.
 
@@ -222,7 +212,7 @@ PostgreSQL has no timeout that bounds a whole transaction and leaves the connect
 
 **`STATEMENT` is the default because it never costs a connection.** A statement that runs past the timeout is cancelled and the session goes on, which is also what a timeout does in Spring's JDBC stack. It is not the same timeout, though. `JdbcTemplate` gives each statement what is left of the transaction's time and refuses one that starts past it, so there the statements together stay within it. Here each statement gets the whole timeout and nothing is refused: a transaction of several statements, or one that waits between them, can run past the timeout as a whole. Where the whole is what matters, that is `TRANSACTION`.
 
-**`TRANSACTION` is the hard bound.** It replaces a `transaction_timeout` the server would start the transaction with — a database or role default — whether that is shorter or longer. The server keeps the time, so nothing outlives it — an application thread that holds the transaction open, locks and all, while it waits on something else included. A transaction that ran out while nobody was talking to it is found by whatever touches it next: the next block, or the commit, which then raises `OctaviusDataAccessException` over `SessionTerminatedException(TRANSACTION_TIMEOUT)` instead of committing. The price is the connection. `transaction_timeout` ends the session rather than the transaction, so every transaction that runs out costs the pool a connection and the server a new backend — and timeouts come in crowds exactly when a database is struggling. Choose it where a lock held past its time is worse than a reconnect.
+**`TRANSACTION` is the hard bound.** It replaces a `transaction_timeout` the server would start the transaction with — a database or role default — whether that is shorter or longer. The server keeps the time, so nothing outlives it — an application thread that holds the transaction open, locks and all, while it waits on something else included. A transaction that ran out while nobody was talking to it is found by whatever touches it next: the next block, or the commit, which then raises `SessionTerminatedException(TRANSACTION_TIMEOUT)` instead of committing. The price is the connection. `transaction_timeout` ends the session rather than the transaction, so every transaction that runs out costs the pool a connection and the server a new backend — and timeouts come in crowds exactly when a database is struggling. Choose it where a lock held past its time is worse than a reconnect.
 
 A customizer switches it without giving up the auto-configured manager:
 
@@ -241,7 +231,7 @@ Only a transaction the manager begins gets a timeout — Spring's rule, not this
 
 `@Transactional(readOnly = true)` and `@Transactional(isolation = ...)` reach the connection through the JDBC setters Octavius implements, and HikariCP restores both when the connection goes back to the pool.
 
-Read-only is enforced by *PostgreSQL*, not by a client-side check, so a write attempted inside such a transaction comes back as a `TransactionStateException(READ_ONLY_TRANSACTION)` inside an `OctaviusDataAccessException`. Setting either of these by running the SQL yourself escapes Hikari's tracking entirely and leaks to the next borrower — see [What survives a return to the pool](initialization.md#what-survives-a-return-to-the-pool).
+Read-only is enforced by *PostgreSQL*, not by a client-side check, so a write attempted inside such a transaction comes back as a `TransactionStateException(READ_ONLY_TRANSACTION)`. Setting either of these by running the SQL yourself escapes Hikari's tracking entirely and leaks to the next borrower — see [What survives a return to the pool](initialization.md#what-survives-a-return-to-the-pool).
 
 ### `session.transaction` inside a block
 
@@ -266,40 +256,43 @@ Without it each statement commits on its own and the descriptor is dead by the f
 
 ## Exceptions
 
-Database failures leave `execute` as Spring `DataAccessException`s, and the Octavius-shaped ones keep the original available as `octaviusException` — including failures to obtain the connection in the first place, which are translated on the same path. Exceptions of your own thrown inside the block travel out unchanged; the template only rewrites what it recognizes.
+Database failures leave `execute` as the driver's own `OctaviusException`s, the same ones a session used directly throws — including failures to obtain the connection in the first place. Exceptions of your own thrown inside the block travel out unchanged.
 
-Under `@Transactional` the transaction manager takes the connection before the block runs, and the auto-configured one reports a failure to obtain it the same way — where Spring's own `JdbcTransactionManager` raises `CannotCreateTransactionException`.
+Under `@Transactional` the transaction manager takes the connection before the block runs, and the auto-configured one reports a failure to obtain it the same way, where Spring's own `JdbcTransactionManager` raises `CannotCreateTransactionException`. A commit or rollback that failed in the driver raises the driver's exception as well, and so does a savepoint `Propagation.NESTED` could not take, roll back to or release. Where the pool failed it instead, answering in its own words for a connection already handed over, the exception is `NetworkException(CONNECTION_ERROR)` over the pool's, as it is from a session used directly.
+
+So a handler names the driver's type itself:
 
 ```kotlin
-@ExceptionHandler(OctaviusDataAccessException::class)
-fun handle(ex: OctaviusDataAccessException): ResponseEntity<*> {
-    val root = ex.octaviusException
-
-    if (root is ConstraintViolationException &&
-        root.reason == ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("constraint" to root.constraint))
+@ExceptionHandler(ConstraintViolationException::class)
+fun handle(ex: ConstraintViolationException): ResponseEntity<*> {
+    if (ex.reason == ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("constraint" to ex.constraint))
     }
 
     return ResponseEntity.internalServerError().body(mapOf("error" to "Unexpected database error."))
 }
 ```
 
+None of these is a `DataAccessException`, so a `catch` or an `@ExceptionHandler` for one — or for any class of Spring's hierarchy, `DuplicateKeyException` included — does not see a failure of the driver's. `@Transactional` rolls back on them by its default rule, which covers every `RuntimeException`.
+
+Spring's `spring.sql.init` runs its scripts itself, and a failing `schema.sql` or `data.sql` arrives as its own `ScriptStatementFailedException`, naming the statement, with the driver's exception in its cause chain, where `findOctaviusCause()` finds it.
+
 The full hierarchy, the reason enums worth branching on, and a longer `@ControllerAdvice` example are in [Error Handling](exceptions.md#crossing-into-jdbc-and-spring).
 
 ### When the connection dies mid-transaction
 
-A connection can leave in the middle of a transaction — the driver aborts one whose stream is broken or that was left mid-`COPY`, and `session.abort()` does it on request. The pool evicts it, and from then on its proxy answers everything with a bare `SQLException` that carries neither SQLState nor cause, so there is nothing left for an exception translator to recognize.
-
-The server can end it as well — a `transaction_timeout` running out, `pg_terminate_backend()`, a shutdown — and then it says why before it closes. A session ended while nothing was running on it is found by whatever touches it next, which at the end of a transaction is the commit or the rollback itself.
+A connection can leave in the middle of a transaction. The driver aborts one whose stream is broken or that was left mid-`COPY`, and `session.abort()` does it on request; the server ends one when a `transaction_timeout` runs out, on `pg_terminate_backend()` or at a shutdown, and says why before it closes. A session the server ended while nothing ran on it is found by whatever touches it next, which at the end of a transaction is the commit or the rollback itself.
 
 The auto-configured `OctaviusJdbcTransactionManager` answers for all of it, and treats the two paths differently:
 
-| Path         | What happens                                                                                                                                                                                                              |
-|:-------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Commit**   | Raises `OctaviusDataAccessException` — over the server's reason, `SessionTerminatedException`, where the server ended the session, and over `NetworkException(CONNECTION_ABORTED)` where the connection had already left. |
-| **Rollback** | Stays quiet, including when the rollback is what found the connection gone. The server discarded the transaction along with the connection, so there is nothing to do.                                                    |
+| Path         | What happens                                                                                                                                                                                                 |
+|:-------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Commit**   | Raises the server's reason, `SessionTerminatedException`, where the server ended the session, and `NetworkException(CONNECTION_ABORTED)` where the connection had already left, or left during the `COMMIT`. |
+| **Rollback** | Stays quiet, including when the rollback is what found the connection gone. The server discarded the transaction along with the connection, so there is nothing to do.                                       |
 
-The asymmetry is the point. A commit that did not happen must be reported, or the caller is told its work is durable when it is not. A rollback, on the other hand, has already got what it asked for — and raising there would replace the exception that *caused* the rollback with one about the cleanup. Without this, an aborted connection turned every such failure into `TransactionSystemException: JDBC commit failed`, and Spring logged `Application exception overridden by rollback exception` over the diagnostic you actually needed.
+The asymmetry is the point. A commit that did not happen must be reported, or the caller is told its work is durable when it is not. A rollback, on the other hand, has already got what it asked for — and raising there would replace the exception that *caused* the rollback with one about the cleanup.
+
+A `NESTED` method's savepoint follows the same two rules. A method begun on a connection that is gone raises `NetworkException(CONNECTION_ABORTED)` before it runs. One that returned normally ends by releasing its savepoint, and on a connection that is gone that raises `NetworkException(CONNECTION_ABORTED)`: what the method did went with the connection. One that threw ends by rolling back to its savepoint, which stays quiet, so the exception it threw is what leaves it.
 
 Declaring a `TransactionManager` of your own replaces this.
 
@@ -312,33 +305,13 @@ Declaring a `TransactionManager` of your own replaces this.
 | `OctaviusTemplate`, `@Transactional`, `Propagation.NESTED` | Yes   | The supported path.                                                                           |
 | HikariCP and `spring.datasource.hikari.*`                  | Yes   | Validation runs through `isValid()`. Leave `connection-test-query` unset — `SELECT 1` throws. |
 | `spring.sql.init` — `schema.sql` and `data.sql`            | Yes   | Those scripts run through a plain `Statement`, which Octavius implements.                     |
+| Actuator's `db` health indicator                           | Yes   | Checked with `isValid()` — `DOWN` whenever `connection-test-query` is set.                    |
 | `JdbcTemplate`, `NamedParameterJdbcTemplate`, `JdbcClient` | No    | Need `PreparedStatement` and `ResultSet`.                                                     |
 | Spring Data JDBC, Spring Data JPA, Hibernate               | No    | The same, plus `DatabaseMetaData`.                                                            |
 | Flyway, Liquibase                                          | No    | Both identify the database through `DatabaseMetaData`.                                        |
-| Actuator's `db` health indicator                           | No    | Calls `getMetaData().getDatabaseProductName()`. Replaceable, see below.                       |
 
 `spring.sql.init` comes with a footnote: it needs `spring.sql.init.mode: always`, because PostgreSQL is not an embedded database and Boot skips the scripts otherwise.
 
-Reaching for anything else in the `No` rows does not produce a tidy Spring exception either. `prepareStatement` throws `InvalidOperationException(FEATURE_NOT_SUPPORTED)`, which is a `RuntimeException` that was never a `SQLException` — so there is nothing for the translator to translate, and `jdbcTemplate.queryForObject("SELECT 1", Int::class.java)` fails with the raw Octavius exception.
+Reaching for anything else in the `No` rows does not produce a tidy Spring exception either. `prepareStatement` throws `InvalidOperationException(FEATURE_NOT_SUPPORTED)`, which is a `RuntimeException` that was never a `SQLException` — so `JdbcTemplate` has nothing to translate, and `jdbcTemplate.queryForObject("SELECT 1", Int::class.java)` fails with the raw Octavius exception.
 
 Schema migrations need neither Flyway nor Liquibase: [`migrations`](../migrations/README.md) runs on the driver. Where a tool genuinely needs full JDBC all the same, the practical answer is a second `DataSource` on `pgjdbc`, dedicated to that tool, with the Octavius one left to the application and marked `@Primary`, which is the one the [auto-configuration](#auto-configuration) builds on.
-
-### Replacing Actuator's database health check
-
-If Actuator is on the classpath, `DataSourceHealthIndicator` contributes the `db` component of `/actuator/health` — usually the thing a Kubernetes readiness probe reads. It fails here for a shallow reason: before checking anything it labels the response with `getMetaData().getDatabaseProductName()`, and that is precisely the call Octavius refuses. The exception does not escape — `AbstractHealthIndicator` catches it — so the symptom is not a broken endpoint but a `db` component permanently `DOWN`, carrying `INVALID_OPERATION_EXCEPTION:FEATURE_NOT_SUPPORTED` as its `error` detail.
-
-What that label was standing in front of is `connection.isValid()`, which Octavius *does* implement. So keep the check and drop the label. Boot's auto-configuration backs off from a bean named `dbHealthIndicator` or `dbHealthContributor`, which means declaring one replaces it outright — nothing to disable, and `db` stays in the response:
-
-```kotlin
-@Bean
-fun dbHealthIndicator(template: OctaviusTemplate) = HealthIndicator {
-    try {
-        if (template.execute { isValid(1) }) Health.up().withDetail("database", "PostgreSQL").build()
-        else Health.down().withDetail("database", "PostgreSQL").build()
-    } catch (ex: Exception) {
-        Health.down(ex).build()
-    }
-}
-```
-
-`management.health.db.enabled: false` stays available if you would rather have no database component at all.

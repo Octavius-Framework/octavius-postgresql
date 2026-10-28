@@ -247,9 +247,9 @@ driver resolves the range type from it: `Int` → `int4range`.
 > leaves two candidates for `Int`, and the one that wins is whichever the catalog loaded last, which is the higher OID,
 > which is always yours rather than the built-in.
 >
-> Measured: before creating such a type, `rangeOf(lowerBound = 5, upperBound = 15)` goes out as `int4range`; after, the
-> identical call goes out as `tenure_range` — in every session on that database, since the registry is shared. Nothing
-> warns you, and it is the *other* ranges that break rather than the new one.
+> Once such a type exists, `rangeOf(lowerBound = 5, upperBound = 15)` goes out as `tenure_range` rather than
+> `int4range` — in every session on that database, since the registry is shared. Nothing warns you, and it is the
+> *other* ranges that break rather than the new one.
 >
 > Reading is unaffected — a column's own OID picks its codec, so `int4range` columns still come back as `Range<Int>`.
 > Only outbound parameters are ambiguous. Pin them where it matters:

@@ -22,6 +22,7 @@ dependencies {
 
     testImplementation(projects.testSupport)
     testImplementation(spring.spring.boot.starter.test)
+    testImplementation(spring.spring.boot.health)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.junit.jupiter)
 }

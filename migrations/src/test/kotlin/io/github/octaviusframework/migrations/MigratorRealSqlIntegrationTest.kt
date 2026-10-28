@@ -120,6 +120,44 @@ class MigratorRealSqlIntegrationTest {
         assertEquals(1, migrate(dir).applied.size)
     }
 
+    @Test
+    fun `a BEGIN ATOMIC body is not transaction control`(@TempDir dir: Path) {
+        // A standard-SQL body is not quoted, so its END stands where a COMMIT could. Transactional on purpose:
+        // the file goes to the server whole, and only the scan before it could refuse it.
+        dir.resolve("V1__function.sql").writeText(
+            """
+            CREATE FUNCTION $schema.one() RETURNS int LANGUAGE sql
+            BEGIN ATOMIC
+                SELECT 1;
+            END;
+            """.trimIndent()
+        )
+
+        assertEquals(1, migrate(dir).applied.size)
+        assertEquals(1, onSession { it.createNativeQuery("SELECT $schema.one()").fetchFieldStrict<Int>() })
+    }
+
+    @Test
+    fun `a BEGIN ATOMIC body full of semicolons survives being split`(@TempDir dir: Path) {
+        dir.resolve("V1__function.sql").writeText(
+            """
+            -- octavius:no-transaction
+            CREATE TABLE $schema.castra (id int);
+            CREATE FUNCTION $schema.fortify(n int) RETURNS int LANGUAGE sql
+            BEGIN ATOMIC
+                INSERT INTO $schema.castra VALUES (n);
+                SELECT CASE WHEN count(*) > 1 THEN 2 ELSE 1 END FROM $schema.castra;
+            END;
+            SELECT $schema.fortify(7);
+            """.trimIndent()
+        )
+
+        migrate(dir)
+
+        val answer = onSession { it.createNativeQuery("SELECT $schema.fortify(8)").fetchFieldStrict<Int>() }
+        assertEquals(2, answer, "the call in the script and this one should both have inserted")
+    }
+
     // ------------------------------------------------------ a SELECT in the middle of a script
 
     @Test

@@ -46,7 +46,8 @@ A statement that returns rows is allowed — a script from `pg_dump` is full of 
 **A migration may not control its own transaction.** A `BEGIN`, `COMMIT`, `END`, `ROLLBACK`, `ABORT` or
 `START TRANSACTION` at the top level of a file is refused before anything runs, because the run's transaction
 is what makes the file all-or-nothing and ending it early would leave a half-applied file recorded as applied
-whole. `BEGIN` and `END` **inside** a PL/pgSQL body are the block, not the transaction, and are fine.
+whole. `BEGIN` and `END` **inside** a function body — a PL/pgSQL one, or a standard-SQL `BEGIN ATOMIC` one — are
+the block, not the transaction, and are fine.
 
 ## The migration that cannot run in a transaction
 

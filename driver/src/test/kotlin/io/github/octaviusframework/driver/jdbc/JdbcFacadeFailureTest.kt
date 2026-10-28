@@ -95,6 +95,20 @@ class JdbcFacadeFailureTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `DatabaseMetaData answers savepoints and the product name, and refuses everything else unwrapped`() {
+        withConnection { connection ->
+            val metaData = connection.metaData
+            assertEquals(true, metaData.supportsSavepoints())
+            assertEquals("PostgreSQL", metaData.databaseProductName)
+            // getURL is abstract on DatabaseMetaData; the other three are Java default methods
+            for (refused in listOf({ metaData.url }, { metaData.maxLogicalLobSize }, { metaData.supportsRefCursors() }, { metaData.supportsSharding() })) {
+                val exception = assertFailsWith<InvalidOperationException> { refused() }
+                assertEquals(InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED, exception.reason)
+            }
+        }
+    }
+
+    @Test
     fun `what the Statement does not implement throws the driver's exception unwrapped`() {
         withConnection { connection ->
             val exception = assertFailsWith<InvalidOperationException> { connection.createStatement().executeQuery("SELECT 1") }

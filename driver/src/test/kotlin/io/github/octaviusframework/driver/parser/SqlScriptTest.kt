@@ -137,6 +137,99 @@ class SqlScriptTest {
         assertEquals(listOf("SELECT 1)", "SELECT 2"), sqlOf("SELECT 1); SELECT 2"))
     }
 
+    // ------------------------------------------------------ standard-SQL function bodies
+
+    @Test
+    fun `semicolons inside a BEGIN ATOMIC body are not separators`() {
+        val script = """
+            CREATE FUNCTION enroll(recruit text) RETURNS void LANGUAGE sql
+            BEGIN ATOMIC
+                INSERT INTO legionnaires VALUES (recruit);
+                DELETE FROM recruits WHERE name = recruit;
+            END;
+            SELECT 1
+        """.trimIndent()
+
+        val statements = SqlScript.split(script)
+        assertEquals(2, statements.size)
+        assertTrue(statements[0].sql.startsWith("CREATE FUNCTION"))
+        assertTrue(statements[0].sql.endsWith("END"))
+        assertEquals("SELECT 1", statements[1].sql)
+        assertOffsetsPointBack(script, statements)
+    }
+
+    @Test
+    fun `the END of a CASE does not close a BEGIN ATOMIC body`() {
+        val script = """
+            CREATE FUNCTION rank_of(years int) RETURNS text LANGUAGE sql
+            BEGIN ATOMIC
+                SELECT CASE WHEN years > 20 THEN 'veteranus' ELSE 'tiro' END;
+            END;
+            SELECT 1
+        """.trimIndent()
+
+        val statements = sqlOf(script)
+        assertEquals(2, statements.size)
+        assertTrue(statements[0].endsWith("END;\nEND"))
+        assertEquals("SELECT 1", statements[1])
+    }
+
+    @Test
+    fun `a procedure under CREATE OR REPLACE takes a BEGIN ATOMIC body too`() {
+        val script = """
+            create or replace procedure muster() language sql
+            begin atomic
+                update legions set mustered = true;
+                insert into musters default values;
+            end;
+            CALL muster()
+        """.trimIndent()
+
+        val statements = sqlOf(script)
+        assertEquals(2, statements.size)
+        assertTrue(statements[0].startsWith("create or replace procedure"))
+        assertEquals("CALL muster()", statements[1])
+    }
+
+    @Test
+    fun `BEGIN and END that are not keywords do not count inside the body`() {
+        // In a literal, a comment, a quoted identifier, a longer word, after a dot and after AS, each of
+        // them is a name or text, and counting any one would close the body early or keep it open forever.
+        val script = """
+            CREATE FUNCTION calendar() RETURNS text LANGUAGE sql
+            BEGIN ATOMIC
+                -- the END of nothing;
+                SELECT 'END;' || "end" || legend || end_date::text || f.end || f.case AS end
+                FROM fasti f /* END; */ WHERE f.begin IS NULL;
+            END;
+            SELECT 2
+        """.trimIndent()
+
+        val statements = sqlOf(script)
+        assertEquals(2, statements.size)
+        assertTrue(statements[0].endsWith("IS NULL;\nEND"))
+        assertEquals("SELECT 2", statements[1])
+    }
+
+    @Test
+    fun `a function returning a single expression ends at its semicolon`() {
+        // The other standard-SQL form, RETURN, has no block to hold the separator - not even with a CASE in it.
+        assertEquals(
+            listOf("CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql RETURN CASE WHEN a > 0 THEN a ELSE 0 END", "SELECT f(1)"),
+            sqlOf("CREATE FUNCTION f(a int) RETURNS int LANGUAGE sql RETURN CASE WHEN a > 0 THEN a ELSE 0 END; SELECT f(1)")
+        )
+    }
+
+    @Test
+    fun `BEGIN, CASE and END outside a routine definition separate as before`() {
+        // Only CREATE FUNCTION and CREATE PROCEDURE open a block that holds semicolons. Anywhere else BEGIN
+        // is a transaction and CASE an expression.
+        assertEquals(
+            listOf("BEGIN", "SELECT CASE WHEN true THEN 1 END", "END"),
+            sqlOf("BEGIN; SELECT CASE WHEN true THEN 1 END; END;")
+        )
+    }
+
     // ------------------------------------------------------------------ offsets
 
     @Test

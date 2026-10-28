@@ -1,11 +1,15 @@
 package io.github.octaviusframework.driver.query
 
+import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class RoutineQueryIntegrationTest : AbstractIntegrationTest() {
 
@@ -38,6 +42,11 @@ class RoutineQueryIntegrationTest : AbstractIntegrationTest() {
         BEGIN
         END;
         $$ LANGUAGE plpgsql;
+
+        -- A void-returning function in SQL, which hands back NULL where PL/pgSQL hands back a value
+        CREATE FUNCTION pour_libation() RETURNS VOID AS $$
+            SELECT 1;
+        $$ LANGUAGE sql;
 
         -- A procedure without OUT parameters
         CREATE PROCEDURE adjourn_senate() AS $$
@@ -86,6 +95,25 @@ class RoutineQueryIntegrationTest : AbstractIntegrationTest() {
     fun testCallVoidFunction() {
         val result = session.createNativeQuery("SELECT sacrifice()").fetchField<Unit>()
         assertEquals(Unit, result)
+    }
+
+    @Test
+    fun `a built-in void function returns a value, as plpgsql does`() {
+        assertEquals(Unit, session.createNativeQuery("SELECT pg_sleep(0)").fetchField<Unit>())
+    }
+
+    @Test
+    fun `a void function in SQL returns NULL, which a non-nullable Unit refuses`() {
+        val e = assertFailsWith<MappingException> {
+            session.createNativeQuery("SELECT pour_libation()").fetchField<Unit>()
+        }
+        assertEquals(MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING, e.reason)
+    }
+
+    @Test
+    fun `a nullable Unit reads a void function in either language`() {
+        assertEquals(Unit, session.createNativeQuery("SELECT sacrifice()").fetchField<Unit?>())
+        assertNull(session.createNativeQuery("SELECT pour_libation()").fetchField<Unit?>())
     }
 
     @Test

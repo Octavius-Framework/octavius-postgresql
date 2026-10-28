@@ -19,8 +19,8 @@ internal object SqlMigrationRules {
      * Statements that would take the run's transaction with them.
      *
      * `END` and `ABORT` are in here because PostgreSQL accepts them as `COMMIT` and `ROLLBACK`. The `END`
-     * that closes a PL/pgSQL block is not one of these - it lives inside a dollar-quoted body, and the
-     * splitter never surfaces it as a statement of its own.
+     * that closes a PL/pgSQL block is not one of these - it lives inside a dollar-quoted body - and neither
+     * is the one closing a `BEGIN ATOMIC` body; the splitter surfaces neither as a statement of its own.
      */
     private val TRANSACTION_CONTROL = setOf("BEGIN", "START", "COMMIT", "END", "ROLLBACK", "ABORT")
 

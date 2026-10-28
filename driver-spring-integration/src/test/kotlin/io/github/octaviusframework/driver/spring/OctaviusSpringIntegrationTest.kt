@@ -4,11 +4,10 @@ import io.github.octaviusframework.driver.exception.ConstraintViolationException
 import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.TransactionStateException
 import io.github.octaviusframework.driver.exception.TransactionStateExceptionReason
-import io.github.octaviusframework.driver.spring.exception.OctaviusDataAccessException
+import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertInstanceOf
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
@@ -20,6 +19,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.annotation.Propagation
+import org.springframework.transaction.UnexpectedRollbackException
 
 @ImportAutoConfiguration(OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class)
 @SpringBootTest(classes = [TestApplication::class], properties = [
@@ -62,43 +62,81 @@ class OctaviusSpringIntegrationTest {
     }
     
     @Test
-    fun `should work with nested transactions`() {
+    fun `should roll a failed nested transaction back to its savepoint`() {
         testService.createTable()
-        
-        try {
-            testService.insertWithNestedRollback()
-        } catch (e: RuntimeException) {
-            // expected
-        }
-        
-        val count = octaviusTemplate.execute { createNativeQuery("SELECT count(*) as c FROM test_spring").fetchRowStrict().get<Long>("c") }
-        assertEquals(1L, count) // Outer insert should be there, nested should be rolled back
+
+        testService.insertWithNestedRollback()
+
+        assertEquals(listOf("outer"), committedValues())
     }
 
     @Test
-    fun `should translate octavius exceptions to OctaviusDataAccessException`() {
-        val ex = assertThrows(OctaviusDataAccessException::class.java) {
+    fun `should commit a nested transaction with the one around it`() {
+        testService.createTable()
+
+        testService.insertWithNestedCommit()
+
+        assertEquals(listOf("nested", "outer"), committedValues())
+    }
+
+    @Test
+    fun `should roll back a transaction a failed participant marked rollback-only`() {
+        testService.createTable()
+
+        assertThrows(UnexpectedRollbackException::class.java) { testService.insertThenSwallowAFailedParticipant() }
+
+        assertEquals(emptyList<String>(), committedValues())
+    }
+
+    @Test
+    fun `should report a savepoint that could not be taken as the driver's exception`() {
+        testService.createTable()
+
+        val ex = assertThrows(TransactionStateException::class.java) { testService.nestedAfterAFailedStatement() }
+
+        assertEquals(TransactionStateExceptionReason.IN_FAILED_TRANSACTION, ex.reason)
+    }
+
+    @Test
+    fun `should commit a REQUIRES_NEW transaction on its own when the one around it rolls back`() {
+        testService.createTable()
+
+        assertThrows(RuntimeException::class.java) { testService.insertAroundANewTransactionThenFail() }
+
+        assertEquals(listOf("inner"), committedValues())
+    }
+
+    @Test
+    fun `should give a transaction its own session back once a REQUIRES_NEW one inside it ends`() {
+        val (outer, inner, resumed) = testService.sessionsAroundANewTransaction()
+
+        assertNotSame(outer, inner)
+        assertSame(outer, resumed)
+    }
+
+    private fun committedValues(): List<String> =
+        octaviusTemplate.execute { createNativeQuery("SELECT val FROM test_spring ORDER BY val").fetchFields<String>() }
+
+    @Test
+    fun `should leave octavius exceptions as they are`() {
+        val ex = assertThrows(StatementException::class.java) {
             octaviusTemplate.execute {
                 createNativeQuery("SELECT * FROM non_existent_table_12345").execute() 
             }
         }
         
-        assertNotNull(ex.octaviusException)
-        assertTrue(ex.octaviusException is StatementException)
-        assertEquals("42P01", (ex.octaviusException as StatementException).sqlState) // undefined_table
+        assertEquals("42P01", ex.sqlState) // undefined_table
     }
 
     @Test
     fun `should handle deferred constraint violation on commit`() {
         testService.createTableWithDeferredConstraint()
 
-        val ex = assertThrows(OctaviusDataAccessException::class.java) {
+        val ex = assertThrows(ConstraintViolationException::class.java) {
             testService.insertWithDeferredConstraintViolation()
         }
         
-        assertNotNull(ex.octaviusException)
-        assertTrue(ex.octaviusException is ConstraintViolationException)
-        assertEquals("23505", (ex.octaviusException as ConstraintViolationException).sqlState) // unique_violation
+        assertEquals("23505", ex.sqlState) // unique_violation
     }
 
     @Test
@@ -107,9 +145,8 @@ class OctaviusSpringIntegrationTest {
         
         try {
             testService.insertReadOnly()
-        } catch (e: OctaviusDataAccessException) {
-            val root = assertInstanceOf<TransactionStateException>(e.octaviusException)
-            assertEquals(TransactionStateExceptionReason.READ_ONLY_TRANSACTION, root.reason)
+        } catch (e: TransactionStateException) {
+            assertEquals(TransactionStateExceptionReason.READ_ONLY_TRANSACTION, e.reason)
         }
         
         val count = octaviusTemplate.execute { createNativeQuery("SELECT count(*) as c FROM test_spring").fetchRowStrict().get<Long>("c") }
@@ -136,6 +173,8 @@ open class TestApplication {
         return TestService(octaviusTemplate)
     }
 }
+
+class NestedRollbackException : RuntimeException("Nested rollback")
 
 open class TestService(private val octaviusTemplate: OctaviusTemplate) {
 
@@ -179,15 +218,69 @@ open class TestService(private val octaviusTemplate: OctaviusTemplate) {
         octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('outer')").execute() }
         try {
             self.nestedRollback()
-        } catch (e: RuntimeException) {
-            // caught
+        } catch (_: NestedRollbackException) {
+            // Only the nested method's own failure. One from taking the savepoint leaves this method too.
         }
     }
 
     @Transactional(propagation = Propagation.NESTED)
     open fun nestedRollback() {
         octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('nested')").execute() }
-        throw RuntimeException("Nested rollback")
+        throw NestedRollbackException()
+    }
+
+    @Transactional
+    open fun insertWithNestedCommit() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('outer')").execute() }
+        self.nestedInsert()
+    }
+
+    @Transactional(propagation = Propagation.NESTED)
+    open fun nestedInsert() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('nested')").execute() }
+    }
+
+    @Transactional
+    open fun insertThenSwallowAFailedParticipant() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('outer')").execute() }
+        try {
+            self.insertWithRollback()
+        } catch (_: RuntimeException) {
+            // Caught, but the transaction it joined is marked rollback-only all the same
+        }
+    }
+
+    @Transactional
+    open fun insertAroundANewTransactionThenFail() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('outer')").execute() }
+        self.insertInANewTransaction()
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('resumed')").execute() }
+        throw RuntimeException("Rollback")
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    open fun insertInANewTransaction() {
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO test_spring (val) VALUES ('inner')").execute() }
+    }
+
+    @Transactional
+    open fun sessionsAroundANewTransaction(): Triple<OctaviusSessionOperations, OctaviusSessionOperations, OctaviusSessionOperations> {
+        val outer = octaviusTemplate.execute { this }
+        val inner = self.sessionInANewTransaction()
+        return Triple(outer, inner, octaviusTemplate.execute { this })
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    open fun sessionInANewTransaction(): OctaviusSessionOperations = octaviusTemplate.execute { this }
+
+    @Transactional
+    open fun nestedAfterAFailedStatement() {
+        try {
+            octaviusTemplate.execute { createNativeQuery("INSERT INTO no_such_table (val) VALUES ('outer')").execute() }
+        } catch (_: StatementException) {
+            // Caught, so the transaction carries on - failed on the server, where a SAVEPOINT is refused
+        }
+        self.nestedInsert()
     }
 
     @Transactional(readOnly = true)

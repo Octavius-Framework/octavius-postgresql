@@ -40,6 +40,17 @@ internal class OctaviusSessionImpl(
     internal val octaviusConnection: OctaviusConnection = rawConnection.unwrap()
 
     /**
+     * Whether the connection was already in a transaction when this session was opened over it - begun on the
+     * server, or waiting for its first statement with auto-commit off - on a connection the session does not own.
+     *
+     * That transaction is its owner's, who will end it: the session's statements run inside it, and [close] leaves
+     * it open rather than rolling back work the owner is about to commit. A session that owns its connection has no
+     * owner to leave one to.
+     */
+    private val inheritedTransaction: Boolean =
+        !ownsConnection && octaviusConnection.transactionState != TransactionState.IDLE
+
+    /**
      * Whether this session has been given up, by [close] or by [abort].
      *
      * A pooled connection outlives the session borrowed through it: closing the session hands the
@@ -218,14 +229,16 @@ internal class OctaviusSessionImpl(
      */
     private fun resetConnectionState() {
         // The rollback first: an UNLISTEN sent inside a transaction still open would wait for its commit, and one
-        // sent inside a failed transaction would be refused.
-        rollbackUnfinishedTransaction()
+        // sent inside a failed transaction would be refused. In a transaction the owner began, the UNLISTEN goes out
+        // inside it and stands or falls with it, as any LISTEN this session made there does.
+        if (!inheritedTransaction) rollbackUnfinishedTransaction()
         notifications.releaseSubscriptions()
     }
 
     /**
-     * Rolls back a transaction the server still has open, whoever opened it: a hand-written `BEGIN`
-     * under auto-commit, or a manual transaction closed without a `commit()` or `rollback()`.
+     * Rolls back a transaction the server still has open and the session began: a hand-written
+     * `BEGIN` under auto-commit, or a manual transaction closed without a `commit()` or `rollback()`.
+     * One the connection's owner began is not this session's to end - see [inheritedTransaction].
      *
      * Nothing else would. With auto-commit on, neither this driver nor the pool believes a
      * transaction exists. With it off, a pool is no help either: HikariCP rolls back on return only

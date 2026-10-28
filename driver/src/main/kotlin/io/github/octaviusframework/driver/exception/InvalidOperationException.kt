@@ -48,7 +48,8 @@ enum class InvalidOperationExceptionReason {
     INCORRECT_RESULT_SIZE,
     /**
      * The connection is already carrying an exchange and can carry only one - a `COPY` still running, or a
-     * statement still being read. `details` says which, and what to do about it.
+     * statement still being read - or, for a listener loop, a transaction still open, which holds back every
+     * notification until it ends. `details` says which, and what to do about it.
      */
     CONNECTION_BUSY
 }
@@ -89,5 +90,5 @@ private fun generateDeveloperMessage(reason: InvalidOperationExceptionReason): S
         InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED -> "This feature is not supported by the Octavius Driver."
         InvalidOperationExceptionReason.UNEXPECTED_RESULT -> "Execution returned a result set (rows) when none were expected. Use query() for DQL statements like SELECT."
         InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE -> "The query returned a number of rows the chosen fetch method forbids. See the details for what was expected and what arrived."
-        InvalidOperationExceptionReason.CONNECTION_BUSY -> "This connection is already carrying an exchange, and it can carry only one. See the details for what is running and how to let it finish."
+        InvalidOperationExceptionReason.CONNECTION_BUSY -> "This connection is already carrying something that has to finish first - an exchange, or for a listener loop a transaction. See the details for what is running and how to let it finish."
     }

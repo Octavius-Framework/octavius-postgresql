@@ -104,13 +104,19 @@ None of this matters if you read by index (`row.get<Int>(0)`), which is the reli
 
 ### Void functions
 
-A `void`-returning function still returns a single row carrying one `void` value — it does not simply vanish. Octavius maps that to Kotlin's `Unit`:
+A `void`-returning function still returns a single row with one `void` column — it does not simply vanish. Octavius reads that column as Kotlin's `Unit`, but whether there is a value in it depends on the language the function is written in: a PL/pgSQL function and a built-in one such as `pg_sleep` return a value, while a `LANGUAGE sql` function returns `NULL`.
 
 ```kotlin
-// CREATE FUNCTION restore_pax_romana() RETURNS void
+// CREATE FUNCTION restore_pax_romana() RETURNS void LANGUAGE plpgsql
 session.createNativeQuery("SELECT restore_pax_romana()")
-    .fetchField<Unit>()
+    .fetchField<Unit>()       // Unit
+
+// CREATE FUNCTION pour_libation() RETURNS void LANGUAGE sql
+session.createNativeQuery("SELECT pour_libation()")
+    .fetchField<Unit?>()      // null
 ```
+
+A non-nullable `Unit` read from the `LANGUAGE sql` one fails with `MappingException` (`REQUIRED_ATTRIBUTE_MISSING`), as any `NULL` read into a non-nullable type does. `Unit?` reads both, which is the reliable option when the function is not yours to control.
 
 ### Procedures
 

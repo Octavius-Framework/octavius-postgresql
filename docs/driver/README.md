@@ -22,7 +22,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 | [Bulk Writes](bulk-writes.md)                       | `UNNEST` inserts, updates and deletes, upserts, `RETURNING`, batch sizing, when to reach for COPY instead |
 | [Error Handling & Exceptions](exceptions.md)        | The SQLSTATE-keyed hierarchy, message format, query context, catching at the right altitude               |
 | [Logging](logging.md)                               | Logger names, what each level says, what never reaches the log, and what tracing costs                    |
-| [Spring Integration](spring-integration.md)         | `OctaviusTemplate`, autoconfiguration, `application.yml`, transaction manager, exception translation      |
+| [Spring Integration](spring-integration.md)         | `OctaviusTemplate`, autoconfiguration, `application.yml`, transaction manager, the driver's exceptions    |
 | [Concurrency and Virtual Threads](concurrency.md)   | What one connection serializes, pinning, `OctaviusDispatchers`, cancellation, where the real limit is     |
 | [Functions and Procedures](functions-procedures.md) | `SELECT` against `CALL`, OUT and INOUT parameters, overload resolution, no `CallableStatement`            |
 | [COPY Protocol](copy.md)                            | COPY IN and COPY OUT, data formats, operation lifecycle, cancelling, transactions                         |
@@ -124,7 +124,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [SQLSTATE Routing](exceptions.md#sqlstate-routing) — Which code becomes which class
 - [Exception Reference](exceptions.md#exception-reference) — All eighteen types, one by one
 - [Catching at the Right Altitude](exceptions.md#catching-at-the-right-altitude) — Including retrying concurrency failures
-- [Crossing into JDBC and Spring](exceptions.md#crossing-into-jdbc-and-spring) — `SQLExceptionWrapper`, `OctaviusDataAccessException`, and unwrapping a pool's own exception
+- [Crossing into JDBC and Spring](exceptions.md#crossing-into-jdbc-and-spring) — `SQLExceptionWrapper`, Spring, and unwrapping a pool's own exception
 
 ### Logging
 - [You Supply the Backend](logging.md#you-supply-the-backend) — SLF4J with nothing behind it discards every line
@@ -145,8 +145,8 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Registering Types at Startup](spring-integration.md#registering-types-at-startup) — Enums and composites in a Spring context
 - [Transaction Management](spring-integration.md#transaction-management) — `@Transactional`, read-only, isolation, nesting
 - [Timeouts](spring-integration.md#timeouts) — `@Transactional(timeout)` per statement or per transaction, and what each costs
-- [Exceptions](spring-integration.md#exceptions) — Translation into Spring's `DataAccessException`
-- [What Else in Spring Works](spring-integration.md#what-else-in-spring-works) — And what cannot, including Actuator's health check
+- [Exceptions](spring-integration.md#exceptions) — The driver's own, from the template and the transaction manager alike
+- [What Else in Spring Works](spring-integration.md#what-else-in-spring-works) — Actuator's health check among them, and what cannot
 
 ### Concurrency
 - [One Connection Is One Wire](concurrency.md#one-connection-is-one-wire) — What the protocol serializes
