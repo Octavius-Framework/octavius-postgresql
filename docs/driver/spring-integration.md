@@ -59,7 +59,7 @@ It contributes two beans:
 What fails in either reaches you by one rule: **a failure that came from Octavius arrives as the driver's own
 exception**, the one a session used directly would throw, with its type, its reason enum, its SQLSTATE and its query
 context all intact. What it was wrapped in on the way does not matter and never reaches you; the JDBC surface adds a
-layer to satisfy `SQLException`, a pool adds another, and both are unwrapped however deep they sit. A connection
+layer to satisfy `SQLException`, a pool adds another, and both are unwrapped. A connection
 HikariCP could not hand over arrives as an `InitializationException`, never as the pool's own exception —
 carrying the driver's reason where there was one underneath, and `CONNECTION_UNAVAILABLE` where the pool simply had
 none free. None of it is a `DataAccessException`; see [Exceptions](#exceptions).

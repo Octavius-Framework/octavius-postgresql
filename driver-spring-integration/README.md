@@ -41,7 +41,7 @@ for `transaction_timeout`, which bounds the whole transaction on the server and 
 all, when it runs out.
 
 **A failure that came from Octavius survives the crossing.** It arrives as the driver's own exception — type,
-reason enum, SQLSTATE and query context intact — however many layers the JDBC surface and the pool wrapped it in
+reason enum, SQLSTATE and query context intact — whatever the JDBC surface and the pool wrapped it in
 on the way, and nothing of Spring's takes its place: an `@ExceptionHandler` names `ConstraintViolationException`,
 not `DataAccessException`.
 

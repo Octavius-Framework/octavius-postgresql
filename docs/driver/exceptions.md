@@ -697,9 +697,9 @@ connection (`autoCommit`, `commit()`, `rollback()`, `transactionIsolationLevel`,
 
 `OctaviusTemplate` and `OctaviusJdbcTransactionManager` hand on the driver's exception itself. Where it reaches them
 inside a `SQLException` — a commit that went through the pool's proxy, a connection the pool could not open — they
-search the incoming exception and its entire cause chain for anything Octavius-shaped, a `SQLExceptionWrapper` or a
+search the incoming exception and its cause chain for anything Octavius-shaped, a `SQLExceptionWrapper` or a
 bare `OctaviusException` such as the `InitializationException` a pool reports when it could not open a connection at
-all, and throw what they find. Searching the whole chain is what keeps a driver failure recognizable after HikariCP
+all, and throw what they find. Searching the chain is what keeps a driver failure recognizable after HikariCP
 has wrapped it in an exception of its own.
 
 **Spring users never see the wrapper either**, and nothing of Spring's goes around the driver's exception in its
