@@ -90,13 +90,13 @@ class DemoApplicationIntegrationTest {
     }
 
     @Test
-    fun `a duplicate name arrives as a translated constraint violation`() {
+    fun `a duplicate name arrives as the driver's constraint violation`() {
         val sent = user("cato")
 
         post("/users", sent).expectStatus().isOk()
 
-        // ConstraintViolationException(UNIQUE_CONSTRAINT_VIOLATION) -> OctaviusDataAccessException ->
-        // GlobalExceptionHandler. A 500 here would mean the reason did not survive the crossing.
+        // ConstraintViolationException(UNIQUE_CONSTRAINT_VIOLATION) -> GlobalExceptionHandler, matched by
+        // its own type. A 500 here would mean the reason did not survive the crossing.
         post("/users", sent).expectStatus().isEqualTo(HttpStatus.CONFLICT)
     }
 

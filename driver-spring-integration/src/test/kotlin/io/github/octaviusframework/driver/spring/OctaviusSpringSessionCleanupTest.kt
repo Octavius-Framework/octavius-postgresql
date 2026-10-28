@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.spring
 
+import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -14,7 +15,6 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.dao.DataAccessException
 import org.springframework.transaction.annotation.EnableTransactionManagement
 import org.springframework.transaction.annotation.Transactional
 
@@ -67,7 +67,7 @@ class OctaviusSpringSessionCleanupTest {
                 createNativeQuery("ROLLBACK").execute()
                 createNativeQuery("UNLISTEN *").execute()
             }
-        } catch (_: DataAccessException) {
+        } catch (_: OctaviusException) {
             runCatching { octaviusTemplate.execute { abort() } }
         }
         service.createTable()

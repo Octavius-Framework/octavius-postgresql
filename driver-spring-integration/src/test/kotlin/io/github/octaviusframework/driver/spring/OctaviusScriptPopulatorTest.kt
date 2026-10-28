@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.core.io.ByteArrayResource
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator
 import org.springframework.jdbc.datasource.init.ScriptStatementFailedException
+import org.springframework.transaction.support.TransactionTemplate
 import java.sql.Connection
 import java.sql.DriverManager
 import kotlin.test.assertContains
@@ -58,6 +59,22 @@ class OctaviusScriptPopulatorTest : AbstractIntegrationTest() {
             val wrapper = assertIs<SQLExceptionWrapper>(failure.cause)
             assertIs<DataException>(wrapper.wrappedException)
             assertEquals("22P02", wrapper.sqlState)
+        }
+    }
+
+    @Test
+    fun `a script run inside a transaction rolls back with it`() {
+        TestDatabase.dataSource().use { dataSource ->
+            TransactionTemplate(OctaviusJdbcTransactionManager(dataSource)).executeWithoutResult { status ->
+                // What @Sql does in a @Transactional test: the populator takes its connection through DataSourceUtils
+                ResourceDatabasePopulator(ByteArrayResource("CREATE TABLE cohors (numerus int)".toByteArray())).execute(dataSource)
+                status.setRollbackOnly()
+            }
+
+            val tables = TestDatabase.openSession().use {
+                it.createNativeQuery("SELECT count(*) FROM pg_tables WHERE tablename = 'cohors'").fetchFieldStrict<Long>()
+            }
+            assertEquals(0L, tables, "the script ran on a connection of its own and committed")
         }
     }
 }

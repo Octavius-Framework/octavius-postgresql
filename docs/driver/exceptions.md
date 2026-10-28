@@ -11,7 +11,7 @@ Three things are worth internalizing before the details:
 
 * **The reason enum is a convenience layer, not a lossy one.** Most exceptions carry an enum identifying the exact reason for the failure, so you don't hand-parse `SQLSTATE` codes yourself. But nothing the server said is thrown away: `serverErrorMessage` still holds the complete parsed `ErrorResponse`.
 * **A rejected statement does not desynchronize the connection.** When the *server* reports an error, the driver keeps reading the protocol stream until `ReadyForQuery`, *then* throws — so the session is still usable afterwards. The exceptions are the two ways a connection ends: a `NetworkException` means the socket itself is gone, and a `SessionTerminatedException` means the server ended the session — a `FATAL`, which nothing follows but the close. Either way that connection is finished.
-* **Which type you catch depends on the door you came in through.** The native session API throws `OctaviusException` subclasses, the raw JDBC surface throws `SQLExceptionWrapper`, Spring's `OctaviusTemplate` throws `OctaviusDataAccessException`. See [Crossing into JDBC and Spring](#crossing-into-jdbc-and-spring).
+* **Which type you catch depends on the door you came in through.** The native session API and Spring's `OctaviusTemplate` throw `OctaviusException` subclasses, the raw JDBC surface throws `SQLExceptionWrapper`. See [Crossing into JDBC and Spring](#crossing-into-jdbc-and-spring).
 
 Contents:
 * [The base class](#the-base-class)
@@ -664,12 +664,12 @@ Wrapping a `required { }` that merely *joined* an outer transaction retries noth
 
 The exception you catch depends on which door you came in through.
 
-| Entry point                                                                         | You catch                                               |
-|:------------------------------------------------------------------------------------|:--------------------------------------------------------|
-| `OctaviusSession` — `createNativeQuery`, `createNamedQuery`, `commit`, `rollback` … | `OctaviusException` subclasses, unchanged               |
-| A raw `java.sql.Connection` (`dataSource.connection`)                               | `SQLExceptionWrapper` (a `java.sql.SQLException`)       |
-| Spring's `OctaviusTemplate`                                                         | `OctaviusDataAccessException` (a `DataAccessException`) |
-| `HikariDataSource(config)` — building the pool itself                               | `HikariPool.PoolInitializationException`, Hikari's own  |
+| Entry point                                                                         | You catch                                              |
+|:------------------------------------------------------------------------------------|:-------------------------------------------------------|
+| `OctaviusSession` — `createNativeQuery`, `createNamedQuery`, `commit`, `rollback` … | `OctaviusException` subclasses, unchanged              |
+| A raw `java.sql.Connection` (`dataSource.connection`)                               | `SQLExceptionWrapper` (a `java.sql.SQLException`)      |
+| Spring's `OctaviusTemplate` and `OctaviusJdbcTransactionManager`                    | `OctaviusException` subclasses, unchanged              |
+| `HikariDataSource(config)` — building the pool itself                               | `HikariPool.PoolInitializationException`, Hikari's own |
 
 ### `SQLExceptionWrapper`
 
@@ -695,55 +695,60 @@ connection (`autoCommit`, `commit()`, `rollback()`, `transactionIsolationLevel`,
 
 ### Spring
 
-`OctaviusExceptionTranslator` plugs into Spring's `SQLExceptionTranslator` contract. It searches the incoming
-`SQLException` and its entire cause chain for anything Octavius-shaped — a `SQLExceptionWrapper`, or a bare
-`OctaviusException` such as the `InitializationException` a pool reports when it could not open a connection at all —
-and produces an `OctaviusDataAccessException` carrying the original. Searching the whole chain is what keeps a driver
-failure recognizable after HikariCP has wrapped it in an exception of its own. Anything it doesn't recognize falls
-through to Spring's own `SQLStateSQLExceptionTranslator`, so you never lose the standard hierarchy.
+`OctaviusTemplate` and `OctaviusJdbcTransactionManager` hand on the driver's exception itself. Where it reaches them
+inside a `SQLException` — a commit that went through the pool's proxy, a connection the pool could not open — they
+search the incoming exception and its entire cause chain for anything Octavius-shaped, a `SQLExceptionWrapper` or a
+bare `OctaviusException` such as the `InitializationException` a pool reports when it could not open a connection at
+all, and throw what they find. Searching the whole chain is what keeps a driver failure recognizable after HikariCP
+has wrapped it in an exception of its own.
 
-**Spring users never see the wrapper either**: whatever the layers on the way, `octaviusException` is the driver's
-exception itself.
-
-`OctaviusDataAccessException` keeps the original available as `octaviusException`:
+**Spring users never see the wrapper either**, and nothing of Spring's goes around the driver's exception in its
+place, so a handler names the driver's type directly:
 
 ```kotlin
 @ControllerAdvice
 class GlobalExceptionHandler {
 
-    @ExceptionHandler(OctaviusDataAccessException::class)
-    fun handle(ex: OctaviusDataAccessException): ResponseEntity<Map<String, String>> {
-        val root = ex.octaviusException
-
-        if (root is ConstraintViolationException &&
-            root.reason == ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION) {
+    @ExceptionHandler(ConstraintViolationException::class)
+    fun handleConstraint(ex: ConstraintViolationException): ResponseEntity<Map<String, String>> {
+        if (ex.reason == ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(mapOf("error" to "Already enrolled.", "constraint" to (root.constraint ?: "")))
+                .body(mapOf("error" to "Already enrolled.", "constraint" to (ex.constraint ?: "")))
         }
+        return unexpected()
+    }
 
-        if (root is TransactionStateException &&
-            root.reason == TransactionStateExceptionReason.READ_ONLY_TRANSACTION) {
+    @ExceptionHandler(TransactionStateException::class)
+    fun handleTransactionState(ex: TransactionStateException): ResponseEntity<Map<String, String>> {
+        if (ex.reason == TransactionStateExceptionReason.READ_ONLY_TRANSACTION) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(mapOf("error" to "Cannot write in a read-only transaction."))
         }
-
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(mapOf("error" to "Unexpected database error."))
+        return unexpected()
     }
+
+    @ExceptionHandler(OctaviusException::class)
+    fun handleOther(ex: OctaviusException): ResponseEntity<Map<String, String>> = unexpected()
+
+    private fun unexpected(): ResponseEntity<Map<String, String>> =
+        ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            .body(mapOf("error" to "Unexpected database error."))
 }
 ```
 
-See [Spring Integration](spring-integration.md) for the surrounding configuration.
+Spring picks the handler declared for the closest type, so the one for `OctaviusException` gets only what the other
+two do not. None of these exceptions is a `DataAccessException`, and a handler for Spring's hierarchy does not see
+them. See [Spring Integration](spring-integration.md#exceptions) for the surrounding configuration.
 
 ### Digging it out yourself
 
-The translator above only runs where Spring is holding the exception. The one place nothing does it for you is
-**building the pool** — `HikariDataSource(config)` opens a connection to check the configuration works, and a driver
-failure there comes back as Hikari's `PoolInitializationException`, thrown from a Hikari constructor you called
-directly. That is correct layering rather than a gap: you called their API, you get their exception, and no amount of
-driver code changes that.
+The unwrapping above only runs where the Spring module is holding the exception. The one place nothing does it for
+you is **building the pool** — `HikariDataSource(config)` opens a connection to check the configuration works, and a
+driver failure there comes back as Hikari's `PoolInitializationException`, thrown from a Hikari constructor you
+called directly. That is correct layering rather than a gap: you called their API, you get their exception, and no
+amount of driver code changes that.
 
-What the driver does provide is the same tool its own translator uses. `findOctaviusCause()` is an extension on
+What the driver does provide is the same tool the Spring module uses. `findOctaviusCause()` is an extension on
 `Throwable`, not on `SQLException`, so it works on anything:
 
 ```kotlin
@@ -763,7 +768,8 @@ It walks the receiver first and then the cause chain, returning the driver's own
 depth-bounded, so a self-referential chain ends rather than spinning.
 
 Outside pool construction you rarely need it: [`getOctaviusSession`](initialization.md#getting-a-session) already
-restates whatever a pool refuses a connection with, and the Spring translator already searches the chain.
+restates whatever a pool refuses a connection with, and the Spring module's template and transaction manager
+already search the chain.
 
 ## Practical rules and gotchas
 

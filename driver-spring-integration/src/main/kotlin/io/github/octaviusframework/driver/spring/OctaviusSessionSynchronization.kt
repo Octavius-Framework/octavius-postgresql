@@ -15,14 +15,15 @@ import javax.sql.DataSource
 internal data class OctaviusSessionKey(val dataSource: DataSource)
 
 /**
- * Holds the session bound to the current transaction.
+ * Holds the session bound to the current transaction: by [OctaviusJdbcTransactionManager] for a
+ * transaction it begins, and by [OctaviusTemplate] for one another manager began, or for
+ * synchronization with no transaction behind it.
  *
- * Spring drives the connection itself inside a transaction, so a session over it lasts as long as
- * the transaction does rather than as long as one [OctaviusTemplate.execute] call: opening one per
- * call would build a notification, copy and type manager each time, and would leave the question of
- * which of them undoes the state on the connection unanswered.
+ * A session lasts as long as the transaction does rather than as long as one [OctaviusTemplate.execute]
+ * call: opening one per call would build a notification, copy and type manager each time, and would
+ * leave the question of which of them undoes the state on the connection unanswered.
  */
-internal class OctaviusSessionHolder(val session: OctaviusSession) : ResourceHolderSupport()
+internal open class OctaviusSessionHolder(val session: OctaviusSession) : ResourceHolderSupport()
 
 /**
  * Ends the transaction-scoped session at the right point in Spring's completion sequence.

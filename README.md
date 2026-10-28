@@ -41,7 +41,7 @@ and where a reasonable person would have chosen otherwise.
 | **`client-scanner`** — *the census*            | Finds the annotated classes in your packages and registers them, so thirty types are named once instead of thirty times. [README](client-scanner/README.md)                                                              |
 | **`migrations`** — *the surveyor*              | A migrator on the driver: `V`/`R` naming, `.sql` files and Kotlin classes, checksums, an advisory lock, and a history table it keeps itself. [README](migrations/README.md)                                              |
 | **`pg-model`** — *the codex*                   | Multiplatform: the annotations Octavius reads off your own classes, a `BigDecimal` `commonMain` can name, and the serializers that keep it and PostgreSQL's dates intact through JSON. [README](pg-model/README.md)      |
-| **`driver-spring-integration`** — *the treaty* | `OctaviusTemplate`, exception translation, Spring Boot autoconfiguration. [README](driver-spring-integration/README.md)                                                                                                  |
+| **`driver-spring-integration`** — *the treaty* | `OctaviusTemplate`, the driver's own exceptions, Spring Boot autoconfiguration. [README](driver-spring-integration/README.md)                                                                                            |
 
 The road carries the query, the praetor decides which court hears it, the census enrols the citizens so that
 none has to present itself by name, the surveyor keeps the boundary stones and the record of who moved them,

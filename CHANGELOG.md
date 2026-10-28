@@ -1,4 +1,4 @@
-## Version 2.6.1 (v2.6.1)
+## Version 2.7.0 (v2.7.0)
 
 ### Driver
 
@@ -6,6 +6,9 @@
 
 - `SqlScript.split` keeps a `BEGIN ATOMIC ... END` body inside its `CREATE FUNCTION` or `CREATE PROCEDURE`. It cut
   the body at every `;` in it, and the `END` closing it came out as a statement of its own.
+
+- An exception of your own thrown inside an `OctaviusTemplate` block leaves it as it was thrown, also when its cause
+  is one of the driver's. It was replaced by an `OctaviusDataAccessException` around that cause.
 
 - Closing a session opened with `getOctaviusSession(ownsConnection = false)` leaves a transaction the connection was
   already in - begun on the server, or waiting for its first statement with auto-commit off - for the connection's
@@ -22,9 +25,43 @@
 - `Propagation.NESTED` inside a running transaction takes a savepoint. It threw
   `InvalidOperationException(FEATURE_NOT_SUPPORTED)` before the nested method ran, because Spring asks
   `DatabaseMetaData.supportsSavepoints()` first and `getMetaData()` refused. A caller that caught the nested
-  method's failures caught this one too, and carried on without the nested work.
+  method's failures caught this one too, and carried on without the nested work. A savepoint that cannot be taken,
+  rolled back to or released raises the driver's exception, as a commit and a rollback do. On a connection that is
+  already gone, rolling back to the savepoint stays quiet, so the exception the nested method threw is the one its
+  caller gets, and releasing it after a nested method that returned normally raises
+  `NetworkException(CONNECTION_ABORTED)`, as does a nested method begun on such a connection.
+
+- A commit whose connection goes during the `COMMIT` itself raises `NetworkException(CONNECTION_ABORTED)`, as a
+  commit on a connection already gone does. It raised `TransactionSystemException` over the pool's bare
+  `Connection is closed`.
+
+- A pool that fails to start on the first borrow for a reason of its own, with no exception of the driver's in
+  it, leaves `OctaviusTemplate` and `OctaviusJdbcTransactionManager` as `InitializationException(CONNECTION_ERROR)`
+  over Hikari's `PoolInitializationException`. The template let the `PoolInitializationException` through, and the
+  manager raised `CannotCreateTransactionException` around it.
 
 #### Changed
+
+- **[BREAKING]** `OctaviusTemplate` and `OctaviusJdbcTransactionManager` throw the driver's own exceptions -
+  `ConstraintViolationException`, `InitializationException` for a connection the pool would not hand over,
+  `SessionTerminatedException` for a commit the server ended the session over - where they threw an
+  `OctaviusDataAccessException` around them. `OctaviusDataAccessException` is gone, and nothing they throw for the
+  driver is a `DataAccessException` any more: an `@ExceptionHandler` or a `catch` names the driver's type, or
+  `OctaviusException` for all of them.
+
+- **[BREAKING]** `OctaviusTemplate` takes no exception translator, and its constructor is
+  `OctaviusTemplate(dataSource)`. `OctaviusExceptionTranslator` is gone.
+
+- **[BREAKING]** `OctaviusJdbcTransactionManager` extends `AbstractPlatformTransactionManager` instead of
+  `JdbcTransactionManager`, so it has none of the properties `JdbcTransactionManager` and
+  `DataSourceTransactionManager` add - `exceptionTranslator`, `lazyInit`, `databaseProductName`,
+  `enforceReadOnly` - and a `TransactionManagerCustomizer` typed to either of them does not reach it. Boot's
+  `spring.transaction.*` still does. It runs each transaction through an `OctaviusSession` opened when the
+  transaction begins, the one every `OctaviusTemplate.execute` in the transaction uses. A subclass overrides
+  `prepareTransactionalSession(session, definition)` where it overrode `prepareTransactionalConnection`. A commit
+  or rollback that failed with nothing of the driver's in it raises `NetworkException(CONNECTION_ERROR)` over the
+  pool's exception, as a session's own `commit()` and `rollback()` do, and an `Error` while taking the connection
+  leaves as it was thrown.
 
 - `startPollingListenerLoop` and `startInterruptibleListenerLoop` throw `InvalidOperationException(CONNECTION_BUSY)`
   when a transaction is open on the server, and leave the session as it was. PostgreSQL holds notifications back

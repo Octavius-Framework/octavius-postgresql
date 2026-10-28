@@ -2,19 +2,19 @@ package io.github.octaviusframework.driver.spring
 
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
-import io.github.octaviusframework.driver.spring.exception.OctaviusDataAccessException
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertInstanceOf
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration
 import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Lazy
 import org.springframework.transaction.annotation.EnableTransactionManagement
+import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 
 /**
@@ -45,10 +45,9 @@ class OctaviusSpringAbortedConnectionTest {
 
     @Test
     fun `a commit on a connection that is gone says the connection is gone`() {
-        val ex = assertThrows(OctaviusDataAccessException::class.java) { service.abortThenCommit() }
+        val ex = assertThrows(NetworkException::class.java) { service.abortThenCommit() }
 
-        val octavius = assertInstanceOf<NetworkException>(ex.octaviusException)
-        assertEquals(NetworkExceptionReason.CONNECTION_ABORTED, octavius.reason)
+        assertEquals(NetworkExceptionReason.CONNECTION_ABORTED, ex.reason)
     }
 
     /**
@@ -61,6 +60,27 @@ class OctaviusSpringAbortedConnectionTest {
         val ex = assertThrows(IllegalStateException::class.java) { service.abortThenThrow() }
 
         assertEquals("the failure worth reporting", ex.message)
+    }
+
+    @Test
+    fun `a nested method's own exception survives a rollback to its savepoint on a connection that is gone`() {
+        val ex = assertThrows(IllegalStateException::class.java) { service.nestedAbortThenThrow() }
+
+        assertEquals("the failure worth reporting", ex.message)
+    }
+
+    @Test
+    fun `a nested method that returned on a connection that is gone says the connection is gone`() {
+        val ex = assertThrows(NetworkException::class.java) { service.nestedAbortThenReturn() }
+
+        assertEquals(NetworkExceptionReason.CONNECTION_ABORTED, ex.reason)
+    }
+
+    @Test
+    fun `a nested method begun on a connection that is gone says the connection is gone`() {
+        val ex = assertThrows(NetworkException::class.java) { service.abortThenNested() }
+
+        assertEquals(NetworkExceptionReason.CONNECTION_ABORTED, ex.reason)
     }
 
     @Test
@@ -90,5 +110,45 @@ open class AbortService(private val octaviusTemplate: OctaviusTemplate) {
     open fun abortThenThrow() {
         octaviusTemplate.execute { abort() }
         throw IllegalStateException("the failure worth reporting")
+    }
+
+    @Lazy
+    @Autowired
+    lateinit var self: AbortService
+
+    @Transactional
+    open fun nestedAbortThenThrow() {
+        octaviusTemplate.execute { createNativeQuery("SELECT 1").fetchFieldStrict<Int>() }
+        self.abortInSavepointThenThrow()
+    }
+
+    @Transactional(propagation = Propagation.NESTED)
+    open fun abortInSavepointThenThrow() {
+        octaviusTemplate.execute { abort() }
+        throw IllegalStateException("the failure worth reporting")
+    }
+
+    @Transactional
+    open fun nestedAbortThenReturn() {
+        octaviusTemplate.execute { createNativeQuery("SELECT 1").fetchFieldStrict<Int>() }
+        self.abortInSavepoint()
+    }
+
+    @Transactional(propagation = Propagation.NESTED)
+    open fun abortInSavepoint() {
+        octaviusTemplate.execute { abort() }
+        // returns normally, so Spring tries to release a savepoint that no longer has a connection
+    }
+
+    @Transactional
+    open fun abortThenNested() {
+        octaviusTemplate.execute { createNativeQuery("SELECT 1").fetchFieldStrict<Int>() }
+        octaviusTemplate.execute { abort() }
+        self.selectInSavepoint()
+    }
+
+    @Transactional(propagation = Propagation.NESTED)
+    open fun selectInSavepoint() {
+        octaviusTemplate.execute { createNativeQuery("SELECT 1").fetchFieldStrict<Int>() }
     }
 }

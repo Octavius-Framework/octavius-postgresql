@@ -2,7 +2,7 @@
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.octavius-framework/driver-spring-integration)](https://central.sonatype.com/artifact/io.github.octavius-framework/driver-spring-integration)
 
-Octavius under Spring's transaction manager, reporting failure in Spring's vocabulary.
+Octavius under Spring's transaction manager, reporting failure in its own vocabulary.
 
 > Part of [Octavius for PostgreSQL](../README.md), released with it and on the same version. Brings the
 > [driver](../driver/README.md) transitively; the core driver has no Spring dependency at all.
@@ -40,10 +40,10 @@ that runs past it and keeps the connection, but does not bound their sum; set `t
 for `transaction_timeout`, which bounds the whole transaction on the server and ends the session, connection and
 all, when it runs out.
 
-**A failure that came from Octavius survives the crossing.** It arrives as `OctaviusDataAccessException`, whose
-`octaviusException` hands back the driver's own exception — type, reason enum, SQLSTATE and query context
-intact — however many layers the JDBC surface and the pool wrapped it in on the way. Genuinely foreign
-`SQLException`s go through Spring's own translator into the standard `DataAccessException` hierarchy.
+**A failure that came from Octavius survives the crossing.** It arrives as the driver's own exception — type,
+reason enum, SQLSTATE and query context intact — however many layers the JDBC surface and the pool wrapped it in
+on the way, and nothing of Spring's takes its place: an `@ExceptionHandler` names `ConstraintViolationException`,
+not `DataAccessException`.
 
 **The driver's properties are configurable from `application.yml`**, alongside `spring.datasource` and
 `spring.datasource.hikari.*`.
@@ -58,7 +58,7 @@ So `JdbcTemplate`, `NamedParameterJdbcTemplate` and `JdbcClient` do not work, an
 Spring Data JPA, Hibernate, Flyway or Liquibase. Boot still auto-configures the `JdbcTemplate` and `JdbcClient`
 beans, because this module depends on `spring-boot-starter-jdbc` — **the beans exist and they fail when
 called**, with the driver's own `InvalidOperationException(FEATURE_NOT_SUPPORTED)` rather than a tidy Spring
-exception, since a `RuntimeException` that was never a `SQLException` gives the translator nothing to
+exception, since a `RuntimeException` that was never a `SQLException` gives `JdbcTemplate` nothing to
 translate.
 
 Schema migrations need neither Flyway nor Liquibase: [`migrations`](../docs/migrations/README.md) runs on the
@@ -75,8 +75,8 @@ Spring Boot 4.x, on top of [the driver's own](../README.md#requirements) — Jav
   startup, transaction management, and the full table of what works
 - [Octavius vs Legacy JDBC](../docs/driver/octavius-vs-jdbc.md) — which JDBC surface is kept, and why the rest
   is not
-- [Error Handling & Exceptions](../docs/driver/exceptions.md#crossing-into-jdbc-and-spring) — what the
-  translation preserves
+- [Error Handling & Exceptions](../docs/driver/exceptions.md#crossing-into-jdbc-and-spring) — what reaches a
+  Spring application, and how to dig the driver's exception out of anything else
 
 ## License
 
