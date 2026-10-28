@@ -281,9 +281,7 @@ The full hierarchy, the reason enums worth branching on, and a longer `@Controll
 
 ### When the connection dies mid-transaction
 
-A connection can leave in the middle of a transaction — the driver aborts one whose stream is broken or that was left mid-`COPY`, and `session.abort()` does it on request. The pool evicts it, and from then on its proxy answers everything with a bare `SQLException` that carries neither SQLState nor cause, so there is nothing of the driver's left in it to report.
-
-The server can end it as well — a `transaction_timeout` running out, `pg_terminate_backend()`, a shutdown — and then it says why before it closes. A session ended while nothing was running on it is found by whatever touches it next, which at the end of a transaction is the commit or the rollback itself.
+A connection can leave in the middle of a transaction. The driver aborts one whose stream is broken or that was left mid-`COPY`, and `session.abort()` does it on request; the server ends one when a `transaction_timeout` runs out, on `pg_terminate_backend()` or at a shutdown, and says why before it closes. A session the server ended while nothing ran on it is found by whatever touches it next, which at the end of a transaction is the commit or the rollback itself.
 
 The auto-configured `OctaviusJdbcTransactionManager` answers for all of it, and treats the two paths differently:
 
@@ -292,7 +290,7 @@ The auto-configured `OctaviusJdbcTransactionManager` answers for all of it, and 
 | **Commit**   | Raises the server's reason, `SessionTerminatedException`, where the server ended the session, and `NetworkException(CONNECTION_ABORTED)` where the connection had already left, or left during the `COMMIT`. |
 | **Rollback** | Stays quiet, including when the rollback is what found the connection gone. The server discarded the transaction along with the connection, so there is nothing to do.                                       |
 
-The asymmetry is the point. A commit that did not happen must be reported, or the caller is told its work is durable when it is not. A rollback, on the other hand, has already got what it asked for — and raising there would replace the exception that *caused* the rollback with one about the cleanup. Without this, an aborted connection turned every such failure into `TransactionSystemException: JDBC commit failed`, and Spring logged `Application exception overridden by rollback exception` over the diagnostic you actually needed.
+The asymmetry is the point. A commit that did not happen must be reported, or the caller is told its work is durable when it is not. A rollback, on the other hand, has already got what it asked for — and raising there would replace the exception that *caused* the rollback with one about the cleanup.
 
 A `NESTED` method's savepoint follows the same two rules. A method begun on a connection that is gone raises `NetworkException(CONNECTION_ABORTED)` before it runs. One that returned normally ends by releasing its savepoint, and on a connection that is gone that raises `NetworkException(CONNECTION_ABORTED)`: what the method did went with the connection. One that threw ends by rolling back to its savepoint, which stays quiet, so the exception it threw is what leaves it.
 
