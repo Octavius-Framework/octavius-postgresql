@@ -70,10 +70,10 @@ class DefaultSessionProviderNestingTest : AbstractIntegrationTest() {
                 assertFailsWith<IllegalStateException> {
                     db.transaction {
                         transaction(propagation = TransactionPropagation.REQUIRES_NEW) {
-                            rawQuery("INSERT INTO probe_rows VALUES ('inner')").update()
+                            rawQuery("INSERT INTO probe_rows VALUES ('inner')").executeUpdate()
                         }
                         // If the binding were lost here this would auto-commit on a borrowed session.
-                        rawQuery("INSERT INTO probe_rows VALUES ('after')").update()
+                        rawQuery("INSERT INTO probe_rows VALUES ('after')").executeUpdate()
                         error("take the outer transaction down")
                     }
                 }
@@ -165,7 +165,7 @@ class DefaultSessionProviderNestingTest : AbstractIntegrationTest() {
     fun `a transaction opened inside execute commits on the bound session`() {
         withProbeTable { db ->
             db.execute {
-                db.transaction { db.rawQuery("INSERT INTO probe_rows VALUES ('kept')").update() }
+                db.transaction { db.rawQuery("INSERT INTO probe_rows VALUES ('kept')").executeUpdate() }
             }
 
             assertEquals(listOf("kept"), db.rawQuery("SELECT tag FROM probe_rows").fetchFields<String>())
@@ -178,7 +178,7 @@ class DefaultSessionProviderNestingTest : AbstractIntegrationTest() {
             assertFailsWith<IllegalStateException> {
                 db.execute {
                     db.transaction {
-                        db.rawQuery("INSERT INTO probe_rows VALUES ('gone')").update()
+                        db.rawQuery("INSERT INTO probe_rows VALUES ('gone')").executeUpdate()
                         error("take it down")
                     }
                 }
@@ -199,7 +199,7 @@ class DefaultSessionProviderNestingTest : AbstractIntegrationTest() {
             assertFailsWith<IllegalStateException> {
                 db.execute {
                     db.transaction(propagation = TransactionPropagation.NESTED) {
-                        db.rawQuery("INSERT INTO probe_rows VALUES ('gone')").update()
+                        db.rawQuery("INSERT INTO probe_rows VALUES ('gone')").executeUpdate()
                         error("take it down")
                     }
                 }

@@ -121,7 +121,7 @@ class PooledSessionCleanupTest {
         pool().use { pool ->
             val first = pool.getOctaviusSession()
             first.createNativeQuery("BEGIN").execute() // the driver is never told
-            first.createNativeQuery("INSERT INTO pool_cleanup_test VALUES (1)").update()
+            first.createNativeQuery("INSERT INTO pool_cleanup_test VALUES (1)").executeUpdate()
             assertEquals(TransactionState.IN_TRANSACTION, first.transactionState)
             first.close()
 
@@ -149,7 +149,7 @@ class PooledSessionCleanupTest {
         pool().use { pool ->
             val session = pool.getOctaviusSession()
             session.autoCommit = false
-            session.createNativeQuery("INSERT INTO pool_cleanup_test_2 VALUES (1)").update()
+            session.createNativeQuery("INSERT INTO pool_cleanup_test_2 VALUES (1)").executeUpdate()
             session.commit()
             session.autoCommit = true
             session.close()
@@ -182,7 +182,7 @@ class PooledSessionCleanupTest {
             isAutoCommit = false
         }).use { pool ->
             val first = pool.getOctaviusSession()
-            first.createNativeQuery("INSERT INTO pool_cleanup_test_3 VALUES (1)").update()
+            first.createNativeQuery("INSERT INTO pool_cleanup_test_3 VALUES (1)").executeUpdate()
             first.close() // neither committed nor rolled back
 
             val second = pool.getOctaviusSession()
@@ -258,7 +258,7 @@ class PooledSessionCleanupTest {
         val count = committedRows("pool_cleanup_owned_1") { conn ->
             conn.autoCommit = false
             conn.getOctaviusSession(ownsConnection = false).use {
-                it.createNativeQuery("INSERT INTO pool_cleanup_owned_1 VALUES (1)").update()
+                it.createNativeQuery("INSERT INTO pool_cleanup_owned_1 VALUES (1)").executeUpdate()
             }
             conn.commit()
         }
@@ -271,7 +271,7 @@ class PooledSessionCleanupTest {
         val count = committedRows("pool_cleanup_owned_2") { conn ->
             conn.createStatement().use { it.execute("BEGIN") }
             conn.getOctaviusSession(ownsConnection = false).use {
-                it.createNativeQuery("INSERT INTO pool_cleanup_owned_2 VALUES (1)").update()
+                it.createNativeQuery("INSERT INTO pool_cleanup_owned_2 VALUES (1)").executeUpdate()
             }
             conn.createStatement().use { it.execute("COMMIT") }
         }
@@ -284,7 +284,7 @@ class PooledSessionCleanupTest {
         val count = committedRows("pool_cleanup_owned_3") { conn ->
             conn.getOctaviusSession(ownsConnection = false).use {
                 it.createNativeQuery("BEGIN").execute()
-                it.createNativeQuery("INSERT INTO pool_cleanup_owned_3 VALUES (1)").update()
+                it.createNativeQuery("INSERT INTO pool_cleanup_owned_3 VALUES (1)").executeUpdate()
             }
             conn.createStatement().use { it.execute("COMMIT") } // the owner commits whatever is open
         }

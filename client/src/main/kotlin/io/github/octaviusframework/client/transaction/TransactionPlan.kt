@@ -26,7 +26,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
  * for (item in levy) {
  *     plan.add(
  *         db.insertInto("edict_items").values(listOf("edict_id", "province_id", "amount"))
- *             .asStep().update(
+ *             .asStep().executeUpdate(
  *                 "edict_id" to edictId.value(),
  *                 "province_id" to item.provinceId,
  *                 "amount" to item.amount

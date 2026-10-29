@@ -76,7 +76,7 @@ Implement `OctaviusMigration`, and let the class name say which migration it is:
 ```kotlin
 class V3__Backfill_provinces : OctaviusMigration {
     override fun migrate(session: OctaviusSessionOperations) {
-        session.createNativeQuery("UPDATE provinces SET tribute = 0 WHERE tribute IS NULL").update()
+        session.createNativeQuery("UPDATE provinces SET tribute = 0 WHERE tribute IS NULL").executeUpdate()
     }
 }
 ```

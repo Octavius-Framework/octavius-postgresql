@@ -1,3 +1,20 @@
+## Version 2.8.0 (v2.8.0)
+
+### Driver
+
+#### Changed
+
+- **[BREAKING]** A statement that returns its row count runs through `executeUpdate()` on `NativeQuery` and
+  `NamedParameterQuery`, as in JDBC, where it was `update()`. After an `INSERT` or a `DELETE`, `update()` read as
+  one more SQL `UPDATE`.
+
+### Client
+
+#### Changed
+
+- **[BREAKING]** The builders, `rawQuery`, `asResult()` and `asStep()` end in `executeUpdate()`, the driver's
+  name, where they ended in `update()`. `db.update(table)`, which starts an `UPDATE`, keeps its name.
+
 ## Version 2.7.0 (v2.7.0)
 
 ### Driver

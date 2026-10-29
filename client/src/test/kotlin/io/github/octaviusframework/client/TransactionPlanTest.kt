@@ -63,7 +63,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         for (item in levy) {
             plan.add(
                 db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                    .asStep().update(
+                    .asStep().executeUpdate(
                         "edict_id" to edictId.value(),
                         "province" to item.province,
                         "amount" to item.amount
@@ -99,7 +99,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         // Records the id the step above produced, so each run leaves proof of what it resolved.
         plan.add(
             db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().update("edict_id" to edict, "province" to "Cilicia", "amount" to itemId.value())
+                .asStep().executeUpdate("edict_id" to edict, "province" to "Cilicia", "amount" to itemId.value())
         )
 
         val first = db.executeTransactionPlan(plan)
@@ -135,7 +135,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         )
         tail.add(
             db.update("plan_items").setValues(listOf("amount")).where("id = @id")
-                .asStep().update("id" to itemId.value(), "amount" to 91)
+                .asStep().executeUpdate("id" to itemId.value(), "amount" to 91)
         )
 
         head.addPlan(tail)
@@ -155,13 +155,13 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         val head = TransactionPlan()
         head.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "De Annona", "tribute" to 10)
+                .asStep().executeUpdate("title" to "De Annona", "tribute" to 10)
         )
 
         val tail = TransactionPlan()
         tail.add(
             db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().update("edict_id" to 9999, "province" to "Nusquam", "amount" to 1)
+                .asStep().executeUpdate("edict_id" to 9999, "province" to "Nusquam", "amount" to 1)
         )
 
         head.addPlan(tail)
@@ -175,7 +175,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         val tail = TransactionPlan()
         tail.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "De Vectigalibus", "tribute" to 5)
+                .asStep().executeUpdate("title" to "De Vectigalibus", "tribute" to 5)
         )
 
         val head = TransactionPlan()
@@ -189,7 +189,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
     @Test
     fun `a plan cannot be merged into itself`() {
         val plan = TransactionPlan()
-        plan.add(db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().update())
+        plan.add(db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().executeUpdate())
 
         val thrown = assertFailsWith<InvalidOperationException> { plan.addPlan(plan) }
         assertTrue(thrown.details!!.contains("into itself"), thrown.details!!)
@@ -200,7 +200,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         // The second merge would run every one of its steps again under the handle that already named the
         // first run, leaving that first result unreachable.
         val tail = TransactionPlan()
-        tail.add(db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().update())
+        tail.add(db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().executeUpdate())
 
         val head = TransactionPlan()
         head.addPlan(tail)
@@ -212,7 +212,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
     @Test
     fun `merging an empty plan changes nothing`() {
         val plan = TransactionPlan()
-        plan.add(db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().update())
+        plan.add(db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().executeUpdate())
         plan.addPlan(TransactionPlan())
         assertEquals(1, plan.size)
     }
@@ -227,12 +227,12 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         )
         plan.add(
             db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().update("edict_id" to edictId.value(), "province" to "Gallia", "amount" to 300)
+                .asStep().executeUpdate("edict_id" to edictId.value(), "province" to "Gallia", "amount" to 300)
         )
         // The foreign key holds, but the title does not: a second edict under a name already taken.
         plan.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "De Tributis", "tribute" to 1)
+                .asStep().executeUpdate("title" to "De Tributis", "tribute" to 1)
         )
 
         assertFailsWith<ConstraintViolationException> { db.executeTransactionPlan(plan) }
@@ -250,7 +250,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         for (tribute in listOf(650, 700, 750)) {
             plan.add(
                 db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                    .asStep().update("title" to "De Tributis", "tribute" to tribute)
+                    .asStep().executeUpdate("title" to "De Tributis", "tribute" to tribute)
             )
         }
 
@@ -263,12 +263,12 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
     @Test
     fun `a step whose result cannot be mapped keeps the attribute and gains the step`() {
         db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-            .update("title" to "De Tributis", "tribute" to 650)
+            .executeUpdate("title" to "De Tributis", "tribute" to 650)
 
         val plan = TransactionPlan()
         plan.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "De Bello Gallico", "tribute" to 1)
+                .asStep().executeUpdate("title" to "De Bello Gallico", "tribute" to 1)
         )
         // The projection has no `tribute` to give the class, which the mapper reports against the attribute.
         plan.add(db.select("id", "title").from("plan_edicts").asStep().fetchObjects<Edict>())
@@ -283,12 +283,12 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
     @Test
     fun `a plan reaches the result style by being wrapped, like anything else`() {
         db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-            .update("title" to "De Tributis", "tribute" to 1)
+            .executeUpdate("title" to "De Tributis", "tribute" to 1)
 
         val plan = TransactionPlan()
         plan.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "De Tributis", "tribute" to 2)
+                .asStep().executeUpdate("title" to "De Tributis", "tribute" to 2)
         )
 
         val result = dbResult { db.executeTransactionPlan(plan) }
@@ -309,7 +309,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         )
         plan.add(
             db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().update(
+                .asStep().executeUpdate(
                     "edict_id" to edict.value().map { it.get<Int>("id") },
                     "province" to "Gallia",
                     "amount" to edict.value().map { it.get<Int>("tribute") }
@@ -351,7 +351,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
     @Test
     fun `a map result is spread into parameters under its own keys`() {
         db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-            .update("title" to "De Tributis", "tribute" to 650)
+            .executeUpdate("title" to "De Tributis", "tribute" to 650)
 
         val plan = TransactionPlan()
 
@@ -363,7 +363,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         // names because a spread drops the key it was filed under.
         plan.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "De Tributis II", "row" to source.value().spread())
+                .asStep().executeUpdate("title" to "De Tributis II", "row" to source.value().spread())
         )
 
         db.executeTransactionPlan(plan)
@@ -387,7 +387,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
                 .asStep().fetchObject<Map<String, Any?>>()
         )
         plan.add(
-            db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().update(
+            db.insertInto("plan_edicts").values(listOf("title", "tribute")).asStep().executeUpdate(
                 "row" to missing.value().map { it ?: mapOf("title" to "Nihil", "tribute" to 0) }.spread()
             )
         )
@@ -405,13 +405,13 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         val other = TransactionPlan()
         val strayHandle = other.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "Elsewhere", "tribute" to 1)
+                .asStep().executeUpdate("title" to "Elsewhere", "tribute" to 1)
         )
 
         val plan = TransactionPlan()
         plan.add(
             db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().update("edict_id" to strayHandle.value(), "province" to "Gallia", "amount" to 1)
+                .asStep().executeUpdate("edict_id" to strayHandle.value(), "province" to "Gallia", "amount" to 1)
         )
 
         val thrown = assertFailsWith<InvalidOperationException> { db.executeTransactionPlan(plan) }
@@ -431,7 +431,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         val tail = TransactionPlan()
         tail.add(
             db.insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().update("edict_id" to edictId.value(), "province" to "Asia", "amount" to 90)
+                .asStep().executeUpdate("edict_id" to edictId.value(), "province" to "Asia", "amount" to 90)
         )
         tail.addPlan(head)
 
@@ -455,7 +455,7 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         assertTrue(plan.isEmpty())
         plan.add(
             db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().update("title" to "De Tributis", "tribute" to 1)
+                .asStep().executeUpdate("title" to "De Tributis", "tribute" to 1)
         )
         assertEquals(1, plan.size)
     }

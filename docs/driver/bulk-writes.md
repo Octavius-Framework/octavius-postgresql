@@ -53,17 +53,17 @@ val cognomina = senators.map { it.cognomen }
 
 val inserted: Long = session.createNativeQuery(
     "INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1, $2)"
-).update(ids, cognomina)
+).executeUpdate(ids, cognomina)
 ```
 
-`update()` returns the row count from the server's own `INSERT n` tag, exactly as it would for a single-row insert.
+`executeUpdate()` returns the row count from the server's own `INSERT n` tag, exactly as it would for a single-row insert.
 
 A Kotlin `List` becomes a PostgreSQL array with no ceremony: the parameter converter walks the collection, infers the element type from the first non-null element, and sends a binary array under the matching OID — `List<Int>` as `int4[]`, `List<String>` as `text[]`. Named parameters work the same way:
 
 ```kotlin
 session.createNamedQuery(
     "INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST(@ids, @cognomina)"
-).update("ids" to ids, "cognomina" to cognomina)
+).executeUpdate("ids" to ids, "cognomina" to cognomina)
 ```
 
 ### When a cast earns its place
@@ -102,7 +102,7 @@ if (ids.isEmpty()) return 0
 
 // Or state the type, when an empty batch is legitimate
 session.createNativeQuery("INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1, $2)")
-    .update(ids.withPgType(PgStandardType.INT4_ARRAY), cognomina.withPgType(PgStandardType.TEXT_ARRAY))
+    .executeUpdate(ids.withPgType(PgStandardType.INT4_ARRAY), cognomina.withPgType(PgStandardType.TEXT_ARRAY))
 ```
 
 `PgStandardType` covers the built-in array types; `withPgType("legio_status", isArray = true)` names one of your own. See [PgTyped](type-system.md#pgtyped) for the whole mechanism.
@@ -121,7 +121,7 @@ session.createNativeQuery("""
         province_id = u.province
     FROM UNNEST($1, $2, $3) AS u(id, rank, province)
     WHERE s.id = u.id
-""").update(ids, ranks, provinces)
+""").executeUpdate(ids, ranks, provinces)
 ```
 
 The `AS u(id, rank, province)` alias is what makes the unnested columns addressable; without it they arrive as `unnest`, `unnest1`, and so on. The returned count is the number of rows actually updated, which is **not** necessarily the length of your arrays — an id that matches nothing simply updates nothing, silently. If that matters, compare the count against the batch size and act on the difference.
@@ -132,7 +132,7 @@ A delete needs no zipping, only membership, so `= ANY` takes the array directly:
 
 ```kotlin
 session.createNativeQuery("DELETE FROM senators WHERE id = ANY($1)")
-    .update(ids)
+    .executeUpdate(ids)
 ```
 
 The same construction answers a question that has nothing to do with bulk writing: **how to pass a list to an `IN` clause.** In JDBC that means generating `?, ?, ?` to match the size of the list and binding each element — a different statement string for every distinct list length, and a new plan for each. Here the list is one parameter and the statement is a constant:
@@ -153,7 +153,7 @@ session.createNativeQuery("""
     INSERT INTO senators (id, cognomen)
     SELECT * FROM UNNEST($1, $2)
     ON CONFLICT (id) DO UPDATE SET cognomen = EXCLUDED.cognomen
-""").update(ids, cognomina)
+""").executeUpdate(ids, cognomina)
 ```
 
 One caveat is PostgreSQL's, not the driver's: a single statement cannot update the same row twice, so a batch containing the same conflict key more than once fails with *"ON CONFLICT DO UPDATE command cannot affect row a second time"* (`21000`, arriving as `StatementException(INVALID_DEFINITION)`). Deduplicate the batch by key before sending it.
@@ -196,7 +196,7 @@ session.typeManager.registerAutoComposite<Senator>()   // once, at startup
 session.createNativeQuery("""
     INSERT INTO senators (id, cognomen)
     SELECT s.id, s.cognomen FROM UNNEST($1) AS s
-""").update(senators)
+""").executeUpdate(senators)
 ```
 
 The element OID is inferred from the first element the same way a scalar array's is — the composite registration supplies it, and a registered enum supplies its own type name in the same position, so a `List<LegioStatus>` goes out as `legio_status[]` without a cast. See [Registering your own mappings](type-system.md#registering-your-own-mappings).
@@ -233,7 +233,7 @@ In practice the gain is nearly all captured well before any of that. **Chunk at 
 session.transaction.required {
     senators.chunked(10_000).forEach { chunk ->
         createNativeQuery("INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1, $2)")
-            .update(chunk.map { it.id }, chunk.map { it.cognomen })
+            .executeUpdate(chunk.map { it.id }, chunk.map { it.cognomen })
     }
 }
 ```
@@ -257,7 +257,7 @@ Wrapping the loop in a transaction is what makes the chunks all-or-nothing; with
 ## Practical rules and gotchas
 
 * **Build the parallel lists in one pass.** Arrays of different lengths pad with `NULL` instead of failing — the single easiest way to write garbage rows at speed.
-* **`update()` counts what the server did, not what you sent.** For a bulk `UPDATE` the difference is exactly the ids that matched nothing; check it if that is not supposed to happen.
+* **`executeUpdate()` counts what the server did, not what you sent.** For a bulk `UPDATE` the difference is exactly the ids that matched nothing; check it if that is not supposed to happen.
 * **Guard or type your empty batches.** `emptyList()` carries no element type, so it fails with `TYPE_NOT_FOUND` unless wrapped in `withPgType`.
 * **Scalar arrays are the cheapest form.** On two-column rows a `composite[]` allocated 2.2× as much, whether a hand-written converter or `registerAutoComposite` built it; time was a tie except for the reflective path. Your own shape decides the size of that, not the ratio quoted here.
 * **Do not zip `RETURNING` results against your input by position.** Use `WITH ORDINALITY` or return a key you supplied.

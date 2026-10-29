@@ -227,7 +227,7 @@ happened.** No level changes this.
 
 ```kotlin
 try {
-    session.createNativeQuery("INSERT INTO senators (name) VALUES ($1)").update(name)
+    session.createNativeQuery("INSERT INTO senators (name) VALUES ($1)").executeUpdate(name)
 } catch (e: OctaviusException) {
     logger.error(e) { "Failed to enrol senator" }   // pass the throwable; toString() renders the full block
 }

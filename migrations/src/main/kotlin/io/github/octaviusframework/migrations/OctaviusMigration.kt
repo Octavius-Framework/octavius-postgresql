@@ -17,7 +17,7 @@ import io.github.octaviusframework.driver.session.OctaviusSessionOperations
  * ```kotlin
  * class V3__Backfill_provinces : OctaviusMigration {
  *     override fun migrate(session: OctaviusSessionOperations) {
- *         session.createNativeQuery("UPDATE provinces SET tribute = 0 WHERE tribute IS NULL").update()
+ *         session.createNativeQuery("UPDATE provinces SET tribute = 0 WHERE tribute IS NULL").executeUpdate()
  *     }
  * }
  * ```

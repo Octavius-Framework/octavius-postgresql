@@ -96,7 +96,7 @@ class TypeScannerTest : AbstractIntegrationTest() {
     fun `an enum and a composite registered by the scan round-trip`() {
         // The proof that matters: nothing named these types in Kotlin, and the columns still map.
         db.insertInto("scan_senators").values(listOf("rank", "home"))
-            .update("rank" to ScanRank.Consul, "home" to ScanProvince("Gallia", "Lugdunum"))
+            .executeUpdate("rank" to ScanRank.Consul, "home" to ScanProvince("Gallia", "Lugdunum"))
 
         val senator = db.select("id", "rank", "home").from("scan_senators").fetchObjectStrict<Senator>()
 
@@ -107,7 +107,7 @@ class TypeScannerTest : AbstractIntegrationTest() {
     @Test
     fun `a dynamic type registered by the scan round-trips`() {
         db.insertInto("scan_senators").values(listOf("rank", "home", "benefit"))
-            .update(
+            .executeUpdate(
                 "rank" to ScanRank.Praetor,
                 "home" to ScanProvince("Hispania", "Tarraco"),
                 "benefit" to db.dynamicTypes.toDynamicDto(ScanGrant(120))
@@ -125,7 +125,7 @@ class TypeScannerTest : AbstractIntegrationTest() {
         // stated. Nothing wrote a serializer, and the enum is not `@Serializable`: the scan is what makes the
         // payload say `praetor` rather than `Praetor`.
         db.insertInto("scan_senators").values(listOf("rank", "home", "benefit"))
-            .update(
+            .executeUpdate(
                 "rank" to ScanRank.Praetor,
                 "home" to ScanProvince("Hispania", "Tarraco"),
                 "benefit" to ScanAppointment(ScanOffice.Praetor)

@@ -375,7 +375,7 @@ Everywhere else, a bare `String` goes out as `text` and a bare `Int` as `int4`. 
 ```kotlin
 // Without the hint this String is declared as `text` in Parse
 session.createNamedQuery("INSERT INTO senators (dossier) VALUES (@dossier)")
-    .update("dossier" to jsonString.withPgType("jsonb"))
+    .executeUpdate("dossier" to jsonString.withPgType("jsonb"))
 ```
 
 ### Infinity Values for Date, Time and Interval

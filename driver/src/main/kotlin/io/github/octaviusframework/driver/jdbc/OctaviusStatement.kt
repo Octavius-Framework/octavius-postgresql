@@ -45,7 +45,7 @@ internal class OctaviusStatement(private val connection: OctaviusConnection) : S
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "SQL string passed to executeUpdate() cannot be null"
         )
-        val affected = connection.queryExecutor.update(sql)
+        val affected = connection.queryExecutor.executeUpdate(sql)
         return@wrapSqlException affected.toInt()
     }
 

@@ -173,7 +173,7 @@ Tidiness is the obvious half. The half worth the section is that an **empty coll
 ```kotlin
 // Column by column: MappingException(CONVERSION_ERROR), caused by TypeException(TYPE_NOT_FOUND)
 session.createNamedQuery("INSERT INTO senators (cognomen, tags) VALUES (@c, @t)")
-    .update("c" to "Brutus", "t" to emptyList<String>())
+    .executeUpdate("c" to "Brutus", "t" to emptyList<String>())
 
 // As a whole object: fine, and the array reads back as []
 session.createNamedQuery("INSERT INTO senators OVERRIDING USER VALUE SELECT (@row).* RETURNING *")

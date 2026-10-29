@@ -95,7 +95,7 @@ fun <IN, OUT> TransactionValue<IN>.map(transformation: (IN) -> OUT): Transaction
  * fun addSeal(plan: TransactionPlan, edictId: TransactionValue<Int>, sealedBy: String) {
  *     plan.add(
  *         db.insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
- *             .asStep().update("edict_id" to edictId, "sealed_by" to sealedBy)
+ *             .asStep().executeUpdate("edict_id" to edictId, "sealed_by" to sealedBy)
  *     )
  * }
  *
@@ -134,7 +134,7 @@ class SpreadParameters internal constructor(internal val source: TransactionValu
  *
  * plan.add(
  *     db.insertInto("edict_archive").values(listOf("title", "tribute", "province"))
- *         .asStep().update("anything" to original.value().spread())
+ *         .asStep().executeUpdate("anything" to original.value().spread())
  * )
  * ```
  *

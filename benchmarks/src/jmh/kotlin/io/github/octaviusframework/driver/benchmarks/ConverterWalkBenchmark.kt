@@ -132,7 +132,7 @@ open class ConverterWalkBenchmark {
             SELECT ROW(i, 'char_' || i, ROW(i % 100, i % 50, i % 200)::bench_walk_stats)::bench_walk_character
             FROM generate_series(1, @n) i
             """
-        ).update("n" to rowCount)
+        ).executeUpdate("n" to rowCount)
 
         client.execute {
             reloadTypes()

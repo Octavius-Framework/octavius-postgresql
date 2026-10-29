@@ -86,7 +86,7 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
             }
 
             conn.createNamedQuery("INSERT INTO dispatches (id, data) VALUES (@id, @data)")
-                .update(mapOf("id" to 1, "data" to inputJson))
+                .executeUpdate(mapOf("id" to 1, "data" to inputJson))
 
             val row = conn.createNamedQuery("SELECT data FROM dispatches WHERE id = @id")
                 .fetchRowStrict(mapOf("id" to 1))

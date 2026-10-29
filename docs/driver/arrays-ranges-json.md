@@ -96,7 +96,7 @@ A Kotlin collection becomes an array parameter with nothing declared:
 
 ```kotlin
 session.createNativeQuery("INSERT INTO provinces (id, legion_ids) VALUES ($1, $2)")
-    .update(7, listOf(9, 10, 13))
+    .executeUpdate(7, listOf(9, 10, 13))
 ```
 
 The element type is inferred from the first non-null element — `List<Int>` goes out as `int4[]`, `List<String>` as
@@ -188,7 +188,7 @@ session.createNativeQuery("SELECT * FROM senators WHERE province_id = ANY($1)")
 
 // A whole batch of rows in a single statement
 session.createNativeQuery("INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1, $2)")
-    .update(ids, cognomina)
+    .executeUpdate(ids, cognomina)
 ```
 
 Both are covered in [Bulk Writes](bulk-writes.md) — the first under [the `IN` clause](bulk-writes.md#deleting-and-the-in-clause),
@@ -234,7 +234,7 @@ val closed = rangeOf(lowerBound = 5, upperBound = 15, isUpperInclusive = true)  
 val nothing = Range.empty<Int>()                                    // 'empty'
 
 session.createNativeQuery("INSERT INTO censuses (id, period) VALUES ($1, $2)")
-    .update(1, censusPeriod)
+    .executeUpdate(1, censusPeriod)
 ```
 
 The default bounds are PostgreSQL's own convention — lower inclusive, upper exclusive — and omitting a bound makes that
@@ -256,7 +256,7 @@ driver resolves the range type from it: `Int` → `int4range`.
 >
 > ```kotlin
 > session.createNativeQuery("INSERT INTO censuses (period) VALUES ($1)")
->     .update(censusPeriod.withPgType("int4range"))
+>     .executeUpdate(censusPeriod.withPgType("int4range"))
 > ```
 >
 > The same applies to a second custom range over the same subtype: the highest OID wins, which means the most recently
@@ -334,7 +334,7 @@ val dossier = buildJsonObject {
 }
 
 session.createNamedQuery("INSERT INTO dossiers (id, data) VALUES (@id, @data)")
-    .update("id" to 1, "data" to dossier)
+    .executeUpdate("id" to 1, "data" to dossier)
 ```
 
 That goes out as **`jsonb`**, which is the right default for a column of either type. When you specifically need
@@ -353,11 +353,11 @@ A `List<JsonObject>` becomes a `jsonb[]` by the ordinary array inference, and re
 > ```kotlin
 > // Fails: the parameter is declared as text
 > session.createNativeQuery("INSERT INTO dossiers (id, data) VALUES (1, $1)")
->     .update("""{"status":"active"}""")
+>     .executeUpdate("""{"status":"active"}""")
 >
 > // Works: the type is stated
 > session.createNativeQuery("INSERT INTO dossiers (id, data) VALUES (1, $1)")
->     .update("""{"status":"active"}""".withPgType("jsonb"))
+>     .executeUpdate("""{"status":"active"}""".withPgType("jsonb"))
 > ```
 >
 > This is the same class of problem as `stringtype=unspecified` in pgjdbc, addressed per value rather than per
@@ -374,7 +374,7 @@ Two ways to store a `@Serializable` class, and the choice is about how often you
 data class Dossier(val status: String, val province: Int)
 
 session.createNativeQuery("INSERT INTO dossiers (id, data) VALUES ($1, $2)")
-    .update(1, Json.encodeToString(dossier).withPgType("jsonb"))
+    .executeUpdate(1, Json.encodeToString(dossier).withPgType("jsonb"))
 
 val loaded = Json.decodeFromString<Dossier>(row.get<String>("data"))
 ```

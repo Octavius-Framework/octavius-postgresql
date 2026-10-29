@@ -52,7 +52,7 @@ A `ReentrantLock` lets the *same* thread re-enter, which is exactly wrong here: 
 ```kotlin
 session.createNativeQuery("SELECT id FROM senators").forEachRow(fetchSize = 100) { row ->
     // Same connection, inside an unfinished exchange
-    session.createNativeQuery("UPDATE …").update()   // InvalidOperationException(CONNECTION_BUSY)
+    session.createNativeQuery("UPDATE …").executeUpdate()   // InvalidOperationException(CONNECTION_BUSY)
 }
 ```
 
@@ -104,11 +104,7 @@ The listener loops take an optional dispatcher for the same reason and default t
 
 Not in threads, and not in coroutines. **The number of connections in your pool is the number of statements that can be running at once**, and nothing above it changes that: a thousand virtual threads against a ten-connection pool are a thousand tasks waiting for ten wires.
 
-Which is the intended arrangement rather than a problem — a database has a limit on useful concurrent work, usually well below a thousand, and the pool is where that limit belongs. Two consequences worth internalizing:
-
-* **Raise `maximumPoolSize` to raise throughput, not thread count.** The usual guidance for PostgreSQL — a small multiple of the core count, not hundreds — applies here exactly as it does elsewhere.
-* **The server has its own ceiling, and it is lower than people expect.** PostgreSQL ships with `max_connections = 100`, three of which are held back by `superuser_reserved_connections`, leaving ~97 for everybody. That is the budget for *every* pool against that server at once — each application instance, each background worker, every `psql` someone left open. Ten instances of a service with `maximumPoolSize = 20` do not get 200 connections; they exhaust the server at half strength and the rest fail with `FATAL: sorry, too many clients already`. Size the pool against that total, not against one process.
-* **A slow block inside `forEach*` holds a connection, not just a thread.** Streaming a million rows and calling a web service per row occupies one of your ten wires for the whole run. Collect first, do the slow work after, or give that job its own session outside the shared pool.
+**A slow block inside `forEach*` holds a connection, not just a thread.** Streaming a million rows and calling a web service per row occupies one of your ten wires for the whole run. Collect first, do the slow work after, or give that job its own session outside the shared pool.
 
 ## What is shared beyond the connection
 
@@ -215,8 +211,7 @@ Two ways to stay clear of it:
 * **Never query the session from inside a `forEach*` block or a converter.** That is reentrancy, and it is refused with
   `CONNECTION_BUSY` — use a second session.
 * **Pool size is your concurrency, not thread count.** Virtual threads remove the thread ceiling; the connection ceiling
-  stays where you set it — and the server's own `max_connections`, 100 by default, caps every pool against it put
-  together.
+  stays where you set it.
 * **`Virtual` for driver work, `IO` if you prefer, never `Default`.** Blocking the CPU dispatcher starves the whole
   process.
 * **Register types once, at startup, from one thread.** The registries are global, lock-free to read, and copy-on-write

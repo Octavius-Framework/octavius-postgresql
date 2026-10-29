@@ -23,7 +23,7 @@ class TransactionStep<T> @PublishedApi internal constructor(
  * Turns a query into a step instead of running it.
  *
  * The terminals here are the ones that make sense for something whose result is stored and referred to later:
- * the `fetch*` family and `update`. The `forEach*` family is absent on purpose - a plan keeps every result so
+ * the `fetch*` family and `executeUpdate`. The `forEach*` family is absent on purpose - a plan keeps every result so
  * that later steps can use it, and a walk over rows too large to hold has nothing to keep. So is
  * [RawQuery.execute][io.github.octaviusframework.client.query.RawQuery.execute], reachable though it is on a
  * raw query: it speaks a protocol that binds nothing, so a step made of one could take no
@@ -44,7 +44,7 @@ class TransactionStep<T> @PublishedApi internal constructor(
  * for (item in levy) {
  *     plan.add(
  *         db.insertInto("edict_items").values(listOf("edict_id", "province_id", "amount"))
- *             .asStep().update(
+ *             .asStep().executeUpdate(
  *                 "edict_id" to edictId.value(),
  *                 "province_id" to item.provinceId,
  *                 "amount" to item.amount
@@ -127,9 +127,9 @@ class StepBuilder @PublishedApi internal constructor(
         fetchFieldStrict<T>(params.toMap())
 
     /** A step that runs the statement and returns how many rows it affected. */
-    fun update(params: Map<String, Any?> = emptyMap()): TransactionStep<Long> =
-        TransactionStep(query, params) { query.update(it) }
+    fun executeUpdate(params: Map<String, Any?> = emptyMap()): TransactionStep<Long> =
+        TransactionStep(query, params) { query.executeUpdate(it) }
 
     /** A step that runs the statement and returns how many rows it affected. */
-    fun update(vararg params: Pair<String, Any?>): TransactionStep<Long> = update(params.toMap())
+    fun executeUpdate(vararg params: Pair<String, Any?>): TransactionStep<Long> = executeUpdate(params.toMap())
 }

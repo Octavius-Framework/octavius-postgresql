@@ -21,6 +21,8 @@ dependencies {
     implementation(libs.kotlin.logging)
 
     testImplementation(projects.testSupport)
+    // Only for the SpringSessionProvider the client's documentation offers, which nothing else compiles
+    testImplementation(projects.client)
     testImplementation(spring.spring.boot.starter.test)
     testImplementation(spring.spring.boot.health)
     testImplementation(libs.kotlin.test)

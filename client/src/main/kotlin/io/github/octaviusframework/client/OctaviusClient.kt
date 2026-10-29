@@ -180,7 +180,7 @@ interface OctaviusClient : AutoCloseable {
      *         .getOrElse { return@transactionResult it }
      *
      *     rawQuery("INSERT INTO citizen_profiles (citizen_id, bio) VALUES (@id, @bio)")
-     *         .asResult().update("id" to id, "bio" to bio)
+     *         .asResult().executeUpdate("id" to id, "bio" to bio)
      *         .map { id }
      * }
      * ```

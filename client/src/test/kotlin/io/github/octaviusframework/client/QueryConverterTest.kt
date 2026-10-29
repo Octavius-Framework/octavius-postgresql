@@ -53,7 +53,7 @@ class QueryConverterTest : AbstractClientIntegrationTest() {
     @BeforeEach
     fun seed() {
         db.rawQuery("TRUNCATE qc_probe RESTART IDENTITY").execute()
-        db.insertInto("qc_probe").values(listOf("amount")).update("amount" to 300)
+        db.insertInto("qc_probe").values(listOf("amount")).executeUpdate("amount" to 300)
     }
 
     @Test
@@ -101,7 +101,7 @@ class QueryConverterTest : AbstractClientIntegrationTest() {
     fun `a parameter converter registered on a query applies to it`() {
         db.insertInto("qc_probe").values(listOf("label"))
             .registerParameterConverter(RankConverter)
-            .update("label" to Rank.Tribunus)
+            .executeUpdate("label" to Rank.Tribunus)
 
         assertEquals(
             "rank-1",
@@ -113,10 +113,10 @@ class QueryConverterTest : AbstractClientIntegrationTest() {
     fun `and a later query has to say so again`() {
         db.insertInto("qc_probe").values(listOf("label"))
             .registerParameterConverter(RankConverter)
-            .update("label" to Rank.Tribunus)
+            .executeUpdate("label" to Rank.Tribunus)
 
         assertFailsWith<OctaviusException> {
-            db.insertInto("qc_probe").values(listOf("label")).update("label" to Rank.Legatus)
+            db.insertInto("qc_probe").values(listOf("label")).executeUpdate("label" to Rank.Legatus)
         }
     }
 }

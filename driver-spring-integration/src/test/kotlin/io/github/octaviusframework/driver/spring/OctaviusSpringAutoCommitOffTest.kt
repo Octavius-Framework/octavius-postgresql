@@ -62,7 +62,7 @@ class OctaviusSpringAutoCommitOffTest {
 
     @Test
     fun `a write outside a transaction is rolled back when its session closes`() {
-        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES (1)").update() }
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES (1)").executeUpdate() }
 
         assertEquals(0L, committedRows())
         // Nor did it wait on the connection for the next borrower to commit it.
@@ -100,12 +100,12 @@ open class AutoCommitOffService(private val octaviusTemplate: OctaviusTemplate) 
 
     @Transactional
     open fun insertInTransaction(id: Int) {
-        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES ($1)").update(id) }
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES ($1)").executeUpdate(id) }
     }
 
     // No transaction to join, so none is begun - but synchronization is on, and the session is bound to it.
     @Transactional(propagation = Propagation.SUPPORTS)
     open fun insertWhereSupported(id: Int) {
-        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES ($1)").update(id) }
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_autocommit_off VALUES ($1)").executeUpdate(id) }
     }
 }

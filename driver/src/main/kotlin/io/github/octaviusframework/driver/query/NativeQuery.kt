@@ -382,10 +382,10 @@ class NativeQuery internal constructor(
      * @return The number of rows affected.
      * @throws InvalidOperationException `UNEXPECTED_RESULT` if the statement returned rows.
      */
-    fun update(vararg params: Any?): Long {
+    fun executeUpdate(vararg params: Any?): Long {
         val execution = beginExecution()
         return withPositionalContext(params) {
-            queryExecutor.update(sql, params, execution.parameterSerializer)
+            queryExecutor.executeUpdate(sql, params, execution.parameterSerializer)
         }
     }
 }

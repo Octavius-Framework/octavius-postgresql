@@ -133,7 +133,7 @@ open class StackComparisonBenchmark {
         client.rawQuery("CREATE TABLE benchmark_stack (id INT PRIMARY KEY, cognomen TEXT NOT NULL)").execute()
         client.rawQuery(
             "INSERT INTO benchmark_stack SELECT i, 'senator ' || i FROM generate_series(1, @n) i"
-        ).update("n" to rowCount)
+        ).executeUpdate("n" to rowCount)
         // Without stats the planner is guessing, and a plan chosen by guesswork is not the plan this
         // benchmark means to time.
         client.rawQuery("ANALYZE benchmark_stack").execute()

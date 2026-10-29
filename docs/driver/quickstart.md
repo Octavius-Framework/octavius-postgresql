@@ -77,7 +77,7 @@ for (row in rows) {
 
 // Inserting data
 session.createNamedQuery("INSERT INTO users (id, name, active) VALUES (@id, @name, @active)")
-    .update("id" to 1, "name" to "Marcus", "active" to true)
+    .executeUpdate("id" to 1, "name" to "Marcus", "active" to true)
 ```
 
 ## Next Steps

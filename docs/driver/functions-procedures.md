@@ -5,7 +5,7 @@ citizen's rating and you are owed an answer; instruct a lictor and you are owed 
 that same distinction between a function and a procedure, and most of this page follows from it — starting with which
 command you use to invoke each.*
 
-Calling PostgreSQL functions and procedures through Octavius uses the same query API as everything else — `createNativeQuery` and `createNamedQuery`, the same `fetch*` and `update()` methods, the same type mapping. There is **no `CallableStatement`**: no `{call ...}` escape syntax, no `registerOutParameter(2, Types.INTEGER)` before execution, no `getInt(2)` after it. A routine call is ordinary SQL that happens to name a routine.
+Calling PostgreSQL functions and procedures through Octavius uses the same query API as everything else — `createNativeQuery` and `createNamedQuery`, the same `fetch*` and `executeUpdate()` methods, the same type mapping. There is **no `CallableStatement`**: no `{call ...}` escape syntax, no `registerOutParameter(2, Types.INTEGER)` before execution, no `getInt(2)` after it. A routine call is ordinary SQL that happens to name a routine.
 
 What is left to know is therefore not about the driver but about PostgreSQL itself: which command invokes what, and what shape comes back. Those are the parts worth reading below, borrowing a small slice of the Roman civil service for its examples.
 
@@ -49,7 +49,7 @@ import io.github.octaviusframework.driver.type.withPgType
 
 // CREATE PROCEDURE appoint_consul(candidate_id int, title text)
 session.createNativeQuery("CALL appoint_consul($1, $2)")
-    .update(12, null.withPgType("text"))
+    .executeUpdate(12, null.withPgType("text"))
 ```
 
 ## Getting values back
@@ -62,7 +62,7 @@ This is the half that actually differs between routine kinds, and all of it foll
 | Function `RETURNS TABLE` / `SETOF` | `SELECT`    | `fetchRows()` / `fetchObjects<T>()` |
 | Function with `OUT` parameters     | `SELECT`    | any `fetch*` — one column per `OUT` |
 | Function returning `void`          | `SELECT`    | `fetchField<Unit>()`                |
-| Procedure with no `OUT` / `INOUT`  | `CALL`      | `update()`                          |
+| Procedure with no `OUT` / `INOUT`  | `CALL`      | `executeUpdate()`                   |
 | Procedure with `OUT` / `INOUT`     | `CALL`      | `fetchRow()` / `fetchField<T>()`    |
 
 ### Functions
@@ -120,15 +120,15 @@ A non-nullable `Unit` read from the `LANGUAGE sql` one fails with `MappingExcept
 
 ### Procedures
 
-Procedures are invoked with `CALL`. Without `OUT` parameters there is nothing to read, so `update()` is the method you want:
+Procedures are invoked with `CALL`. Without `OUT` parameters there is nothing to read, so `executeUpdate()` is the method you want:
 
 ```kotlin
 // CREATE PROCEDURE enroll_legionary(cohort_id int, recruit_name text)
 session.createNativeQuery("CALL enroll_legionary($1, $2)")
-    .update(10, "Marcus Aurelius")
+    .executeUpdate(10, "Marcus Aurelius")
 ```
 
-`execute()` also works for a procedure taking no arguments, but it runs through the Simple Query Protocol and cannot bind parameters — so `update()` is the general answer.
+`execute()` also works for a procedure taking no arguments, but it runs through the Simple Query Protocol and cannot bind parameters — so `executeUpdate()` is the general answer.
 
 ## OUT and INOUT parameters in a CALL
 
@@ -146,7 +146,7 @@ val population = session.createNativeQuery("CALL province_census($1, $2)")
     .fetchFieldStrict<Int>(7, null)
 ```
 
-Either way the procedure behaves like a query returning a single row, so read it with `fetchRow`, `fetchField` or `fetchObject` — never `update()`. As with functions, the returned columns are named after the `OUT` parameters — including the [generated names](#unnamed-out-parameters) for unnamed ones — so `row.get<Int>("population")` works just as well as reading position `0`.
+Either way the procedure behaves like a query returning a single row, so read it with `fetchRow`, `fetchField` or `fetchObject` — never `executeUpdate()`. As with functions, the returned columns are named after the `OUT` parameters — including the [generated names](#unnamed-out-parameters) for unnamed ones — so `row.get<Int>("population")` works just as well as reading position `0`.
 
 An `INOUT` parameter is the same story from both ends: you pass the incoming value in its position, and the result comes back in that same position of the returned row.
 
@@ -190,7 +190,7 @@ catch (e: RoutineAssertionException) {
 | Feature                      | Function                         | Procedure                          |
 |:-----------------------------|:---------------------------------|:-----------------------------------|
 | **SQL command**              | `SELECT`                         | `CALL`                             |
-| **No return / no OUT**       | `fetchField<Unit>()` for `void`  | `update()`                         |
+| **No return / no OUT**       | `fetchField<Unit>()` for `void`  | `executeUpdate()`                  |
 | **Single value / OUT param** | `fetchField<T>()`                | `fetchField<T>()`                  |
 | **Several OUT params**       | `fetchRow()`, columns by name    | `fetchRow()`, columns by name      |
 | **Placeholders for OUT**     | Not applicable                   | Required — explicit `$n` or `NULL` |

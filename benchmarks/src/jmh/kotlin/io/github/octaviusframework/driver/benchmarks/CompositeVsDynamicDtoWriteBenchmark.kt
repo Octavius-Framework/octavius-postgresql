@@ -153,10 +153,10 @@ open class CompositeVsDynamicDtoWriteBenchmark {
      * composite has no `data_payload` to find.
      */
     private fun verifyEveryPath() {
-        writeAuto.update("v" to autoRows)
-        writeManual.update("v" to manualRows)
-        writeJsonbQuery.update("v" to jsonRows)
-        writeDynamic.update("v" to dynamicRows)
+        writeAuto.executeUpdate("v" to autoRows)
+        writeManual.executeUpdate("v" to manualRows)
+        writeJsonbQuery.executeUpdate("v" to jsonRows)
+        writeDynamic.executeUpdate("v" to dynamicRows)
 
         val compositeField = if (nested) "((c).stats).strength" else "(c).strength"
         val jsonPath = if (nested) "-> 'stats' ->> 'strength'" else "->> 'strength'"
@@ -196,14 +196,14 @@ open class CompositeVsDynamicDtoWriteBenchmark {
     }
 
     @Benchmark
-    fun write_compositeAuto(): Long = writeAuto.update("v" to autoRows)
+    fun write_compositeAuto(): Long = writeAuto.executeUpdate("v" to autoRows)
 
     @Benchmark
-    fun write_compositeManual(): Long = writeManual.update("v" to manualRows)
+    fun write_compositeManual(): Long = writeManual.executeUpdate("v" to manualRows)
 
     @Benchmark
-    fun write_jsonb(): Long = writeJsonbQuery.update("v" to jsonRows)
+    fun write_jsonb(): Long = writeJsonbQuery.executeUpdate("v" to jsonRows)
 
     @Benchmark
-    fun write_dynamicDto(): Long = writeDynamic.update("v" to dynamicRows)
+    fun write_dynamicDto(): Long = writeDynamic.executeUpdate("v" to dynamicRows)
 }

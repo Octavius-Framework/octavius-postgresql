@@ -8,7 +8,7 @@ the formula was assembled from that.*
 The builders here do the assembling and nothing else. What goes in each clause is SQL, and it is passed through
 unread.
 
-> The terminal methods — `fetchRows`, `fetchObjects<T>`, `fetchField<T>`, `forEach*`, `update` — are the
+> The terminal methods — `fetchRows`, `fetchObjects<T>`, `fetchField<T>`, `forEach*`, `executeUpdate` — are the
 > driver's own, under the driver's names, with the driver's meanings. This page does not describe them; see
 > [Executing Queries](../driver/queries.md) for the whole family, nullability, the strict variants and
 > streaming.
@@ -86,7 +86,7 @@ mean, and a builder that lets it fall out of a `null` filter is how it happens b
 `rawQuery` says so in the diff and in code review:
 
 ```kotlin
-db.rawQuery("DELETE FROM staging_census").update()
+db.rawQuery("DELETE FROM staging_census").executeUpdate()
 ```
 
 The failure is an `InvalidOperationException` naming the table and pointing at `rawQuery`, and it is raised
@@ -194,7 +194,7 @@ db.update("legion_supplies")
     .setExpression("quantity", "quantity - @taken")
     .setValue("last_drawn_at")
     .where("id = @id")
-    .update("taken" to 1, "last_drawn_at" to now, "id" to supplyId)
+    .executeUpdate("taken" to 1, "last_drawn_at" to now, "id" to supplyId)
 ```
 
 `quantity - @taken` is the decrement done in the database. Reading the row, subtracting in Kotlin and sending
@@ -218,7 +218,7 @@ db.insertInto("census")
         onColumns("citizen_id")
         doUpdate("tribe = excluded.tribe, assessed_at = excluded.assessed_at")
     }
-    .update("citizen_id" to id, "tribe" to tribe, "assessed_at" to assessedAt)
+    .executeUpdate("citizen_id" to id, "tribe" to tribe, "assessed_at" to assessedAt)
 ```
 
 Two decisions go in it. **What to conflict on** — `onColumns("citizen_id", …)` for a unique index over those
@@ -371,7 +371,7 @@ db.rawQuery(
 `execute()` speaks the **Simple Query Protocol**, which binds nothing: the SQL reaches the server exactly as
 written, so an `@name` left in it arrives as literal text rather than as a parameter. That is why no builder
 offers it — a builder always has values to bind — and why an `INSERT`, `UPDATE` or `DELETE` written by hand
-belongs in `update()` instead. What it does accept is several statements separated by `;` in one round trip,
+belongs in `executeUpdate()` instead. What it does accept is several statements separated by `;` in one round trip,
 which PostgreSQL wraps in an implicit transaction. A statement that returned rows is refused, unless
 `execute(ignoreRows = true)` says to drop them instead — which is what a script written elsewhere needs, a
 `pg_dump` one emitting `SELECT pg_catalog.setval(...)` for every sequence. There is no reading those rows

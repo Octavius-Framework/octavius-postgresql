@@ -26,7 +26,7 @@ class OctaviusSpringWithoutSynchronizationTest {
             }
 
             TransactionTemplate(manager).executeWithoutResult {
-                template.execute { createNativeQuery("INSERT INTO spring_no_sync VALUES (1)").update() }
+                template.execute { createNativeQuery("INSERT INTO spring_no_sync VALUES (1)").executeUpdate() }
             }
 
             val count = template.execute { createNativeQuery("SELECT count(*) FROM spring_no_sync").fetchFieldStrict<Long>() }

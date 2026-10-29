@@ -83,7 +83,7 @@ db.transaction {
         .fetchFieldStrict<Int>("title" to "De Tributis")
 
     insertInto("edict_items").values(listOf("edict_id", "province"))
-        .update("edict_id" to id, "province" to "Gallia")
+        .executeUpdate("edict_id" to id, "province" to "Gallia")
 }
 ```
 

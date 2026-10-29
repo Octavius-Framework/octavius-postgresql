@@ -108,7 +108,7 @@ open class CompositeInsertBenchmark {
     fun octavius_unnest_scalar_arrays() {
         octaviusSession.autoCommit = false
         try {
-            scalarQuery.update(ids, texts)
+            scalarQuery.executeUpdate(ids, texts)
             octaviusSession.commit()
         } finally {
             octaviusSession.autoCommit = true
@@ -120,7 +120,7 @@ open class CompositeInsertBenchmark {
     fun octavius_unnest_composites_reflection() {
         octaviusSession.autoCommit = false
         try {
-            reflectionQuery.update(reflectRows)
+            reflectionQuery.executeUpdate(reflectRows)
             octaviusSession.commit()
         } finally {
             octaviusSession.autoCommit = true
@@ -132,7 +132,7 @@ open class CompositeInsertBenchmark {
     fun octavius_unnest_composites_explicit() {
         octaviusSession.autoCommit = false
         try {
-            explicitQuery.update(explicitRows)
+            explicitQuery.executeUpdate(explicitRows)
             octaviusSession.commit()
         } finally {
             octaviusSession.autoCommit = true

@@ -27,7 +27,7 @@ db.dynamicTypes.register<LandGrant>("land_grant")
 db.dynamicTypes.register<MilitaryPension>("military_pension")
 
 db.insertInto("veterans").values(listOf("name", "benefit"))
-    .update("name" to "Marcus", "benefit" to LandGrant("Gallia Narbonensis", 120))
+    .executeUpdate("name" to "Marcus", "benefit" to LandGrant("Gallia Narbonensis", 120))
 
 val benefits: List<Benefit> = db.select("benefit").from("veterans").fetchFields()
 ```
@@ -60,7 +60,7 @@ by side.
 val benefits = listOf(LandGrant("Gallia Narbonensis", 120), MilitaryPension("X Gemina", 300))
 
 db.insertInto("veterans").values(listOf("name", "benefits"))
-    .update("name" to "Marcus", "benefits" to benefits)
+    .executeUpdate("name" to "Marcus", "benefits" to benefits)
 
 val back: List<Benefit> = db.select("benefits").from("veterans").where("name = @n")
     .fetchFieldStrict("n" to "Marcus")
@@ -129,7 +129,7 @@ data class Archived(val id: Int, val record: Benefit)
 
 // In: each value arrives as a dynamic_dto and is taken apart in SQL
 db.rawQuery("INSERT INTO archives (record_type, payload) SELECT type_name, data_payload FROM UNNEST(@records)")
-    .update("records" to benefits)
+    .executeUpdate("records" to benefits)
 
 // Out: put back together in the projection
 val archived = db.rawQuery("SELECT id, dynamic_dto(record_type, payload) AS record FROM archives")
@@ -232,7 +232,7 @@ of them — needs no wrapping anywhere.
 
 ```kotlin
 db.insertInto("veterans").values(listOf("name", "benefit"))
-    .update("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(honour))
+    .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(honour))
 ```
 
 It is also the only way to make a `DynamicDto`, which is what keeps the discriminator honest: the name is
@@ -258,7 +258,7 @@ under `PREFER_DYNAMIC_DTO`, which would otherwise be the one mode with a destina
 
 ```kotlin
 db.insertInto("veterans").values(listOf("name", "honour"))
-    .update("name" to "Marcus", "honour" to honour.withPgType("honour", "public"))
+    .executeUpdate("name" to "Marcus", "honour" to honour.withPgType("honour", "public"))
 ```
 
 Where the destination is known and the value does not belong in it, this is a `MappingException`

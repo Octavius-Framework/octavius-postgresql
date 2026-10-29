@@ -19,7 +19,7 @@ import io.github.octaviusframework.client.session.SessionProvider
  *     .setExpression("quantity", "quantity - @taken")
  *     .setValue("last_drawn_at")
  *     .where("id = @id")
- *     .update("taken" to 1, "last_drawn_at" to now, "id" to supplyId)
+ *     .executeUpdate("taken" to 1, "last_drawn_at" to now, "id" to supplyId)
  * ```
  */
 class UpdateQuery @PublishedApi internal constructor(

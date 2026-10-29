@@ -116,7 +116,7 @@ internal fun declaredTypeNameOf(kClass: KClass<*>): String =
  * db.dynamicTypes.register<MilitaryPension>("military_pension")
  *
  * db.insertInto("veterans").values(listOf("id", "benefit"))
- *     .update("id" to 1, "benefit" to LandGrant("Gallia", 120))
+ *     .executeUpdate("id" to 1, "benefit" to LandGrant("Gallia", 120))
  *
  * val benefits: List<Benefit> = db.select("benefit").from("veterans").fetchFields()
  * ```

@@ -38,7 +38,7 @@ enum class InvalidOperationExceptionReason {
     UNWRAP_ERROR,
     /** The JDBC feature is not implemented by this driver. */
     FEATURE_NOT_SUPPORTED,
-    /** update or execute returned result. */
+    /** executeUpdate or execute returned result. */
     UNEXPECTED_RESULT,
     /**
      * The query returned a number of rows the chosen terminal forbids - a `fetch*Strict` that found none,
@@ -88,7 +88,7 @@ private fun generateDeveloperMessage(reason: InvalidOperationExceptionReason): S
         InvalidOperationExceptionReason.MISSING_NAMED_PARAMETER -> "The statement names a parameter the supplied values do not include. See the details for its name."
         InvalidOperationExceptionReason.UNWRAP_ERROR -> "Cannot unwrap the connection/statement to the requested interface."
         InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED -> "This feature is not supported by the Octavius Driver."
-        InvalidOperationExceptionReason.UNEXPECTED_RESULT -> "Execution returned a result set (rows) when none were expected. Use query() for DQL statements like SELECT."
+        InvalidOperationExceptionReason.UNEXPECTED_RESULT -> "Execution returned a result set (rows) when none were expected. Use a fetch* method for DQL statements like SELECT."
         InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE -> "The query returned a number of rows the chosen fetch method forbids. See the details for what was expected and what arrived."
         InvalidOperationExceptionReason.CONNECTION_BUSY -> "This connection is already carrying something that has to finish first - an exchange, or for a listener loop a transaction. See the details for what is running and how to let it finish."
     }

@@ -168,7 +168,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     @Test
     fun testCancellingACopyInATransactionLeavesTheTransactionStateFailed() {
         session.autoCommit = false
-        session.createNativeQuery("INSERT INTO census VALUES (9, 'Sextus')").update()
+        session.createNativeQuery("INSERT INTO census VALUES (9, 'Sextus')").executeUpdate()
         assertEquals(TransactionState.IN_TRANSACTION, session.transactionState)
 
         val copyIn = session.copy.copyIn("COPY census FROM STDIN WITH (FORMAT CSV)")
