@@ -28,7 +28,7 @@ Add the integration module to your project:
 ```kotlin
 dependencies {
     // Brings the driver in transitively - no separate dependency needed
-    implementation("io.github.octavius-framework:driver-spring-integration:2.7.0")
+    implementation("io.github.octavius-framework:driver-spring-integration:2.8.0")
 }
 ```
 
