@@ -22,7 +22,6 @@ the one that does.
 * [Why registration order is the override mechanism](#why-registration-order-is-the-override-mechanism)
 * [Why nothing is created behind your back](#why-nothing-is-created-behind-your-back)
 * [Why `Map<String, Any?>` and not data classes everywhere](#why-mapstring-any-and-not-data-classes-everywhere)
-* [Why `jsonb` always maps to `JsonElement`](#why-jsonb-always-maps-to-jsonelement)
 * [Why blocking, and not coroutines-first](#why-blocking-and-not-coroutines-first)
 * [Why exceptions, and `DataResult` when you ask for it](#why-exceptions-and-dataresult-when-you-ask-for-it)
 * [Why `@name` and not `:name`](#why-name-and-not-name)
@@ -39,38 +38,53 @@ language in your stack that is declarative, decades-stable, and understood by ev
 every `EXPLAIN` you will ever run.
 
 Here the SQL you write is the SQL that runs. Nothing rewrites it, reorders it, or adds a query you did not ask
-for. When a query is slow you paste it into `psql` and it behaves the same way, because it *is* the same query.
+for (parameters aside: `@name` goes out as `$1`). When a query is slow you paste it into `psql` with its values
+in place of the parameters, and it behaves the same way, because it *is* the same query.
 
-The builders exist for the parts that are genuinely tedious — placeholders, `ON CONFLICT`, a `WHERE` that
-disappears when its condition is null — and every one of them is a thin shell over the text. `rawQuery` is not
-an escape hatch for when the abstraction fails; it is the same road with fewer signposts.
+The driver takes a statement as written. The client adds builders, which write the repetitive parts of a
+statement for you: the column list of an `INSERT` and the parameters that repeat it, the keywords in the order
+they go, a `WHERE` left out when a filter assembled at runtime has nothing to say. Every clause is still SQL
+text, passed through. A `rawQuery` ends in the same terminals as any builder, so writing the whole statement by
+hand costs only that repetition.
 
 ## PostgreSQL is not "just a database"
 
-Portability across engines is the assumption behind most of what a data access layer gives up. Drop it, and
-what is left is a very large amount of PostgreSQL that was previously unreachable: composite types, arrays of
-them, ranges and multiranges, enums, domains, `jsonb`, `LISTEN`/`NOTIFY`, `COPY`, large objects, procedures
-with `INOUT` parameters.
+A layer that runs on several engines needs a type model of its own, since types are the part the engines do not
+share, and it maps each engine's types into that model.
 
-These are not exotica. A composite type is what a value object looks like in the schema, and an array of them
-is a 1:N relation that does not need a second query. A library that abstracts over three engines cannot map
-them, because two of the three have no such thing.
+Supporting PostgreSQL alone, the driver needs no such model, because the database has one. Its catalog says what
+every value is: a composite and its attributes, an enum and its labels, a domain and the type under it, a range
+and its subtype. The driver reads the catalog and decodes each value by it, binary and as deeply nested as it
+comes, so a composite, enum, domain or range created by a migration needs no codec written for it. A class is
+registered only to read a composite or an enum as that class rather than as a map or a string. What a value is,
+the database says; what it is read as, the call does.
+
+The rest follows from that choice rather than adding to it. The driver speaks PostgreSQL's wire protocol instead
+of wrapping a portable interface, which is open only to a driver with one engine to speak to. The client's
+builders render one grammar, so they carry PostgreSQL's clauses as they are — `RETURNING` on all three writes,
+`ON CONFLICT`, `OVERRIDING … VALUE`, `UPDATE … FROM`, `DELETE … USING` — where a builder over several engines
+renders each one per engine, emulates it, or leaves it out.
 
 The cost is stated plainly: this runs against PostgreSQL and nothing else, ever.
 
 ## The ORM tax
 
-An ORM buys you a mapping between rows and objects. What it charges for it is a second model of your data — one
-that has opinions about identity, lifetime and change — sitting between you and the first.
+An ORM buys you a mapping between rows and objects. What it charges for it is a second model of your data,
+sitting between you and the first and deciding which statements run.
 
-That model is what produces the N+1 query, the lazy-loading exception thrown outside the session, the
-`flush()` that reorders your statements, and the afternoon spent reading generated SQL to find out what the
-framework thought you meant. None of those are bugs in any particular ORM. They are what a stateful mapping
-layer costs.
+The decision shows most plainly in `save()`. Handed an object, the library has to work out whether it means an
+`INSERT` or an `UPDATE`, which columns changed, and what became of the rows that hang off it. Hibernate answers
+from a session that tracked what it loaded, and the session is where the lazy-loading exception thrown outside
+it comes from, the N+1 query, the `flush()` that reorders your statements, and the afternoon spent reading
+generated SQL to find out what the framework thought you meant. Spring Data JDBC dropped the session and answers
+from the object alone: an id that is still `null` means new, and an aggregate that is not new has every entity
+it references deleted and inserted again, since nothing remembers which of them changed. With a session or
+without one, something has to work out from an object what a write means, and that is the tax.
 
-There is no session here, nothing is tracked, nothing is lazy, and nothing is dirty-checked. A `data class` is
-a typed container for what came back and stops being interesting the moment you hold it. The mapping is
-reflective and one-directional, per query, and it is the only thing standing between the row and your object.
+Here there is no `save()`, so there is nothing to work out. A write is a statement you wrote or a builder you
+filled in, and it says `INSERT` or `UPDATE` because you did. A `data class` is a typed container for a row that
+came back or a value that goes out, and stops being interesting once it has crossed. The mapping works one
+value at a time, remembers nothing, and is the only thing between the row and your object.
 
 *It is not an ORM. It is a **ROME** — a Relational-Object Mapping Engine, because all rows lead to ROME.*
 
@@ -152,15 +166,23 @@ Register a composite through one session and every other session pointing at tha
 including sessions from a different pool. The registry is keyed by the servers and the database name, and it is
 JVM-wide.
 
-The obvious alternative is a registry per session, which is wrong for a reason that is easy to miss: **the
-catalog is a property of the database, not of your connection to it.** A composite type has one OID in that
-database. Reading it into two different Kotlin classes depending on which pool the row came through is not
-flexibility, it is a bug waiting for the day two code paths disagree.
+Most of what it holds belongs to the database anyway. A composite, an enum or a domain has one OID there, and
+the codec that decodes it follows from the catalog; neither depends on the connection that reads it. Which
+Kotlin class a value becomes is the application's, and it is registered in the same catalog because there is no
+better place for it.
 
-Making it global also makes the cost honest. Registration is a startup step, done once, from one thread, and
-everything after it is lock-free on the read path — the catalog is one immutable value, and a registration
-replaces it whole. A per-session registry would have to be built per session, which is a cost paid on every
-connection for a benefit nobody asked for.
+A connection is not one. A registration there would have to be repeated on every physical connection and undone
+whenever one went back to a pool; Npgsql dropped its per-connection mappings for that cost. A `DataSource` is
+where Npgsql moved them, and it works there because the data source is Npgsql's own pool, built in code and
+handed out by dependency injection. Here it would mean refusing configuration by string, which is how a pool or
+Spring Boot is usually set up: given a URL or a class name, they construct the driver themselves, and the
+application never holds a driver object to register anything on. The `noticeHandler` property runs into the
+same limit and takes a class name, because a string cannot carry an instance.
+
+So the registry is keyed by what a URL can say. What that costs is that two parts of one application cannot
+register different classes for the same type on one database. Registration is a startup step, done once, from
+one thread, and everything after it is lock-free on the read path — the catalog is one immutable value, and a
+registration replaces it whole.
 
 What it means in practice is that registration is *not* a per-request tool, and the scoped alternative is a
 query's own converters rather than a second global registry. See
@@ -221,28 +243,6 @@ assembled in SQL, nested arrays and all, is a `Map<String, Any?>` on this side w
 and the driver carried it. See
 [the raw forms](docs/driver/composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord).
 
-## Why `jsonb` always maps to `JsonElement`
-
-A `jsonb` column could deserialize straight into your class. It does not: it produces a `JsonElement`, and
-turning that into a class is a call you make.
-
-The reason is that `jsonb` is the one column type whose contents the schema does not describe. Every other
-column has a type the catalog knows, and the driver maps it because it can be right. A `jsonb` column is a
-document whose shape is a convention held somewhere in your application, which the database has never had
-explained to it — so a library that guesses the target class is guessing, and it will guess confidently on the
-row where the convention drifted.
-
-Handing back a `JsonElement` puts the decoding where the convention lives, with your `Json` and your
-serializers.
-
-`dynamic_dto` is what happens when you want it resolved automatically anyway, and it is fairer to call it what
-it is: a **workaround for the same gap**, not a cleaner answer to it. Since a `jsonb` payload cannot say what
-class it holds, the type is written down beside it — a discriminator in one attribute, the payload in the
-other — so the resolution is reading a name that was stored rather than inferring one that was not. It is a
-convention like any other; the only difference is that it lives in the row instead of in your head, and the
-registry checks it on the way in. That is the whole of the improvement, and it is worth having, but it is not
-the schema having learned anything.
-
 ## Why blocking, and not coroutines-first
 
 The terminal methods block the calling thread. No query anywhere in the API is `suspend`.
@@ -256,11 +256,14 @@ length.
 The old argument for this was that JDBC is blocking and no library can change that. It does not apply here —
 this driver *is* the protocol, and a suspending API over non-blocking I/O was genuinely on the table.
 
-The argument that survives is different. **The concurrency limit is the connection pool, not the threads.** A
-thousand coroutines against a ten-connection pool are a thousand tasks waiting for ten wires, and no amount of
-suspension changes that number. What a `suspend` API buys is not throughput but the ability to hold a great
-many waiting callers cheaply — and since JDK 21, a virtual thread does that too, at the cost of a blocking call
-that reads exactly like the sequential code it is.
+The argument that survives is different. **The concurrency limit is the server, not the threads.** A statement
+runs in a backend process, one at a time per connection, and `max_connections` — 100 by default, three of them
+held back for superusers — caps how many backends there are. A pool repeats that number on the client side, and
+a pooler such as PgBouncer lets more clients connect than there are backends, but neither makes more of them:
+the statements running at once are at most the backends the server has. A thousand coroutines are a thousand
+tasks waiting for those, and no amount of suspension changes that number. What a `suspend` API buys is not
+throughput but the ability to hold a great many waiting callers cheaply — and since JDK 21, a virtual thread does
+that too, at the cost of a blocking call that reads exactly like the sequential code it is.
 
 So the API stays blocking and honest about it, and `OctaviusDispatchers.Virtual` is shipped for launching that
 work from a coroutine. The reader can see where the thread boundary is. See
@@ -278,7 +281,8 @@ suspend inline fun <reified T : Any> RunnableQuery<*>.awaitObjects(
 
 That it is this short is the argument, not a consolation. Shipped from here the same five lines would read as
 a claim about concurrency that they do not make — `suspend` in a signature is taken to mean the call does not
-occupy anything while it waits, and against a fixed pool of connections it still does. Written in your project
+occupy anything while it waits, and a query still holds a connection, with a backend behind it, for as long as
+it waits. Written in your project
 it is what it is: a thread boundary you placed, on a dispatcher you named.
 
 The session a transaction runs on is bound to the thread, which is why work handed to another thread does not
