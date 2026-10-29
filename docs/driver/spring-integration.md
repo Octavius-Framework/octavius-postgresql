@@ -134,7 +134,7 @@ class UserService(private val template: OctaviusTemplate) {
     fun createUser(id: Int, name: String) {
         template.execute {
             createNamedQuery("INSERT INTO users (id, name) VALUES (@id, @name)")
-                .update("id" to id, "name" to name)
+                .executeUpdate("id" to id, "name" to name)
         }
     }
     

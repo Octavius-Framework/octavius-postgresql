@@ -83,7 +83,7 @@ class DynamicWriteStrategyTest : AbstractIntegrationTest() {
     }
 
     private fun OctaviusClient.writeDynamic(value: Any) =
-        insertInto("dyn_strategy").values(listOf("as_dynamic")).update("as_dynamic" to value)
+        insertInto("dyn_strategy").values(listOf("as_dynamic")).executeUpdate("as_dynamic" to value)
 
     private fun OctaviusClient.readDynamic() =
         select("as_dynamic").from("dyn_strategy").fetchFieldStrict<Any>()
@@ -142,7 +142,7 @@ class DynamicWriteStrategyTest : AbstractIntegrationTest() {
         withStrategy(DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS) { db ->
             val honour = Honour("Corona Civica", 47)
             db.insertInto("dyn_strategy").values(listOf("as_composite"))
-                .update("as_composite" to honour)
+                .executeUpdate("as_composite" to honour)
 
             assertEquals(
                 honour,
@@ -195,7 +195,7 @@ class DynamicWriteStrategyTest : AbstractIntegrationTest() {
             // type goes to `citation` as the dynamic_dto it is declared to be. A mode reaching in here would
             // put a dynamic_dto where honour was declared, and the server would refuse the row.
             val decoration = Decoration(Honour("Corona Civica", 47), Triumph("Scipio", "Carthage"))
-            db.insertInto("dyn_strategy").values(listOf("as_nested")).update("as_nested" to decoration)
+            db.insertInto("dyn_strategy").values(listOf("as_nested")).executeUpdate("as_nested" to decoration)
 
             assertEquals(
                 decoration,
@@ -209,7 +209,7 @@ class DynamicWriteStrategyTest : AbstractIntegrationTest() {
         withStrategy(DynamicWriteStrategy.PREFER_DYNAMIC_DTO) { db ->
             val honours = listOf(Honour("Corona Civica", 47), Honour("Corona Muralis", 52))
             db.insertInto("dyn_strategy").values(listOf("as_composites"))
-                .update("as_composites" to honours.withPgType("honour", "public", isArray = true))
+                .executeUpdate("as_composites" to honours.withPgType("honour", "public", isArray = true))
 
             assertEquals(
                 honours,
@@ -226,7 +226,7 @@ class DynamicWriteStrategyTest : AbstractIntegrationTest() {
         withStrategy(DynamicWriteStrategy.PREFER_DYNAMIC_DTO) { db ->
             val thrown = assertFailsWith<MappingException> {
                 db.insertInto("dyn_strategy").values(listOf("as_composite"))
-                    .update("as_composite" to Triumph("Scipio", "Carthage").withPgType("honour", "public"))
+                    .executeUpdate("as_composite" to Triumph("Scipio", "Carthage").withPgType("honour", "public"))
             }
 
             assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, thrown.reason)
@@ -245,7 +245,7 @@ class DynamicWriteStrategyTest : AbstractIntegrationTest() {
         withStrategy(DynamicWriteStrategy.PREFER_DYNAMIC_DTO) { db ->
             val honour = Honour("Corona Civica", 47)
             db.insertInto("dyn_strategy").values(listOf("as_composite"))
-                .update("as_composite" to honour.withPgType("honour", "public"))
+                .executeUpdate("as_composite" to honour.withPgType("honour", "public"))
 
             assertEquals(
                 honour,

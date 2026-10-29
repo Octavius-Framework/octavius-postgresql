@@ -276,7 +276,7 @@ class TransactionTest : AbstractIntegrationTest() {
         session.rollback()
         val fetched = session.createNativeQuery("SELECT id FROM tributes ORDER BY id").fetchFields<Int>()
         session.rollback()
-        val updated = session.createNativeQuery("UPDATE tributes SET province = upper(province)").update()
+        val updated = session.createNativeQuery("UPDATE tributes SET province = upper(province)").executeUpdate()
         session.rollback()
         session.createNativeQuery("DELETE FROM tributes").execute()
         session.rollback()
@@ -293,7 +293,7 @@ class TransactionTest : AbstractIntegrationTest() {
         val terminals = listOf<OctaviusSessionOperations.() -> Unit>(
             { createNativeQuery("SELECT 1").forEachRow(fetchSize = 1) { } },
             { createNativeQuery("SELECT 1").fetchRows() },
-            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").update() },
+            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").executeUpdate() },
             { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute() }
         )
 
@@ -313,7 +313,7 @@ class TransactionTest : AbstractIntegrationTest() {
     fun `a term the server cannot parse leaves the first statement refused rather than run alone`() {
         val connection = (session as OctaviusSessionImpl).octaviusConnection
         val statements = listOf<OctaviusSessionOperations.() -> Unit>(
-            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").update() },
+            { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").executeUpdate() },
             { createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute() }
         )
 

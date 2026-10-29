@@ -416,7 +416,7 @@ open class CompositeVsDynamicDtoBenchmark {
             FROM generate_series(1, @n) i
             """
         }
-        client.rawQuery(sql).update("n" to rowCount)
+        client.rawQuery(sql).executeUpdate("n" to rowCount)
     }
 
     /**

@@ -119,7 +119,7 @@ class RoutineQueryIntegrationTest : AbstractIntegrationTest() {
     @Test
     fun testCallProcedureWithoutOut() {
         session.createNativeQuery("CALL adjourn_senate()").execute()
-        val updateCount = session.createNativeQuery("CALL adjourn_senate()").update()
+        val updateCount = session.createNativeQuery("CALL adjourn_senate()").executeUpdate()
         assertEquals(0L, updateCount)
     }
 }

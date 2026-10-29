@@ -131,7 +131,7 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     // Wrapping is covered on its own below.
     private fun record(name: String, benefit: Any) {
         db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
-            .update("name" to name, "benefit" to benefit)
+            .executeUpdate("name" to name, "benefit" to benefit)
     }
 
     // --- The round trip ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         // what settles a class registered as a composite as well, and it takes the same path here.
         val grant = LandGrant("Gallia Narbonensis", 120)
         db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
-            .update("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(grant))
+            .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(grant))
 
         assertEquals(grant, db.select("benefit").from("dyn_veterans").fetchFieldStrict<LandGrant>())
     }
@@ -225,7 +225,7 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
 
     @Test
     fun `a null column is still null`() {
-        db.insertInto("dyn_veterans").values(listOf("name")).update("name" to "Sine Praemio")
+        db.insertInto("dyn_veterans").values(listOf("name")).executeUpdate("name" to "Sine Praemio")
 
         assertEquals(null, db.select("benefit").from("dyn_veterans").fetchFieldStrict<Benefit?>())
     }
@@ -236,7 +236,7 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     fun `several shapes in one array column come back as a list of their supertype`() {
         val benefits = listOf(LandGrant("Gallia Narbonensis", 120), MilitaryPension("X Gemina", 300))
         db.insertInto("dyn_veterans").values(listOf("name", "benefits"))
-            .update("name" to "Marcus", "benefits" to benefits)
+            .executeUpdate("name" to "Marcus", "benefits" to benefits)
 
         val asSupertype: List<Benefit> = db.select("benefits").from("dyn_veterans").fetchFieldStrict()
         val asAny: List<Any> = db.select("benefits").from("dyn_veterans").fetchFieldStrict()
@@ -291,9 +291,9 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     fun `plain columns take the type apart on the way in and put it back together on the way out`() {
         val benefits = listOf(LandGrant("Gallia Narbonensis", 120), MilitaryPension("X Gemina", 300))
         db.rawQuery("INSERT INTO dyn_archives (record_type, payload) SELECT type_name, data_payload FROM UNNEST(@records)")
-            .update("records" to benefits)
+            .executeUpdate("records" to benefits)
         db.rawQuery("INSERT INTO dyn_archives (record_type, payload) SELECT (@r).type_name, (@r).data_payload")
-            .update("r" to LandGrant("Asia", 7))
+            .executeUpdate("r" to LandGrant("Asia", 7))
 
         // Stored as nothing but text and jsonb, which is the point: the table reads without the type.
         assertEquals(
@@ -410,11 +410,11 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
 
         // Once through the wrapper, which takes one directly...
         db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
-            .update("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(stipend, snakeCase))
+            .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(stipend, snakeCase))
         // ...and once unwrapped, through a converter given to this query alone.
         db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
             .registerParameterConverter(db.dynamicTypes.parameterConverter(snakeCase))
-            .update("name" to "Lucius", "benefit" to stipend)
+            .executeUpdate("name" to "Lucius", "benefit" to stipend)
 
         assertEquals(
             listOf("Cyrenaica", "Cyrenaica"),
@@ -526,7 +526,7 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     fun `an enum in a payload carries the same label the enum column holds`() {
         // The whole claim in one row: one value, written twice, once through each path.
         db.insertInto("dyn_veterans").values(listOf("name", "benefit", "office"))
-            .update(
+            .executeUpdate(
                 "name" to "Marcus",
                 "benefit" to Appointment(Magistrature.Praetor),
                 "office" to Magistrature.Praetor

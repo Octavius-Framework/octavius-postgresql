@@ -76,7 +76,7 @@ class ManualCompositeIntegrationTest : AbstractIntegrationTest() {
                 
                 // Insert through a NamedQuery, cast to payment_info
                 val insertQuery = "INSERT INTO orders (id, payment) VALUES (1, @payment)"
-                conn.createNamedQuery(insertQuery).update("payment" to payment)
+                conn.createNamedQuery(insertQuery).executeUpdate("payment" to payment)
 
                 // Read it back inside the transaction
                 val selectQuery = "SELECT payment FROM orders WHERE id = 1"

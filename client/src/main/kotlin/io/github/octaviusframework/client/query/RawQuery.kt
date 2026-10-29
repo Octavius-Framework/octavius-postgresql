@@ -32,7 +32,7 @@ class RawQuery @PublishedApi internal constructor(
      * and that protocol **binds nothing**: the SQL goes to the server exactly as written, so an `@name` left
      * in it arrives as literal text rather than as a parameter. A builder always has values to bind, which is
      * why none of them offers this - and why `INSERT`, `UPDATE` and `DELETE` written by hand belong in
-     * [update][RunnableQuery.update] too, not here.
+     * [executeUpdate][RunnableQuery.executeUpdate] too, not here.
      *
      * What it does accept is several statements separated by `;` in one round trip, which PostgreSQL wraps in
      * an implicit transaction.

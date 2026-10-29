@@ -269,12 +269,12 @@ If code in that position needs the database, give it a second session.
 
 ## Statements that return nothing
 
-- **`update()`** — DML that changes rows (`INSERT`, `UPDATE`, `DELETE`). Runs through the Extended Query Protocol with full parameter binding and returns the affected row count as a `Long`.
+- **`executeUpdate()`** — DML that changes rows (`INSERT`, `UPDATE`, `DELETE`). Runs through the Extended Query Protocol with full parameter binding and returns the affected row count as a `Long`.
 - **`execute()`** — raw execution with no result and no count: DDL, `SET`, administrative commands. It uses the Simple Query Protocol, so it **cannot bind parameters**, and there is no reading rows from it.
 
 ```kotlin
 val promoted = session.createNativeQuery("UPDATE senators SET rank = $1 WHERE province_id = $2")
-    .update("consul", 7)
+    .executeUpdate("consul", 7)
 
 session.createNativeQuery("CREATE INDEX idx_senators_province ON senators (province_id)").execute()
 ```
@@ -282,7 +282,7 @@ session.createNativeQuery("CREATE INDEX idx_senators_province ON senators (provi
 Handing `execute()` a row-returning statement is an error, not a silent discard: it throws `InvalidOperationException(UNEXPECTED_RESULT)`. That default is the useful one — a `SELECT` sent here instead of to a `fetch*` method would otherwise do nothing, quietly. Where the SQL is a script written elsewhere and a `SELECT` in it is legitimate, `execute(ignoreRows = true)` drops the rows rather than raising. They are dropped either way; the flag only decides whether their arrival is reported.
 
 > [!IMPORTANT]
-> An `INSERT` or `UPDATE` with a `RETURNING` clause returns rows, so it belongs to the `fetch*` family, not `update()`. Getting a generated id back is `fetchFieldStrict<Long>()`:
+> An `INSERT` or `UPDATE` with a `RETURNING` clause returns rows, so it belongs to the `fetch*` family, not `executeUpdate()`. Getting a generated id back is `fetchFieldStrict<Long>()`:
 >
 > ```kotlin
 > val newId: Long = session.createNativeQuery("INSERT INTO senators (cognomen) VALUES ($1) RETURNING id")
@@ -303,7 +303,7 @@ session.createNativeQuery("""
 
 PostgreSQL wraps a script like that in an implicit transaction, so it is all or nothing: a statement failing halfway takes the ones before it down with it and nothing is left half-applied. Called inside `transaction.required { }` it simply joins the transaction already open, where the usual rollback rules apply instead. The ban on rows covers every statement in the script rather than only the first — one stray `SELECT` anywhere in it and the whole call is an `InvalidOperationException(UNEXPECTED_RESULT)`, unless it was called as `execute(ignoreRows = true)`. A script that came out of `pg_dump` is the usual reason to: it emits `SELECT pg_catalog.setval(...)` for every sequence it carries.
 
-The `fetch*` family and `update()` cannot do the same. They send one statement to `Parse`, where PostgreSQL permits exactly one, so `SELECT 1; SELECT 2` comes back as `StatementException(SYNTAX_ERROR)`. Nor can a script bind anything: a `$1` inside one is `StatementException(UNDEFINED_OBJECT)`, there being no `Bind` step to give it a value. Whatever varies belongs in a statement of its own, run through `update()`.
+The `fetch*` family and `executeUpdate()` cannot do the same. They send one statement to `Parse`, where PostgreSQL permits exactly one, so `SELECT 1; SELECT 2` comes back as `StatementException(SYNTAX_ERROR)`. Nor can a script bind anything: a `$1` inside one is `StatementException(UNDEFINED_OBJECT)`, there being no `Bind` step to give it a value. Whatever varies belongs in a statement of its own, run through `executeUpdate()`.
 
 ## Cancelling a query in flight
 

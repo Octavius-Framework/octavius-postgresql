@@ -52,7 +52,7 @@ A `ReentrantLock` lets the *same* thread re-enter, which is exactly wrong here: 
 ```kotlin
 session.createNativeQuery("SELECT id FROM senators").forEachRow(fetchSize = 100) { row ->
     // Same connection, inside an unfinished exchange
-    session.createNativeQuery("UPDATE …").update()   // InvalidOperationException(CONNECTION_BUSY)
+    session.createNativeQuery("UPDATE …").executeUpdate()   // InvalidOperationException(CONNECTION_BUSY)
 }
 ```
 

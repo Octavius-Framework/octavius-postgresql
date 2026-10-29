@@ -138,7 +138,7 @@ logger.error { e.message }                      // just "CONSTRAINT_VIOLATION_EX
 
 ```kotlin
 session.createNamedQuery("INSERT INTO senators (cognomen) VALUES (@cognomen)")
-    .update("cognomen" to "Scipio")
+    .executeUpdate("cognomen" to "Scipio")
 ```
 
 ```text
@@ -524,7 +524,7 @@ The object-identifying fields come straight from the server's error message, so 
 | `MISSING_NAMED_PARAMETER`                  | A `@name` in the SQL had no value in the supplied map. `details` names the parameter.                                                                                                                                                                                                      |
 | `UNWRAP_ERROR`                             | JDBC `unwrap()` to an interface this object does not implement.                                                                                                                                                                                                                            |
 | `FEATURE_NOT_SUPPORTED`                    | A legacy JDBC feature Octavius deliberately does not implement.                                                                                                                                                                                                                            |
-| `UNEXPECTED_RESULT`                        | `execute()`/`update()` received result rows — use a `fetch*` method for DQL, or `execute(ignoreRows = true)` to drop them. Also raised when a `COPY` did not start, or when a `DataRow` arrives before its `RowDescription`.                                                               |
+| `UNEXPECTED_RESULT`                        | `execute()`/`executeUpdate()` received result rows — use a `fetch*` method for DQL, or `execute(ignoreRows = true)` to drop them. Also raised when a `COPY` did not start, or when a `DataRow` arrives before its `RowDescription`.                                                        |
 | `INCORRECT_RESULT_SIZE`                    | `fetch*Strict` found 0 rows, or a single-row fetch found 2+ — which is why single-row fetches request `maxRows = 2`. The statement ran; the terminal chosen for it is what does not fit.                                                                                                   |
 | `CONNECTION_BUSY`                          | The connection is already carrying an exchange and can carry only one — a `COPY` still open, or a statement still being read, usually a query issued from a `forEach` block or a converter. A listener loop started inside a transaction is refused the same way. `details` says which, and how to let it finish. See [COPY](copy.md), [Queries](queries.md) and [Listen / Notify](listen-notify.md#listener-loops). |
 
@@ -605,7 +605,7 @@ try {
 ```kotlin
 try {
     session.createNamedQuery("INSERT INTO senators (cognomen) VALUES (@cognomen)")
-        .update("cognomen" to cognomen)
+        .executeUpdate("cognomen" to cognomen)
 } catch (e: ConstraintViolationException) {
     throw SenatorAlreadyEnrolled(e.constraint, e)
 }
@@ -652,7 +652,7 @@ fun <T> withRetry(attempts: Int = 3, block: () -> T): T {
 val consul = withRetry {
     session.transaction.required {
         createNamedQuery("UPDATE aerarium SET balance = balance - @amount WHERE province_id = @id")
-            .update("amount" to 100, "id" to 1)
+            .executeUpdate("amount" to 100, "id" to 1)
         createNamedQuery("SELECT name FROM consuls WHERE id = @id").fetchFieldStrict<String>("id" to 1)
     }
 }

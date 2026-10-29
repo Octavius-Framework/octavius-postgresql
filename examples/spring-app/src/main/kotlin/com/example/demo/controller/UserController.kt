@@ -65,7 +65,7 @@ class UserController(private val octaviusTemplate: OctaviusTemplate) {
                 INSERT INTO users (name, role, primary_address, shipping_addresses, profile)
                 VALUES (@name, @role, @primary_address, @shipping_addresses, @profile)
             """
-            ).update(
+            ).executeUpdate(
                 "name" to user.name,
                 "role" to user.role,
                 "primary_address" to user.primaryAddress,

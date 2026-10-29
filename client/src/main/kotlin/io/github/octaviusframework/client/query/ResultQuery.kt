@@ -150,10 +150,10 @@ class ResultQuery @PublishedApi internal constructor(
 
     // --- Modification -----------------------------------------------------------------------------
 
-    /** As [RunnableQuery.update]. */
-    fun update(params: Map<String, Any?> = emptyMap()): DataResult<Long> =
-        dbResult { query.update(params) }
+    /** As [RunnableQuery.executeUpdate]. */
+    fun executeUpdate(params: Map<String, Any?> = emptyMap()): DataResult<Long> =
+        dbResult { query.executeUpdate(params) }
 
-    /** As [RunnableQuery.update]. */
-    fun update(vararg params: Pair<String, Any?>): DataResult<Long> = update(params.toMap())
+    /** As [RunnableQuery.executeUpdate]. */
+    fun executeUpdate(vararg params: Pair<String, Any?>): DataResult<Long> = executeUpdate(params.toMap())
 }

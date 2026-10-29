@@ -439,13 +439,13 @@ class NamedParameterQuery internal constructor(
      * @return The number of rows affected.
      * @throws InvalidOperationException `UNEXPECTED_RESULT` if the statement returned rows.
      */
-    fun update(params: Map<String, Any?>): Long {
+    fun executeUpdate(params: Map<String, Any?>): Long {
         val execution = beginExecution()
         return withPreparedQuery(params) { transformedSql, listParams ->
-            queryExecutor.update(transformedSql, listParams, execution.parameterSerializer)
+            queryExecutor.executeUpdate(transformedSql, listParams, execution.parameterSerializer)
         }
     }
 
-    /** Same as [update], with the values given as `Pair`s. */
-    fun update(vararg params: Pair<String, Any?>): Long = update(params.toMap())
+    /** Same as [executeUpdate], with the values given as `Pair`s. */
+    fun executeUpdate(vararg params: Pair<String, Any?>): Long = executeUpdate(params.toMap())
 }

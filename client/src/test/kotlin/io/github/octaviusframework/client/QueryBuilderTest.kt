@@ -375,7 +375,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
 
         db.insertInto("builder_legions")
             .values(listOf("name", "strength"))
-            .update("name" to "X Fretensis", "strength" to 5200)
+            .executeUpdate("name" to "X Fretensis", "strength" to 5200)
 
         val strong = db.select("id", "name", "strength")
             .from("builder_legions")
@@ -404,7 +404,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     @Test
     fun `a named window runs in a select with no GROUP BY`() {
         db.rawQuery("INSERT INTO builder_legions (name, strength) VALUES ('IX Hispana', 4800), ('X Fretensis', 5200)")
-            .update()
+            .executeUpdate()
 
         val running = db.select("name", "sum(strength) OVER w AS running")
             .from("builder_legions")
@@ -420,7 +420,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     fun `ON CONFLICT DO UPDATE upserts against the server`() {
         db.insertInto("builder_legions")
             .values(listOf("name", "strength"))
-            .update("name" to "IX Hispana", "strength" to 4800)
+            .executeUpdate("name" to "IX Hispana", "strength" to 4800)
 
         db.insertInto("builder_legions")
             .values(listOf("name", "strength"))
@@ -428,7 +428,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
                 onColumns("name")
                 doUpdate("strength = excluded.strength")
             }
-            .update("name" to "IX Hispana", "strength" to 5000)
+            .executeUpdate("name" to "IX Hispana", "strength" to 5000)
 
         val rows = db.select("name", "strength").from("builder_legions").fetchRows()
         assertEquals(1, rows.size)
@@ -438,7 +438,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     @Test
     fun `ON CONFLICT upserts against a partial unique index, leaving the rows outside it alone`() {
         db.rawQuery("INSERT INTO builder_senators (cognomen, seat, expelled_at) VALUES ('Catilina', 1, now())")
-            .update()
+            .executeUpdate()
 
         val upsert = db.insertInto("builder_senators")
             .values(listOf("cognomen", "seat"))
@@ -446,8 +446,8 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
                 onColumns("cognomen", where = "expelled_at IS NULL")
                 doUpdate("seat = excluded.seat")
             }
-        upsert.update("cognomen" to "Catilina", "seat" to 2)
-        upsert.update("cognomen" to "Catilina", "seat" to 3)
+        upsert.executeUpdate("cognomen" to "Catilina", "seat" to 2)
+        upsert.executeUpdate("cognomen" to "Catilina", "seat" to 3)
 
         val seats = db.select("seat", "expelled_at IS NOT NULL AS expelled").from("builder_senators")
             .orderBy("id")
@@ -473,9 +473,9 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     @Test
     fun `a filter assembled at runtime binds only the parameters that survived`() {
         db.insertInto("builder_legions").values(listOf("name", "strength"))
-            .update("name" to "IX Hispana", "strength" to 4800)
+            .executeUpdate("name" to "IX Hispana", "strength" to 4800)
         db.insertInto("builder_legions").values(listOf("name", "strength"))
-            .update("name" to "X Fretensis", "strength" to 5200)
+            .executeUpdate("name" to "X Fretensis", "strength" to 5200)
 
         fun search(name: String?, minStrength: Int?): List<String> {
             val filter = listOfNotNull(
@@ -499,7 +499,7 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     @Test
     fun `a builder composes into another statement through toSql`() {
         db.insertInto("builder_legions").values(listOf("name", "strength"))
-            .update("name" to "IX Hispana", "strength" to 4800)
+            .executeUpdate("name" to "IX Hispana", "strength" to 4800)
 
         val strong = db.select("name").from("builder_legions").where("strength >= @min")
         val counted = db.rawQuery("SELECT count(*) FROM (${strong.toSql()}) AS s")
@@ -511,12 +511,12 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
     @Test
     fun `a builder reaches the result style like any other query`() {
         db.insertInto("builder_legions").values(listOf("name", "strength"))
-            .update("name" to "IX Hispana", "strength" to 4800)
+            .executeUpdate("name" to "IX Hispana", "strength" to 4800)
 
         val clash = db.insertInto("builder_legions")
             .values(listOf("name", "strength"))
             .asResult()
-            .update("name" to "IX Hispana", "strength" to 1)
+            .executeUpdate("name" to "IX Hispana", "strength" to 1)
 
         assertTrue(clash is DataResult.Failure)
         assertNull(clash.getOrNull())

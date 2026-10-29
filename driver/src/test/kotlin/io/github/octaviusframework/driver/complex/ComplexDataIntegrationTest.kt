@@ -155,7 +155,7 @@ class ComplexDataIntegrationTest : AbstractIntegrationTest() {
                 Officer("Titus Flavius Sabinus", 35, null, true, null)
             )
             val updated = session.createNamedQuery("UPDATE campaigns SET officers = @officers WHERE id = @id")
-                .update("officers" to relief, "id" to id)
+                .executeUpdate("officers" to relief, "id" to id)
             assertEquals(1L, updated)
 
             val back = session.createNamedQuery("SELECT officers FROM campaigns WHERE id = @id")

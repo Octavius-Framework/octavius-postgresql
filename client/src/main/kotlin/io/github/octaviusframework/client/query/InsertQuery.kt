@@ -152,7 +152,7 @@ class InsertQuery @PublishedApi internal constructor(
      * **The values in the map are not read.** Only the keys are, and the map is passed again at the terminal
      * to supply the values - which is what keeps a query free of the parameters it names, so its
      * [toSql] can be embedded in a larger statement. Passing the same map twice is the design:
-     * `insertInto("t").values(row).update(row)`.
+     * `insertInto("t").values(row).executeUpdate(row)`.
      */
     fun values(data: Map<String, Any?>): InsertQuery = apply { values(data.keys.toList()) }
 

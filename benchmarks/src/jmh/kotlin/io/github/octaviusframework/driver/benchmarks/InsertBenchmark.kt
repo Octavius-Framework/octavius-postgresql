@@ -165,7 +165,7 @@ open class InsertBenchmark {
         octaviusSession.autoCommit = false
         try {
             for (i in 0 until insertCount) {
-                octaviusInsertQuery.update(ids[i], texts[i])
+                octaviusInsertQuery.executeUpdate(ids[i], texts[i])
             }
             octaviusSession.commit()
         } finally {
@@ -177,7 +177,7 @@ open class InsertBenchmark {
     fun octavius_unnest_inserts_tx() {
         octaviusSession.autoCommit = false
         try {
-            octaviusUnnestQuery.update(ids.withPgType(PgStandardType.INT4_ARRAY), texts.withPgType(PgStandardType.TEXT_ARRAY))
+            octaviusUnnestQuery.executeUpdate(ids.withPgType(PgStandardType.INT4_ARRAY), texts.withPgType(PgStandardType.TEXT_ARRAY))
             octaviusSession.commit()
         } finally {
             octaviusSession.autoCommit = true

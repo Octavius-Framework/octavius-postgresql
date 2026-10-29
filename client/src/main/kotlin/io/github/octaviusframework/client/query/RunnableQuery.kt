@@ -13,7 +13,7 @@ import io.github.octaviusframework.driver.session.OctaviusSessionOperations
  *
  * This is where the terminal methods live, written once for everything that can be run. Every builder the
  * client offers extends it, and so does a hand-written [RawQuery]; a subclass supplies the SQL and inherits
- * `fetchRows`, `fetchObjects`, `fetchField`, `forEach*` and `update` without restating a line of them.
+ * `fetchRows`, `fetchObjects`, `fetchField`, `forEach*` and `executeUpdate` without restating a line of them.
  *
  * The names and their meanings are the driver's, unchanged, and parameters are supplied at the terminal as
  * they are there. What these add is the one thing a `RunnableQuery` knows and a driver query does not: which
@@ -295,9 +295,9 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     // --- Modification -----------------------------------------------------------------------------
 
     /** Runs the statement and returns how many rows it affected. */
-    fun update(params: Map<String, Any?> = emptyMap()): Long =
-        queryProvider.execute { preparedQuery().update(params) }
+    fun executeUpdate(params: Map<String, Any?> = emptyMap()): Long =
+        queryProvider.execute { preparedQuery().executeUpdate(params) }
 
     /** Runs the statement and returns how many rows it affected. */
-    fun update(vararg params: Pair<String, Any?>): Long = update(params.toMap())
+    fun executeUpdate(vararg params: Pair<String, Any?>): Long = executeUpdate(params.toMap())
 }

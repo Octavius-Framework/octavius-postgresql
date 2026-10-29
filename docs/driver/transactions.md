@@ -35,8 +35,8 @@ Runs the block inside a transaction, joining one if it is already open.
 
 ```kotlin
 session.transaction.required {
-    createNativeQuery("INSERT INTO senators (name) VALUES ($1)").update("Cato")
-    createNativeQuery("INSERT INTO senate_logs (event) VALUES ($1)").update("New senator inducted")
+    createNativeQuery("INSERT INTO senators (name) VALUES ($1)").executeUpdate("Cato")
+    createNativeQuery("INSERT INTO senate_logs (event) VALUES ($1)").executeUpdate("New senator inducted")
 }
 ```
 
@@ -52,11 +52,11 @@ Runs the block inside a savepoint, so its failure can be absorbed without losing
 
 ```kotlin
 session.transaction.required {
-    createNativeQuery("INSERT INTO curia_journal (msg) VALUES ('session opened')").update()
+    createNativeQuery("INSERT INTO curia_journal (msg) VALUES ('session opened')").executeUpdate()
 
     try {
         session.transaction.nested {
-            createNativeQuery("INSERT INTO auspicia (reading) VALUES ('unfavorable')").update()
+            createNativeQuery("INSERT INTO auspicia (reading) VALUES ('unfavorable')").executeUpdate()
         }
     } catch (e: Exception) {
         println("The omens were bad, but the journal entry still stands!")
@@ -99,8 +99,8 @@ Once statements start running, the ordinary rules apply — a write consumes a t
 ```kotlin
 session.autoCommit = false      // nothing sent yet
 try {
-    session.createNativeQuery("UPDATE aerarium SET balance = balance - 100 WHERE province_id = $1").update(1) // BEGIN goes first
-    session.createNativeQuery("UPDATE aerarium SET balance = balance + 100 WHERE province_id = $1").update(2)
+    session.createNativeQuery("UPDATE aerarium SET balance = balance - 100 WHERE province_id = $1").executeUpdate(1) // BEGIN goes first
+    session.createNativeQuery("UPDATE aerarium SET balance = balance + 100 WHERE province_id = $1").executeUpdate(2)
     session.commit()            // COMMIT; the next statement would begin another transaction
 } catch (e: Exception) {
     session.rollback()          // ROLLBACK, likewise
@@ -124,11 +124,11 @@ Savepoints undo part of a transaction without abandoning all of it. `nested { }`
 ```kotlin
 session.autoCommit = false
 try {
-    session.createNativeQuery("UPDATE aerarium SET balance = balance - 100 WHERE province_id = 1").update()
+    session.createNativeQuery("UPDATE aerarium SET balance = balance - 100 WHERE province_id = 1").executeUpdate()
 
     val sp = session.setSavepoint()
     try {
-        session.createNativeQuery("UPDATE aerarium SET balance = balance + 100 WHERE province_id = 2").update()
+        session.createNativeQuery("UPDATE aerarium SET balance = balance + 100 WHERE province_id = 2").executeUpdate()
     } catch (e: Exception) {
         session.rollback(sp) // revert only the second transfer, keep the first
     }
@@ -157,8 +157,8 @@ The `FAILED` state is the one worth knowing about. Once a statement inside a tra
 
 ```kotlin
 session.autoCommit = false
-session.createNativeQuery("INSERT INTO senators (id) VALUES (1)").update()
-runCatching { session.createNativeQuery("INSERT INTO senators (id) VALUES (1)").update() } // duplicate key
+session.createNativeQuery("INSERT INTO senators (id) VALUES (1)").executeUpdate()
+runCatching { session.createNativeQuery("INSERT INTO senators (id) VALUES (1)").executeUpdate() } // duplicate key
 
 session.transactionState                                  // FAILED
 session.createNativeQuery("SELECT 1").fetchFieldStrict<Int>()

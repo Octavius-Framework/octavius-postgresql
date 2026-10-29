@@ -88,7 +88,7 @@ class OctaviusSpringSessionCleanupTest {
     fun `a hand-written BEGIN outside a transaction does not follow the connection back`() {
         octaviusTemplate.execute {
             createNativeQuery("BEGIN").execute() // the driver is never told
-            createNativeQuery("INSERT INTO spring_cleanup (val) VALUES ('abandoned')").update()
+            createNativeQuery("INSERT INTO spring_cleanup (val) VALUES ('abandoned')").executeUpdate()
         }
 
         // Rolled back rather than committed: the driver has no idea what that work was.
@@ -232,7 +232,7 @@ open class CleanupService(private val octaviusTemplate: OctaviusTemplate) {
 
     @Transactional
     open fun insertTwiceInOneTransaction() {
-        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_cleanup (val) VALUES ('one')").update() }
-        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_cleanup (val) VALUES ('two')").update() }
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_cleanup (val) VALUES ('one')").executeUpdate() }
+        octaviusTemplate.execute { createNativeQuery("INSERT INTO spring_cleanup (val) VALUES ('two')").executeUpdate() }
     }
 }

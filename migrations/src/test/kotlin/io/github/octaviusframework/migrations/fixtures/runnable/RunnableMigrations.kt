@@ -16,6 +16,6 @@ class V21__Fill_from_code : OctaviusMigration {
     override val transactional: Boolean get() = false
 
     override fun migrate(session: OctaviusSessionOperations) {
-        session.createNativeQuery("INSERT INTO ${MigrationTestDatabase.SCHEMA}.from_code VALUES (1)").update()
+        session.createNativeQuery("INSERT INTO ${MigrationTestDatabase.SCHEMA}.from_code VALUES (1)").executeUpdate()
     }
 }

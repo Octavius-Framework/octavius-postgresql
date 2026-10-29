@@ -32,7 +32,7 @@ class ReentrantExecutionTest : AbstractIntegrationTest() {
     fun setup() {
         session = openSession()
         session.createNativeQuery("TRUNCATE sentries").execute()
-        session.createNativeQuery("INSERT INTO sentries SELECT g, 'vigil ' || g FROM generate_series(1, 6) g").update()
+        session.createNativeQuery("INSERT INTO sentries SELECT g, 'vigil ' || g FROM generate_series(1, 6) g").executeUpdate()
     }
 
     @AfterEach

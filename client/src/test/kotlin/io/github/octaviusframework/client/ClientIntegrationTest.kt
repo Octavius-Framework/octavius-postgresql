@@ -54,7 +54,7 @@ class ClientIntegrationTest : AbstractClientIntegrationTest() {
      */
     private fun OctaviusClient.recordSenator(cognomen: String, province: Int): Long =
         rawQuery("INSERT INTO client_senators (cognomen, province_id) VALUES (@c, @p)")
-            .update("c" to cognomen, "p" to province)
+            .executeUpdate("c" to cognomen, "p" to province)
 
     // --- The basics -------------------------------------------------------------------------------
 
@@ -247,7 +247,7 @@ class ClientIntegrationTest : AbstractClientIntegrationTest() {
 
         val result = db.rawQuery("INSERT INTO client_senators (cognomen, province_id) VALUES (@c, 8)")
             .asResult()
-            .update("c" to "Cato")
+            .executeUpdate("c" to "Cato")
 
         assertIs<DataResult.Failure>(result)
         assertIs<ConstraintViolationException>(result.error)
@@ -284,7 +284,7 @@ class ClientIntegrationTest : AbstractClientIntegrationTest() {
         val result = db.transactionResult {
             rawQuery("INSERT INTO client_senators (cognomen, province_id) VALUES (@c, 2)")
                 .asResult()
-                .update("c" to "Crassus")
+                .executeUpdate("c" to "Crassus")
         }
 
         assertEquals(DataResult.Success(1L), result)
@@ -300,7 +300,7 @@ class ClientIntegrationTest : AbstractClientIntegrationTest() {
         // into a ROLLBACK by itself - and this test would pass with the rollback removed.
         val unrelatedFailure = db.rawQuery("INSERT INTO client_senators (cognomen, province_id) VALUES (@c, 8)")
             .asResult()
-            .update("c" to "Cato")
+            .executeUpdate("c" to "Cato")
         assertIs<DataResult.Failure>(unrelatedFailure)
 
         val result = db.transactionResult {

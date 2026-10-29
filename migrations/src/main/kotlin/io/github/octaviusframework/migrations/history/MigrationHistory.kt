@@ -183,7 +183,7 @@ internal class MigrationHistory(private val schema: String, private val table: S
             INSERT INTO $qualifiedName (version, description, type, script, state, execution_time_ms)
             VALUES ($1, 'baseline', $2, '<< baseline >>', $3, 0)
             """.trimIndent()
-        ).update(version.canonical, MigrationType.BASELINE.name, MigrationState.SUCCESS.name)
+        ).executeUpdate(version.canonical, MigrationType.BASELINE.name, MigrationState.SUCCESS.name)
     }
 
     /** Closes off a row [record] opened as [MigrationState.RUNNING]. */
@@ -200,7 +200,7 @@ internal class MigrationHistory(private val schema: String, private val table: S
             SET state = $1, execution_time_ms = $2, failed_statement = $3
             WHERE id = $4
             """.trimIndent()
-        ).update(state.name, executionTimeMs, failedStatement, id)
+        ).executeUpdate(state.name, executionTimeMs, failedStatement, id)
     }
 
     private fun typeOf(migration: DiscoveredMigration) = when (migration) {

@@ -110,8 +110,8 @@ val active: List<Senator> = session
 
 // 4. Group work into a transaction - committed on success, rolled back on any throw
 session.transaction.required {
-    createNativeQuery("INSERT INTO senators (cognomen) VALUES ($1)").update("Cato")
-    createNativeQuery("INSERT INTO senate_logs (event) VALUES ($1)").update("New senator inducted")
+    createNativeQuery("INSERT INTO senators (cognomen) VALUES ($1)").executeUpdate("Cato")
+    createNativeQuery("INSERT INTO senate_logs (event) VALUES ($1)").executeUpdate("New senator inducted")
 }
 
 session.close() // Safely returns the connection to the pool

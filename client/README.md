@@ -53,7 +53,7 @@ a transaction, `dbResult { }` for anything else.
 ## What it does not add
 
 It wraps no query and renames no method. The terminal family is the driver's own — `fetchRows`,
-`fetchObjects`, `fetchField`, `forEach*`, `update` — under those names, with those overloads, meaning those
+`fetchObjects`, `fetchField`, `forEach*`, `executeUpdate` — under those names, with those overloads, meaning those
 things. Where the work is not a query at all, `db.execute { }` hands over the driver's own session operations
 and gets out of the way. Nothing is delegated, so nothing can fall out of step with the layer beneath it.
 

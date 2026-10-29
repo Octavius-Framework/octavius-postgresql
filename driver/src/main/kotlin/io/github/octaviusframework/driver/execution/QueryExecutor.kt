@@ -263,7 +263,7 @@ internal class QueryExecutor(
                     if (!ignoreRows && errorResponse == null && executionError == null) {
                         executionError = InvalidOperationException(
                             InvalidOperationExceptionReason.UNEXPECTED_RESULT,
-                            "Method execute() received result rows. Use query() for DQL queries, " +
+                            "Method execute() received result rows. Use a fetch* method for DQL queries, " +
                                 "or execute(ignoreRows = true) for a script whose rows are not wanted."
                         )
                     }
@@ -322,7 +322,7 @@ internal class QueryExecutor(
      * Intended for DML (INSERT, UPDATE, DELETE). Expects no rows returned.
      * Returns the number of updated rows.
      */
-    fun update(
+    fun executeUpdate(
         sql: String,
         params: Array<out Any?> = emptyArray(),
         parameterSerializer: ParameterSerializer? = null
@@ -366,7 +366,7 @@ internal class QueryExecutor(
                     if (errorResponse == null && executionError == null) {
                         executionError = InvalidOperationException(
                             InvalidOperationExceptionReason.UNEXPECTED_RESULT,
-                            "Method update() received result rows. Use query() for DQL queries."
+                            "Method executeUpdate() received result rows. Use a fetch* method for DQL queries."
                         )
                     }
                 }
@@ -484,7 +484,7 @@ internal class QueryExecutor(
                     }
                 }
                 is CommandCompleteMessage -> { /* Ignored in DQL queries */ }
-                // Unguarded for the same reason as in update(): one Sync, so at most one error.
+                // Unguarded for the same reason as in executeUpdate(): one Sync, so at most one error.
                 is ErrorOrNoticeMessage -> errorResponse = msg
                 is ReadyForQueryMessage -> break
                 else -> { /* Ignore */ }
@@ -610,7 +610,7 @@ internal class QueryExecutor(
                 if (msg is ReadyForQueryMessage) {
                     break
                 } else if (msg is ErrorOrNoticeMessage) {
-                    // Unguarded for the reason update() gives, and nothing is overwritten here
+                    // Unguarded for the reason executeUpdate() gives, and nothing is overwritten here
                     // either: a fetch loop that ended on a server error left only ReadyForQuery
                     // behind it, so an error reaching this loop is one that arrived after the loop
                     // had already broken for a reason of its own - a block that threw.
@@ -622,7 +622,7 @@ internal class QueryExecutor(
             if (errorResponse != null) throw ExceptionTranslator.translate(errorResponse)
             if (executionError != null) throw executionError
 
-            // A val for the same reason as in update(): capturing the counter itself would box it.
+            // A val for the same reason as in executeUpdate(): capturing the counter itself would box it.
             val streamed = rowCount
             traceDone(startedAt) { "$streamed rows streamed" }
         }

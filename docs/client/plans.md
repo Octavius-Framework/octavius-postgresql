@@ -60,7 +60,7 @@ fun planEdict(draft: EdictDraft): Pair<TransactionPlan, StepHandle<Int>> {
                 SELECT @edict_id, u.province, u.amount
                 FROM UNNEST(@provinces, @amounts) AS u(province, amount)
                 """
-            ).asStep().update(
+            ).asStep().executeUpdate(
                 "edict_id" to edictId.value(),
                 "provinces" to draft.levy.map { it.province },
                 "amounts" to draft.levy.map { it.amount }
@@ -85,7 +85,7 @@ The items step is added only where there are items. Two empty lists carry no ele
 see [Empty batches need a type](../driver/bulk-writes.md#empty-batches-need-a-type) — and a plan being data, a
 step with nothing to do can simply be left out of it.
 
-`asStep()` turns any query into a step builder. Its terminals are the `fetch*` family and `update` — the
+`asStep()` turns any query into a step builder. Its terminals are the `fetch*` family and `executeUpdate` — the
 `forEach*` family is absent on purpose, a plan keeping every result so that later steps can use it, and a walk
 over rows too large to hold having nothing to keep. So is `RawQuery.execute()`, which speaks a protocol that
 binds nothing and could therefore take no reference to an earlier step.
@@ -103,7 +103,7 @@ fun save(edict: Edict, sealExists: Boolean): Int = db.transaction {
     val edictId = when (val id = edict.id) {
         null -> insertInto("edicts").values(row).returning("id").fetchFieldStrict<Int>(row)
         else -> {
-            update("edicts").setValues(row).where("id = @id").update(row + ("id" to id))
+            update("edicts").setValues(row).where("id = @id").executeUpdate(row + ("id" to id))
             id
         }
     }
@@ -113,12 +113,12 @@ fun save(edict: Edict, sealExists: Boolean): Int = db.transaction {
     when {
         sealExists && sealedBy != null ->
             update("edict_seals").setValues(listOf("sealed_by")).where("edict_id = @edict_id")
-                .update("sealed_by" to sealedBy, "edict_id" to edictId)
+                .executeUpdate("sealed_by" to sealedBy, "edict_id" to edictId)
         sealedBy != null ->
             insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
-                .update("edict_id" to edictId, "sealed_by" to sealedBy)
+                .executeUpdate("edict_id" to edictId, "sealed_by" to sealedBy)
         sealExists ->
-            deleteFrom("edict_seals").where("edict_id = @edict_id").update("edict_id" to edictId)
+            deleteFrom("edict_seals").where("edict_id = @edict_id").executeUpdate("edict_id" to edictId)
     }
 
     edictId
@@ -143,7 +143,7 @@ fun planSave(edict: Edict, sealExists: Boolean): TransactionPlan {
         else -> {
             plan.add(
                 db.update("edicts").setValues(row).where("id = @id")
-                    .asStep().update(row + ("id" to id))
+                    .asStep().executeUpdate(row + ("id" to id))
             )
             id.toTransactionValue()
         }
@@ -154,15 +154,15 @@ fun planSave(edict: Edict, sealExists: Boolean): TransactionPlan {
     when {
         sealExists && sealedBy != null -> plan.add(
             db.update("edict_seals").setValues(listOf("sealed_by")).where("edict_id = @edict_id")
-                .asStep().update("sealed_by" to sealedBy, "edict_id" to edictId)
+                .asStep().executeUpdate("sealed_by" to sealedBy, "edict_id" to edictId)
         )
         sealedBy != null -> plan.add(
             db.insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
-                .asStep().update("edict_id" to edictId, "sealed_by" to sealedBy)
+                .asStep().executeUpdate("edict_id" to edictId, "sealed_by" to sealedBy)
         )
         sealExists -> plan.add(
             db.deleteFrom("edict_seals").where("edict_id = @edict_id")
-                .asStep().update("edict_id" to edictId)
+                .asStep().executeUpdate("edict_id" to edictId)
         )
     }
 
@@ -193,7 +193,7 @@ fun planAudit(entityId: TransactionValue<Int>, summary: String): TransactionPlan
     TransactionPlan().apply {
         add(
             db.insertInto("audit").values(listOf("entity_id", "summary"))
-                .asStep().update("entity_id" to entityId, "summary" to summary)
+                .asStep().executeUpdate("entity_id" to entityId, "summary" to summary)
         )
     }
 
@@ -233,7 +233,7 @@ fun answer(petitionId: Int, draft: EdictDraft): Int = db.transaction {
     val id = executeTransactionPlan(edictPlan)[edictId]
 
     rawQuery("UPDATE petitions SET status = 'ANSWERED', edict_id = @edict WHERE id = @id")
-        .update("edict" to id, "id" to petitionId)
+        .executeUpdate("edict" to id, "id" to petitionId)
     id
 }
 ```
@@ -294,7 +294,7 @@ question, answered by whether the driver can send that class as a parameter.
 |-------------------------------------------|---------------------------------------------|
 | `fetchField`, `fetchFieldStrict`          | ✅                                           |
 | `fetchFields`, `fetchObjects`             | ✅ — a list of scalars binds as an array     |
-| `update`                                  | ✅ — the affected-row count                  |
+| `executeUpdate`                           | ✅ — the affected-row count                  |
 | `fetchObject`, `fetchObjectStrict`        | only if the class is a registered composite |
 | `fetchObject*<Map<String, Any?>>`         | ❌ — nothing sends a Map; `spread()` does    |
 | `fetchRow`, `fetchRowStrict`, `fetchRows` | ❌ — a `Row` is not something to send        |
@@ -311,7 +311,7 @@ next step wants, and a list can become its size, without adding a step just to c
 ```kotlin
 plan.add(
     db.insertInto("audit").values(listOf("summary"))
-        .asStep().update("summary" to items.value().map { "granted to ${it.size} provinces" })
+        .asStep().executeUpdate("summary" to items.value().map { "granted to ${it.size} provinces" })
 )
 ```
 
@@ -351,7 +351,7 @@ val original = plan.add(
 
 plan.add(
     db.insertInto("edict_archive").values(listOf("title", "tribute", "province"))
-        .asStep().update("anything" to original.value().spread())
+        .asStep().executeUpdate("anything" to original.value().spread())
 )
 ```
 
