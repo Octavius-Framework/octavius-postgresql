@@ -18,15 +18,11 @@ import javax.sql.DataSource
 /**
  * Spring Boot auto-configuration for the Octavius driver.
  *
- * Runs after Spring's own `DataSourceAutoConfiguration`, and after Boot's
- * `TransactionManagerCustomizationAutoConfiguration`, whose customizers its transaction manager takes; and before
- * Boot's `DataSourceTransactionManagerAutoConfiguration` and `TransactionAutoConfiguration`. Contributes an
- * [OctaviusTemplate] and an [OctaviusJdbcTransactionManager], each only when the application context does not
- * already declare one of its own - any `TransactionManager` counting for the second. Declaring either bean yourself
- * takes precedence over everything here.
- *
- * It stands back where Boot's own JDBC auto-configuration does: with several `DataSource` beans and none of them
- * primary, there is no single one to build on, and it contributes nothing.
+ * Contributes an [OctaviusTemplate] and an [OctaviusJdbcTransactionManager], each only where the context declares
+ * none of its own - any `TransactionManager` counting for the second. It runs after Boot's
+ * `TransactionManagerCustomizationAutoConfiguration`, whose customizers it applies, and before the transaction
+ * manager Boot would make. Like Boot's own JDBC auto-configuration, it contributes nothing with several
+ * `DataSource` beans and none of them primary.
  */
 @AutoConfiguration(
     after = [DataSourceAutoConfiguration::class, TransactionManagerCustomizationAutoConfiguration::class],
@@ -36,12 +32,7 @@ import javax.sql.DataSource
 @ConditionalOnSingleCandidate(DataSource::class)
 open class OctaviusSpringAutoConfiguration {
 
-    /**
-     * Creates and registers an [OctaviusTemplate] bean if one is not already present in the application context.
-     *
-     * @param dataSource the underlying data source to use
-     * @return a new instance of [OctaviusTemplate]
-     */
+    /** An [OctaviusTemplate], unless the context has one. */
     @Bean
     @ConditionalOnMissingBean
     open fun octaviusTemplate(dataSource: DataSource): OctaviusTemplate {
@@ -49,24 +40,14 @@ open class OctaviusSpringAutoConfiguration {
     }
 
     /**
-     * Creates and registers an [OctaviusJdbcTransactionManager] if the application context declares no
-     * `TransactionManager` of its own - JDBC, JPA or reactive alike, as for Boot's own. Declared as the class it
-     * is, so a bean created before it can inject it by that type.
+     * An [OctaviusJdbcTransactionManager], unless the context declares a `TransactionManager` of its own - JDBC,
+     * JPA or reactive alike, as for Boot's. Declared as the class it is, so a bean created before it can inject it
+     * by that type.
      *
-     * It does for the `DataSource` what `DataSourceTransactionManager` does, and adds the driver's own
-     * exception for a transaction that failed to begin, commit or roll back, an answer for one whose
-     * connection has already left - see the class for which way each of commit and rollback goes, and
-     * why they differ - and a transaction timeout that is enforced.
-     *
-     * Boot's transaction manager customizers are applied to it, as they are to the one Boot would have
-     * made: `spring.transaction.default-timeout` and `spring.transaction.rollback-on-commit-failure` reach
-     * it, and so does a `TransactionManagerCustomizer<OctaviusJdbcTransactionManager>` bean - the way to
-     * change its [OctaviusJdbcTransactionManager.timeoutScope] without declaring the manager yourself.
-     *
-     * @param dataSource the underlying data source to use
-     * @param customizers Boot's transaction manager customizers, where Boot's transaction auto-configuration
-     *   provides them
-     * @return a new instance of [OctaviusJdbcTransactionManager]
+     * Boot's transaction manager customizers are applied to it: `spring.transaction.default-timeout` reaches it,
+     * and so does a `TransactionManagerCustomizer<OctaviusJdbcTransactionManager>` bean - the way to change its
+     * [OctaviusJdbcTransactionManager.timeoutScope] without declaring the manager yourself.
+     * `spring.transaction.rollback-on-commit-failure` reaches it too and changes nothing, as the class says.
      */
     @Bean
     @ConditionalOnMissingBean(TransactionManager::class)

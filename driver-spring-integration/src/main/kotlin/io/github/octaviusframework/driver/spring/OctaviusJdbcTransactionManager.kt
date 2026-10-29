@@ -32,10 +32,12 @@ private val kotlinLogger = KotlinLogging.logger {}
  * The session is opened when the transaction begins and closed when it ends, and every
  * [OctaviusTemplate.execute] inside the transaction runs through it.
  *
- * A transaction whose connection is already gone follows two rules. A commit raises, because the work
- * is not durable. A rollback stays quiet, because the server discarded the transaction with the
- * connection, and raising would replace the exception that caused the rollback. The savepoint of
- * `Propagation.NESTED` follows the same two: releasing it raises, rolling back to it stays quiet.
+ * On a connection that is already gone a commit raises and a rollback stays quiet; so do releasing a
+ * `Propagation.NESTED` savepoint and rolling back to it.
+ *
+ * A commit that raises is rolled back after, whatever `rollbackOnCommitFailure` says - that setting covers a
+ * `TransactionException` only - so synchronizations hear `STATUS_ROLLED_BACK`, even where the connection went
+ * while the `COMMIT` waited and the server may have committed.
  *
  * `@Transactional(timeout = ...)` is enforced on the server, as [timeoutScope] names.
  *
@@ -47,13 +49,8 @@ open class OctaviusJdbcTransactionManager(val dataSource: DataSource) :
     AbstractPlatformTransactionManager(), ResourceTransactionManager {
 
     /**
-     * What a transaction's timeout is enforced on: each statement, and a connection that survives one
-     * running out, or the transaction as a whole, and a connection that does not.
-     * [TransactionTimeoutScope.STATEMENT] unless set - see [TransactionTimeoutScope].
-     *
-     * Only a transaction with a timeout is affected. One without - no `timeout` on the annotation and no
-     * `defaultTimeout` on this manager - sends nothing, and runs under whatever the server is configured
-     * with.
+     * What a transaction's timeout is enforced on, [TransactionTimeoutScope.STATEMENT] unless set. A transaction
+     * without a timeout - none on the annotation, no `defaultTimeout` here - sends nothing.
      */
     var timeoutScope: TransactionTimeoutScope = TransactionTimeoutScope.STATEMENT
 
@@ -75,13 +72,8 @@ open class OctaviusJdbcTransactionManager(val dataSource: DataSource) :
 
     /**
      * Takes a connection, opens the session over it, begins the transaction, and binds the session to the thread.
-     *
-     * A transaction that could not get its connection is reported the way [OctaviusTemplate] reports
-     * a block that could not: as the driver's exception, an `InitializationException`, with
-     * `CONNECTION_UNAVAILABLE` where the pool had none free - not as Spring's
-     * `CannotCreateTransactionException`, which an `@ExceptionHandler` for the driver's exception does
-     * not catch. Nothing in Spring's transaction handling keys off that type; a failure to begin is
-     * handled as any runtime exception. An `Error` leaves as it was thrown.
+     * A connection the data source would not hand over comes out as the driver's exception, as from
+     * [OctaviusTemplate], not as Spring's `CannotCreateTransactionException`.
      */
     override fun doBegin(transaction: Any, definition: TransactionDefinition) {
         val tx = transaction as OctaviusTransaction
@@ -143,15 +135,10 @@ open class OctaviusJdbcTransactionManager(val dataSource: DataSource) :
     }
 
     /**
-     * Sends the transaction's timeout, where it has one, as the setting [timeoutScope] names.
-     *
-     * `SET LOCAL`, so it ends with the transaction and nothing follows the connection back into the pool. Only a
-     * transaction this manager begins gets one - Spring applies a timeout to no other, so a method that joins a
-     * running transaction or takes a savepoint keeps the terms already in force.
-     *
-     * Being a statement, it is also what sends the transaction's `BEGIN`, which the driver otherwise holds back
-     * until the first statement of the method; the two go out together. A transaction without a timeout sends
-     * nothing here, and keeps waiting.
+     * Sends the transaction's timeout, where it has one, as `SET LOCAL` of the setting [timeoutScope] names, so
+     * nothing follows the connection back to the pool. Called only for a transaction this manager begins, never
+     * for one a method joins or a savepoint. A statement sent here also sends the transaction's `BEGIN`, which
+     * the driver otherwise holds back until the method's first statement.
      */
     protected open fun prepareTransactionalSession(session: OctaviusSession, definition: TransactionDefinition) {
         val timeout = determineTimeout(definition)
@@ -199,10 +186,8 @@ open class OctaviusJdbcTransactionManager(val dataSource: DataSource) :
                 tx.session.rollback()
                 return
             } catch (ex: OctaviusException) {
-                // A connection can look present to its pool and be gone underneath: a session the server ended
-                // while it sat idle is found by the next thing sent on it, and here that is the ROLLBACK. Failing
-                // to send it leaves the pool holding a connection it has evicted, and the rollback just as
-                // satisfied as above - so it is not what the caller hears either.
+                // A session the server ended while it sat idle is found by the ROLLBACK itself, and the
+                // transaction is as gone as above, so the caller does not hear of it either.
                 if (tx.departedConnection() == null) throw ex
             }
         }
@@ -229,8 +214,8 @@ open class OctaviusJdbcTransactionManager(val dataSource: DataSource) :
         } catch (ex: Exception) {
             kotlinLogger.debug(ex) { "Could not reset the connection after the transaction" }
         }
-        // Undoes what the transaction's blocks left on the connection, LISTEN registrations among them, and leaves
-        // the connection open: it goes back to the pool on the next line.
+        // Undoes what the transaction's blocks left on the connection, LISTEN registrations among them; the
+        // connection stays open for the pool.
         session.close()
         DataSourceUtils.releaseConnection(holder.connection, dataSource)
         holder.clear()
@@ -285,9 +270,9 @@ private class OctaviusTransaction(var holder: OctaviusTransactionHolder?) : Save
     }
 
     /**
-     * Rolls back to the savepoint, and stays quiet when the connection is gone. The server discarded the
-     * savepoint along with the transaction, and the exception that caused the rollback is the one the caller
-     * needs.
+     * Rolls back to the savepoint, and stays quiet when the connection is gone: the server discarded the
+     * savepoint with the transaction, and the caller needs the exception that caused the rollback. Either way it
+     * clears the rollback-only mark a method that joined inside the savepoint left, as Spring does.
      */
     override fun rollbackToSavepoint(savepoint: Any) {
         if (departedConnection() == null) {
