@@ -83,6 +83,17 @@ class OctaviusSpringAbortedConnectionTest {
         assertEquals(NetworkExceptionReason.CONNECTION_ABORTED, ex.reason)
     }
 
+    /**
+     * The method that joined inside the savepoint marks the transaction rollback-only as it fails, and rolling
+     * back to the savepoint clears the mark along with what it did - so what the commit reports is the connection.
+     */
+    @Test
+    fun `a transaction carried on past a failed nested method on a connection that is gone says the connection is gone`() {
+        val ex = assertThrows(NetworkException::class.java) { service.swallowANestedFailureThenCommit() }
+
+        assertEquals(NetworkExceptionReason.CONNECTION_ABORTED, ex.reason)
+    }
+
     @Test
     fun `the pool recovers afterwards`() {
         assertEquals(1, octaviusTemplate.execute { createNativeQuery("SELECT 1").fetchFieldStrict<Int>() })
@@ -150,5 +161,27 @@ open class AbortService(private val octaviusTemplate: OctaviusTemplate) {
     @Transactional(propagation = Propagation.NESTED)
     open fun selectInSavepoint() {
         octaviusTemplate.execute { createNativeQuery("SELECT 1").fetchFieldStrict<Int>() }
+    }
+
+    @Transactional
+    open fun swallowANestedFailureThenCommit() {
+        octaviusTemplate.execute { createNativeQuery("SELECT 1").fetchFieldStrict<Int>() }
+        try {
+            self.abortInSavepointThenFailAsParticipant()
+        } catch (_: IllegalStateException) {
+            // The nested work is given up, and the transaction carries on without it
+        }
+        // returns normally, so Spring tries to commit a transaction that no longer has a connection
+    }
+
+    @Transactional(propagation = Propagation.NESTED)
+    open fun abortInSavepointThenFailAsParticipant() {
+        octaviusTemplate.execute { abort() }
+        self.failAsParticipant()
+    }
+
+    @Transactional
+    open fun failAsParticipant() {
+        throw IllegalStateException("the nested work failed")
     }
 }

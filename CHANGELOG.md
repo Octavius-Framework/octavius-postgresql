@@ -1,3 +1,16 @@
+## Version 2.8.1 (v2.8.1)
+
+### Driver
+
+#### Fixed
+
+- A transaction that catches the exception of a `Propagation.NESTED` method and carries on raises
+  `NetworkException(CONNECTION_ABORTED)` at its commit when the connection is gone, also where a method that
+  joined inside the savepoint had failed and marked the transaction rollback-only. Rolling back to the savepoint on
+  a connection that is gone left that mark in place, and the commit raised Spring's `UnexpectedRollbackException`
+  ("marked as rollback-only") instead of saying the connection had gone. It now clears the mark as it does on a
+  connection that is still there.
+
 ## Version 2.8.0 (v2.8.0)
 
 ### Driver

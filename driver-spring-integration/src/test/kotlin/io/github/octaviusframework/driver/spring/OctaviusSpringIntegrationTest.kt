@@ -20,6 +20,9 @@ import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.UnexpectedRollbackException
+import org.springframework.transaction.support.TransactionSynchronization
+import org.springframework.transaction.support.TransactionSynchronizationManager
+import java.util.concurrent.atomic.AtomicInteger
 
 @ImportAutoConfiguration(OctaviusSpringAutoConfiguration::class, DataSourceAutoConfiguration::class)
 @SpringBootTest(classes = [TestApplication::class], properties = [
@@ -140,6 +143,18 @@ class OctaviusSpringIntegrationTest {
     }
 
     @Test
+    fun `should report a commit the server refused to synchronizations as rolled back`() {
+        testService.createTableWithDeferredConstraint()
+        val outcome = AtomicInteger(-1)
+
+        assertThrows(ConstraintViolationException::class.java) {
+            testService.insertWithDeferredConstraintViolationObserved(outcome)
+        }
+
+        assertEquals(TransactionSynchronization.STATUS_ROLLED_BACK, outcome.get())
+    }
+
+    @Test
     fun `should support read only transactions`() {
         testService.createTable()
         
@@ -207,6 +222,14 @@ open class TestService(private val octaviusTemplate: OctaviusTemplate) {
             createNativeQuery("INSERT INTO test_deferred (id) VALUES (1)").execute()
             createNativeQuery("INSERT INTO test_deferred (id) VALUES (1)").execute()
         }
+    }
+
+    @Transactional
+    open fun insertWithDeferredConstraintViolationObserved(outcome: AtomicInteger) {
+        TransactionSynchronizationManager.registerSynchronization(object : TransactionSynchronization {
+            override fun afterCompletion(status: Int) = outcome.set(status)
+        })
+        insertWithDeferredConstraintViolation()
     }
 
     @Lazy

@@ -301,6 +301,7 @@ private class OctaviusTransaction(var holder: OctaviusTransactionHolder?) : Save
             }
         }
         kotlinLogger.debug { "Rollback to a savepoint on a connection that has already gone; the server discarded it with the transaction" }
+        holder!!.resetRollbackOnly()
         discarded = savepoint
     }
 
