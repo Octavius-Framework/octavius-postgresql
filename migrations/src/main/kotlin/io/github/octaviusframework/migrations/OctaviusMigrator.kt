@@ -43,13 +43,10 @@ private val logger = KotlinLogging.logger {}
  * logger.info { "Octavius: $report" }
  * ```
  *
- * A run takes **one** session for its whole length and gives it back at the end. It holds an advisory lock
- * from before the history table is looked at until after the last migration, so two instances of an
- * application starting together produce one migration run and one wait, rather than a race.
+ * A run holds one session, and an advisory lock from before the history table is read until after the last
+ * migration, so two instances starting together run once and wait once.
  *
- * There is no `undo` and there will not be one. A migration that turns out to be wrong is corrected by a
- * migration that comes after it, which is the only correction that leaves every copy of the database in the
- * same state.
+ * There is no `undo`: a migration that turns out to be wrong is corrected by one that comes after it.
  */
 class OctaviusMigrator private constructor(
     private val dataSource: DataSource?,
@@ -79,7 +76,7 @@ class OctaviusMigrator private constructor(
      * [MigrationStatus] for what each disagreement is called and [MigrationException] for what is raised.
      *
      * @return What was applied, read back from the history table. Empty where the database was already up
-     * to date, which is worth logging as much as any other outcome.
+     * to date.
      * @throws MigrationException for anything that stops the run.
      */
     fun migrate(): MigrationReport = withSession { session ->
@@ -112,8 +109,7 @@ class OctaviusMigrator private constructor(
                 runner.run(session, migration)
             }
 
-            // Read back rather than assembled from what was intended: `installed_on` and `installed_by` are
-            // the database's answers, and a report that made them up would be a report of a different run.
+            // Read back: `installed_on` and `installed_by` are the database's answers, not ours.
             val applied = history.readAll(session).filter { it.script in runnable }
             val report = MigrationReport(applied, elapsedMs(startedAt))
             logger.info { "Octavius applied ${applied.size} migrations in ${report.durationMs}ms" }

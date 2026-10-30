@@ -11,9 +11,8 @@ import io.github.octaviusframework.migrations.MigrationExceptionReason
  * the deployment rather than in a request - a placeholder is not a parameter, and a value that came from
  * outside the deployment would be an injection with the migrator holding the door.
  *
- * The syntax is `${name}`, and it is fixed for the same reason the `V`, `R` and `__` of the naming rule are:
- * every spelling made configurable is API to keep working, and none of them would make a migration read
- * better. `\${name}` is that text and not a placeholder, for the file that has to store one.
+ * The syntax is `${name}`, fixed like the `V`, `R` and `__` of the naming rule. `\${name}` is that text and not
+ * a placeholder, for the file that has to store one.
  *
  * Substitution happens **before** the header directives are read and before the transaction-control check
  * runs, so what those checks see is what the server will see - a value carrying a `COMMIT` is refused rather
@@ -28,8 +27,7 @@ internal object MigrationPlaceholders {
     /**
      * [content] with every `${name}` replaced by its configured value.
      *
-     * With [placeholders] empty nothing is scanned and the content comes back as it was - which is what makes
-     * this feature cost a migration that never asked for it nothing at all, `${` included.
+     * With [placeholders] empty nothing is scanned and the content comes back as it was, `${` included.
      *
      * @param origin What to call this file in a refusal - the path it was found at.
      * @throws MigrationException `INVALID_MIGRATION` for a `${name}` no value was configured for. Refused

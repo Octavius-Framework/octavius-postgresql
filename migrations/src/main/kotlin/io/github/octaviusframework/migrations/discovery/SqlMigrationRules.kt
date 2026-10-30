@@ -6,9 +6,6 @@ import io.github.octaviusframework.migrations.MigrationExceptionReason
 
 /**
  * What a `.sql` migration is allowed to say, checked while the database is still untouched.
- *
- * Both checks here could be left to the server, and both are worth making early instead. One of them the
- * server would not catch at all.
  */
 internal object SqlMigrationRules {
 

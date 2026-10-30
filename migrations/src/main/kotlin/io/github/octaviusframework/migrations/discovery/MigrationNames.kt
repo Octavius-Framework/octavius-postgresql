@@ -15,8 +15,8 @@ internal data class ParsedName(val version: MigrationVersion?, val description: 
 /**
  * Reads a migration's version and description out of its name.
  *
- * The same convention covers both kinds, which is the point: a `.sql` file and a class carry their identity
- * the same way, so a class never has to be constructed in order to find out what it is. `V2__add_indexes.sql`
+ * The same convention covers both kinds, so a class never has to be constructed to find out what it is.
+ * `V2__add_indexes.sql`
  * and `V2__Add_indexes` are the same version and the same description, and `R__rebuild_views` is repeatable
  * either way. The one difference is forced by Kotlin rather than chosen - `.` cannot appear in a class name,
  * so a class writes `V2_1__…` where a file may write either.

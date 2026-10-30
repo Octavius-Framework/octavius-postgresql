@@ -26,9 +26,8 @@ import kotlin.time.Duration.Companion.seconds
  * @property historyTable What the history table is called. Worth changing only where two applications
  * keep separate histories in one database - and then they hold separate locks too, the lock key being
  * derived from this name.
- * @property lockTimeout How long to wait for the migration lock before giving up. Waiting is the point:
- * two instances starting together is ordinary, and the one that lost the race should start a moment later
- * rather than not at all. This is what keeps waiting from meaning forever.
+ * @property lockTimeout How long to wait for the migration lock before giving up. A second instance starting
+ * alongside the first waits for it rather than failing; this bounds the wait.
  * @property outOfOrder Whether to apply a migration whose version is below one already applied. Off by
  * default, because the usual cause is a branch merged late and the usual consequence is two databases
  * that ran the same migrations in different orders.
@@ -51,11 +50,8 @@ data class MigratorConfig(
     val target: String? = null
 ) {
     /**
-     * [baselineVersion] as a version, or `null` where none was given.
-     *
-     * Parsed here rather than on the run, so a `baselineVersion = "1.x"` is refused by whoever built the
-     * config instead of by the first `migrate()` that reaches it - and parsed once, rather than by every
-     * migrator this config is handed to.
+     * [baselineVersion] as a version, or `null` where none was given. Parsed when the config is built, so a
+     * `baselineVersion = "1.x"` is refused there rather than by the first `migrate()`.
      */
     internal val parsedBaselineVersion: MigrationVersion? = parseConfigured(baselineVersion, "baselineVersion")
 

@@ -3,9 +3,8 @@ package io.github.octaviusframework.migrations
 /**
  * A migration's version, ordered the way version numbers are ordered rather than the way text is.
  *
- * `1.9` comes before `1.10`, which is the whole reason this is a type and not a `String`. Parts are held as
- * `Long`, so a version written as a timestamp - `20260827120000`, a convention plenty of projects use -
- * counts as a number rather than overflowing into nonsense.
+ * `1.9` comes before `1.10`. Parts are held as `Long`, so a version written as a timestamp -
+ * `20260827120000` - fits.
  *
  * **Missing parts are zero, so `1`, `1.0` and `1.0.0` are one version, not three.** They compare equal, they
  * hash alike, and two migrations carrying them are a duplicate rather than a sequence. [text] keeps whichever
@@ -24,13 +23,9 @@ class MigrationVersion private constructor(
 ) : Comparable<MigrationVersion> {
 
     /**
-     * The version with `_` written as `.`, which is what goes in the history table and in a report.
-     *
-     * A class name cannot hold a `.`, so `V2_1__Add_indexes` writes its version with an underscore - and
-     * without this, that spelling would leak out of Kotlin's grammar and into a column people read and query.
-     * Trailing zeroes are **left alone**: `1.0` is stored as `1.0`, because collapsing it to `1` would print
-     * one odd row in a project whose versions are all `1.0`, `1.1`, `1.2`. Whether two versions are the same
-     * is settled by their parts, never by this string.
+     * The version with `_` written as `.` - a class name cannot hold one - which is what goes in the history
+     * table and in a report. Trailing zeroes stay as written; whether two versions are the same is settled by
+     * their parts, never by this string.
      */
     val canonical: String get() = text.replace('_', '.')
 

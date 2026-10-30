@@ -12,9 +12,7 @@ import io.github.octaviusframework.migrations.history.MigrationType
 /**
  * Puts what was found next to what has run, and decides what each migration's situation is.
  *
- * Nothing here refuses anything - [refuse] does that, separately, and only a run calls it. `info()` wants the
- * same picture without the argument, which is why merging and refusing are two functions rather than one that
- * throws halfway through building its answer.
+ * [merge] refuses nothing, so `info()` can use it; [refuse] is what a run adds.
  */
 internal object MigrationValidation {
 

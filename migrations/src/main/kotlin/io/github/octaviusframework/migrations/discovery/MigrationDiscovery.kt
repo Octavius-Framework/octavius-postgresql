@@ -40,9 +40,8 @@ internal object MigrationDiscovery {
         refuseDuplicates(migrations)
 
         if (migrations.isEmpty()) {
-            // Warned rather than refused: an application whose migrations are all still ahead of it is a
-            // real state. Silence is what is not wanted - a path with a typo in it finds nothing, raises
-            // nothing, and the first sign of it is a table that was never created.
+            // Warned rather than refused: no migrations yet is a real state, but a mistyped path that finds
+            // nothing should not pass in silence.
             logger.warn {
                 "Found no migrations in ${describeLocations(config)}. If that is a surprise, the paths are " +
                     "the first thing to check: a location that matches nothing is not an error by itself."
@@ -56,17 +55,10 @@ internal object MigrationDiscovery {
     }
 
     /**
-     * Versioned first in version order, then repeatable ones by description.
-     *
-     * Description rather than script, because script is a file name for one kind and a fully-qualified class
-     * name for the other, and ordering those against each other sorts on whether a package name happens to
-     * come before a file name - deterministic, and meaningless. Description is also what the numeric-prefix
-     * idiom leans on: `R__01_base_views` before `R__02_derived_views`. Case is ignored so that a capital does
-     * not quietly move a migration; script breaks a tie, so the order never depends on where a scan started.
-     *
-     * The version key needs no null handling of its own: the first key has already put the versioned
-     * migrations on one side and the repeatable ones on the other, so within either group the versions
-     * are all present or all absent, and nothing is ever compared across that line.
+     * Versioned first in version order, then repeatable ones by description - not by script, which is a file
+     * name for one kind and a class name for the other - so `R__01_base_views` runs before `R__02_derived_views`.
+     * Case is ignored, and script breaks a tie. The version key needs no null handling: the first key already
+     * keeps versioned and repeatable apart.
      */
     private val RUN_ORDER = compareBy<DiscoveredMigration> { if (it.version == null) 1 else 0 }
         .thenBy { it.version }
@@ -91,10 +83,8 @@ internal object MigrationDiscovery {
                 description = parsed.description,
                 script = found.fileName,
                 origin = found.origin,
-                // The file as it was written, not as it was filled in. The checksum answers "has this
-                // migration been edited since it ran", and a value that differs between two deployments is
-                // not an edit to anything - hashing after substitution would make every environment's
-                // history disagree with every other one's for no fault of the file.
+                // The file as it was written, not as it was filled in: a value that differs between two
+                // deployments is not an edit to the migration.
                 checksum = MigrationChecksum.of(found.content),
                 transactional = transactional,
                 content = content
@@ -115,9 +105,8 @@ internal object MigrationDiscovery {
             result.getClassesImplementing(OctaviusMigration::class.java.name)
                 .filter { !it.isAbstract && !it.isInterface }
                 .map { classInfo ->
-                    // Loaded here, by ClassGraph, using the loaders ClassGraph scanned with - so the class
-                    // that runs later is the class that was found, with no second guess at which loader can
-                    // see it. Loading is not initialising: nothing of yours runs until the instance is built.
+                    // Loaded by ClassGraph with the loaders it scanned with, so the class that runs is the one
+                    // found. Loading is not initialising: nothing of yours runs until the instance is built.
                     val migrationClass = loadClass(classInfo)
                     refuseWithoutNoArgConstructor(migrationClass)
 

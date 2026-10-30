@@ -21,18 +21,14 @@ import kotlin.io.path.readText
 internal data class FoundFile(val fileName: String, val origin: String, val content: String)
 
 /**
- * The two places `.sql` migrations come from, behind one call.
- *
- * They are separate implementations rather than one made to stretch. ClassGraph earns its place on the
- * classpath, where a path can mean a jar inside a jar, the module path or a Spring Boot fat jar - and earns
- * nothing over `Files.walk` on a plain directory, where it would also swallow the one answer that directory
- * owes the caller: that it is not there.
+ * The two places `.sql` migrations come from, behind one call: ClassGraph for the classpath, where a path can
+ * be a jar inside a jar or a Spring Boot fat jar, and `Files.walk` for a directory, which has to be able to say
+ * it is not there.
  */
 internal object SqlSources {
 
     /**
-     * What a migration file is called. Fixed, like the `V`, `R` and `__` of the naming rule and for the same
-     * reason: every spelling of it is API to keep working, and PostgreSQL does not care either way.
+     * What a migration file is called. Fixed, like the `V`, `R` and `__` of the naming rule.
      */
     const val SUFFIX = ".sql"
 
@@ -77,9 +73,8 @@ internal object SqlSources {
     private fun fromDirectory(path: String): List<FoundFile> {
         val root: Path = Paths.get(path).toAbsolutePath().normalize()
 
-        // Said out loud rather than scanned into an empty result. A directory that is not there is the whole
-        // reason `filesystem:` is riskier than the classpath, and a silent empty scan is how it stays hidden
-        // until production runs no migrations at all and reports success.
+        // Refused rather than scanned into nothing, which would surface as a run that applied no migrations
+        // and reported success.
         if (!Files.isDirectory(root)) {
             throw MigrationException(
                 MigrationExceptionReason.CONFIGURATION,

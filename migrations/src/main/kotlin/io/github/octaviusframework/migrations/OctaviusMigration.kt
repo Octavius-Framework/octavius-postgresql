@@ -12,7 +12,7 @@ import io.github.octaviusframework.driver.session.OctaviusSessionOperations
  * ago runs none of your code at startup.
  *
  * The class needs a constructor that takes no arguments, and is built once, immediately before it runs, then
- * dropped. It is not a bean and holding one would buy nothing.
+ * dropped. It is not a bean.
  *
  * ```kotlin
  * class V3__Backfill_provinces : OctaviusMigration {
@@ -47,13 +47,9 @@ interface OctaviusMigration {
     /**
      * A number that changes when this migration changes, or `null` - the default - for "do not check".
      *
-     * There is no honest checksum to derive for a class. Hashing the bytecode reports a change when a blank
-     * line moves or the compiler is upgraded, and hashing the class name detects only a rename, which the
-     * version already catches. So nothing is stored unless you put something here, and validation skips what
-     * it has no checksum for.
-     *
-     * On a repeatable migration `null` means it runs on **every** run, there being no way to tell that it
-     * changed - which is no great loss, a repeatable migration having to be idempotent regardless.
+     * Nothing is derived for a class - its bytecode changes with the compiler - so nothing is stored unless you
+     * put something here, and validation skips what has no checksum. On a repeatable migration `null` means it
+     * runs on **every** run.
      */
     val checksum: Long? get() = null
 }
