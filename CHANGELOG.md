@@ -22,6 +22,14 @@
   thread that has no context class loader, as it already was where the context class loader could not find it. On such a thread the connection failed
   with an `InitializationException` caused by a `NullPointerException`.
 
+### Client
+
+#### Added
+
+- `toCountQuery()` on a `select` returns a query counting the rows it matches across every page, the total a paged
+  list shows beside the page. The query is counted whole as a subquery, so a grouped one counts its groups, and
+  `ORDER BY`, `LIMIT`, `OFFSET` and the locking clause are left out of it.
+
 ## Version 2.8.0 (v2.8.0)
 
 ### Driver

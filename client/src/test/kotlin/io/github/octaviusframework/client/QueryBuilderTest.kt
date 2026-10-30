@@ -129,6 +129,33 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
         assertTrue(weak.toSql().contains("WHERE strength <= 1000"))
     }
 
+    @Test
+    fun `toCountQuery wraps the query, leaving out its ordering, paging and locking`() {
+        val base = db.select("province", "count(*) AS total")
+            .with("active", "SELECT id FROM legions WHERE disbanded_at IS NULL")
+            .from("legions l JOIN active a ON a.id = l.id")
+            .where("l.strength > @min")
+            .groupBy("province")
+            .having("count(*) > 1")
+            .orderBy("total DESC")
+            .page(2, 20)
+            .locking("FOR UPDATE OF l")
+
+        assertEquals(
+            """
+            SELECT count(*)
+            FROM (WITH active AS (SELECT id FROM legions WHERE disbanded_at IS NULL)
+            SELECT province, count(*) AS total
+            FROM legions l JOIN active a ON a.id = l.id
+            WHERE l.strength > @min
+            GROUP BY province
+            HAVING count(*) > 1)
+            """.trimIndent(),
+            base.toCountQuery().toSql()
+        )
+        assertTrue(base.toSql().endsWith("ORDER BY total DESC\nLIMIT 20\nOFFSET 40\nFOR UPDATE OF l"))
+    }
+
     // --- INSERT / UPDATE / DELETE: what they render -----------------------------------------------
 
     @Test
@@ -506,6 +533,31 @@ class QueryBuilderTest : AbstractClientIntegrationTest() {
 
         assertEquals(1L, counted.fetchFieldStrict<Long>("min" to 4000))
         assertEquals(0L, counted.fetchFieldStrict<Long>("min" to 9000))
+    }
+
+    @Test
+    fun `toCountQuery counts every page of a filtered query, and the groups of a grouped one`() {
+        db.rawQuery(
+            """
+            INSERT INTO builder_legions (name, strength, province) VALUES
+                ('IX Hispana', 4800, 'Hispania'), ('X Fretensis', 5200, 'Iudaea'),
+                ('VI Ferrata', 5100, 'Iudaea'), ('II Augusta', 3000, 'Britannia')
+            """
+        ).executeUpdate()
+
+        val strong = db.select("name").from("builder_legions")
+            .where("strength > @min")
+            .orderBy("name")
+            .page(0, 1)
+
+        assertEquals(3L, strong.toCountQuery().fetchFieldStrict<Long>("min" to 4000))
+
+        val provinces = db.select("province", "count(*)")
+            .with("stationed", "SELECT * FROM builder_legions WHERE province IS NOT NULL")
+            .from("stationed")
+            .groupBy("province")
+
+        assertEquals(3L, provinces.toCountQuery().fetchFieldStrict<Long>())
     }
 
     @Test

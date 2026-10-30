@@ -9,6 +9,9 @@ import io.github.octaviusframework.client.session.SessionProvider
  * is written out because that is the join, not because the builder has a way to describe joins. What the
  * builder does is the mechanical part - the keywords, the order they go in, and above all the clauses that
  * disappear when they have nothing to say, which is what makes a filter assembled at runtime bearable.
+ * [toCountQuery] goes one step past that: it turns the query into a count of the rows it matches on every page
+ * by leaving out its ordering, its paging and its locking clause, chosen by which clause each is, with what is
+ * written in them still unread.
  *
  * ```kotlin
  * val senators = db.select("id", "cognomen", "province_id")
@@ -129,6 +132,43 @@ class SelectQuery @PublishedApi internal constructor(
         it.limitValue = limitValue
         it.offsetValue = offsetValue
         it.lockingClause = lockingClause
+    }
+
+    /**
+     * Returns a query counting the rows this one matches, whatever page it is set to - the total a paged list
+     * shows beside its page.
+     *
+     * ```kotlin
+     * val listed = db.select("id", "cognomen").from("senate").where(filter.sql).orderBy("cognomen")
+     *
+     * val total = listed.toCountQuery().fetchFieldStrict<Long>(filter.params)
+     * val senators = listed.page(page, 20).fetchObjects<Senator>(filter.params)
+     * ```
+     *
+     * The query is wrapped whole, `SELECT count(*) FROM (…)`, rather than having its select list swapped for
+     * `count(*)`: the builder does not read that list, and a `DISTINCT`, an aggregate, a set-returning function or a
+     * `GROUP BY` each change how many rows come back. Wrapped, a grouped query counts its groups. PostgreSQL
+     * flattens the subquery where it can and leaves the columns nobody reads uncomputed, so this costs what the
+     * count written by hand would.
+     *
+     * Four clauses are left out of what is wrapped. `ORDER BY`, because inside a subquery it is still a sort of
+     * every row, done only to count them. `LIMIT` and `OFFSET`, because the count is of every page - a `LIMIT` that
+     * belongs to the meaning, a top ten, goes with them. The locking clause, which would lock every row counted.
+     *
+     * The count takes the same parameters as this query, and the parameter converters registered on it come
+     * along; the result converters do not, the count being a single `bigint`. It is rendered from this query as it
+     * stands now, so what is changed on this builder afterwards does not reach it.
+     */
+    fun toCountQuery(): SelectQuery {
+        val counted = copy().also {
+            it.orderByClause = null
+            it.limitValue = null
+            it.offsetValue = null
+            it.lockingClause = null
+        }
+        return SelectQuery(queryProvider, "count(*)").fromSubquery(counted.querySql()).also {
+            it.queryParameterConverters = queryParameterConverters?.toMutableList()
+        }
     }
 
     override fun querySql(): String {
