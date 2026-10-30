@@ -103,8 +103,8 @@ internal object OctaviusConnectionFactory {
         val shuffled = properties.loadBalanceHosts == LoadBalanceHosts.RANDOM
 
         val sslConfiguration = SslNegotiator.configurationOf(properties)
-        val noticeHandler = try {
-            noticeHandlerOf(properties.noticeHandler)
+        val noticeHandler = properties.noticeHandler ?: try {
+            noticeHandlerOf(properties.noticeHandlerClassName)
         } catch (e: Exception) {
             throw InitializationException(InitializationExceptionReason.CONNECTION_ERROR, e.message, e)
         }

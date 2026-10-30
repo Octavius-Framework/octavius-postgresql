@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.properties
 import io.github.octaviusframework.driver.auth.ChannelBinding
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.ssl.SslMode
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -88,11 +89,21 @@ class OctaviusProperties {
     var notificationBufferCapacity: Int? = null
 
     /**
-     * Fully-qualified class name of a [NoticeHandler][io.github.octaviusframework.driver.notice.NoticeHandler]
-     * for server notices. A Kotlin `object` is reused as a singleton across connections; a class is
-     * instantiated per connection through its no-arg constructor.
+     * The [NoticeHandler] for server notices, built in code, so it can take what it needs through its
+     * constructor. Every connection opened with these properties shares this one instance, and it takes the place
+     * of [noticeHandlerClassName].
+     *
+     * Only code can set it: a string cannot carry an instance, so [setProperty] does not reach it and [toUrl]
+     * leaves it out. [copy] and [merge] carry it like any other property.
      */
-    var noticeHandler: String? = null
+    var noticeHandler: NoticeHandler? = null
+
+    /**
+     * Fully-qualified class name of a [NoticeHandler], for configuration that can only give a string. A Kotlin
+     * `object` is reused as a singleton across connections; a class is instantiated per connection through its
+     * no-arg constructor. Not consulted when [noticeHandler] is set.
+     */
+    var noticeHandlerClassName: String? = null
 
     /**
      * Cap, in bytes, for the per-connection parameter buffer; it shrinks back to
@@ -189,7 +200,7 @@ class OctaviusProperties {
             "cancelsignaltimeout" -> cancelSignalTimeout = intValue(key, value)
             "maxcachedrowsize" -> maxCachedRowSize = intValue(key, value)
             "notificationbuffercapacity" -> notificationBufferCapacity = intValue(key, value)
-            "noticehandler" -> noticeHandler = value
+            "noticehandlerclassname" -> noticeHandlerClassName = value
             "maxparameterwritercapacity" -> maxParameterWriterCapacity = intValue(key, value)
             "initialparameterwritercapacity" -> initialParameterWriterCapacity = intValue(key, value)
             "logparametervalues" -> logParameterValues = booleanValue(key, value)
@@ -251,6 +262,7 @@ class OctaviusProperties {
         other.maxCachedRowSize?.let { maxCachedRowSize = it }
         other.notificationBufferCapacity?.let { notificationBufferCapacity = it }
         other.noticeHandler?.let { noticeHandler = it }
+        other.noticeHandlerClassName?.let { noticeHandlerClassName = it }
         other.maxParameterWriterCapacity?.let { maxParameterWriterCapacity = it }
         other.initialParameterWriterCapacity?.let { initialParameterWriterCapacity = it }
         other.logParameterValues?.let { logParameterValues = it }
@@ -422,7 +434,7 @@ class OctaviusProperties {
         cancelSignalTimeout?.let { queryParams["cancelSignalTimeout"] = it.toString() }
         maxCachedRowSize?.let { queryParams["maxCachedRowSize"] = it.toString() }
         notificationBufferCapacity?.let { queryParams["notificationBufferCapacity"] = it.toString() }
-        noticeHandler?.let { queryParams["noticeHandler"] = it }
+        noticeHandlerClassName?.let { queryParams["noticeHandlerClassName"] = it }
         maxParameterWriterCapacity?.let { queryParams["maxParameterWriterCapacity"] = it.toString() }
         initialParameterWriterCapacity?.let { queryParams["initialParameterWriterCapacity"] = it.toString() }
         logParameterValues?.let { queryParams["logParameterValues"] = it.toString() }

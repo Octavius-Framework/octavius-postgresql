@@ -176,8 +176,9 @@ whenever one went back to a pool; Npgsql dropped its per-connection mappings for
 where Npgsql moved them, and it works there because the data source is Npgsql's own pool, built in code and
 handed out by dependency injection. Here it would mean refusing configuration by string, which is how a pool or
 Spring Boot is usually set up: given a URL or a class name, they construct the driver themselves, and the
-application never holds a driver object to register anything on. The `noticeHandler` property runs into the
-same limit and takes a class name, because a string cannot carry an instance.
+application never holds a driver object to register anything on. A notice handler runs into the same limit:
+what a string can name is `noticeHandlerClassName`, and the handler itself, `noticeHandler`, reaches only
+configuration done in code.
 
 So the registry is keyed by what a URL can say. What that costs is that two parts of one application cannot
 register different classes for the same type on one database. Registration is a startup step, done once, from

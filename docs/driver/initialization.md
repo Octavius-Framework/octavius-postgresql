@@ -91,7 +91,7 @@ val dataSource = OctaviusDataSource().apply {
 
     socketTimeout = 30
     maxCachedRowSize = 8192
-    noticeHandler = "com.example.MyNoticeHandler"
+    noticeHandlerClassName = "com.example.MyNoticeHandler"
     applicationName = "LegioXIII-App"
 
     // Anything without an accessor of its own, startup parameters included
@@ -177,7 +177,7 @@ Both fit on the `url` property, which is itself a bean property and takes a whol
 addDataSourceProperty("url", "jdbc:octavius://localhost:5432/res_publica?sslmode=require&search_path=castra")
 ```
 
-Everything else — the timeouts, the buffer sizes, `ssl`, `noticeHandler`, the certificate paths — is a plain `Int`, `Boolean` or `String` accessor and takes a string value as it stands.
+Everything else — the timeouts, the buffer sizes, `ssl`, `noticeHandlerClassName`, the certificate paths — is a plain `Int`, `Boolean` or `String` accessor and takes a string value as it stands. The exception is `noticeHandler`, whose value is the `NoticeHandler` object itself, passed through untouched like the enums above — `addDataSourceProperty("noticeHandler", handler)` — and which a properties file has no way to give.
 
 ### Via a configured instance
 
@@ -385,7 +385,7 @@ JDBC's answer is `SQLWarning` objects accumulating on the connection until someo
 
 ### Handling them yourself
 
-Implement `NoticeHandler` and name the class in the [`noticeHandler` property](#network-and-limits):
+Implement `NoticeHandler` and name the class in the [`noticeHandlerClassName` property](#network-and-limits):
 
 ```kotlin
 import io.github.octaviusframework.driver.notice.NoticeHandler
@@ -401,13 +401,27 @@ object AuditNoticeHandler : NoticeHandler {
 ```
 
 ```kotlin
-properties.noticeHandler = "com.example.AuditNoticeHandler"
-// or on the URL: ?noticeHandler=com.example.AuditNoticeHandler
+properties.noticeHandlerClassName = "com.example.AuditNoticeHandler"
+// or on the URL: ?noticeHandlerClassName=com.example.AuditNoticeHandler
 ```
 
-A Kotlin `object` is reused as a singleton across every connection; a class is instantiated per connection through its no-arg constructor. `PgNotice` carries every field a notice can hold, under the same names `ServerErrorMessage` uses: `severity`, `code` and `message` always arrive, `file`, `line` and `routine` come with every notice too, and `detail`, `hint`, `schema`, `table`, `column`, `datatype` and `constraint` are what a `RAISE ... USING` fills in. The comparison above is safe because `severity` is read from the non-localized field — the translated severity a non-English `lc_messages` produces is kept apart, as `localizedSeverity`.
+A Kotlin `object` is reused as a singleton across every connection; a class is instantiated per connection through its no-arg constructor.
 
-It also carries `processId`, the same backend process id the log line is prefixed with — which is what a singleton handler needs, since it sees the notices of every connection in the pool arriving on one method. The server does not send it as part of the notice; the driver takes it from the connection's startup handshake, so a notice raised before that handshake finished reports `-1`. Nothing reaches that window at the default verbosity — connecting with `client_min_messages=debug5` is what puts a message there, the backend's own catalog-reading transaction — but a handler that buckets by process id should expect the value to exist. It is not the same number as `PgNotification.processId`, which names the *foreign* backend that ran the `NOTIFY`.
+A handler that needs something passed to its constructor, such as a metrics registry in place of the global `metrics` above, cannot be named by class. Build it yourself and set it as `noticeHandler`, on `OctaviusProperties` or on an `OctaviusDataSource` configured in code:
+
+```kotlin
+class AuditNoticeHandler(private val metrics: MeterRegistry) : NoticeHandler { /* as above */ }
+
+dataSource.noticeHandler = AuditNoticeHandler(meterRegistry)
+```
+
+Every connection opened with it shares that one instance, and it takes the place of `noticeHandlerClassName` when both are set. A URL cannot carry an instance: a pool reaches it when [handed a configured data source](#via-a-configured-instance), or as the object itself in HikariCP's [`dataSourceClassName` configuration](#via-octaviusdatasource); one that builds the driver from a URL, as Spring Boot does, gets the class name or nothing.
+
+A shared handler — an `object` or an instance — is called from the thread of every connection that uses it, at the same time, so whatever it keeps has to be safe for that.
+
+`PgNotice` carries every field a notice can hold, under the same names `ServerErrorMessage` uses: `severity`, `code` and `message` always arrive, `file`, `line` and `routine` come with every notice too, and `detail`, `hint`, `schema`, `table`, `column`, `datatype` and `constraint` are what a `RAISE ... USING` fills in. The comparison above is safe because `severity` is read from the non-localized field — the translated severity a non-English `lc_messages` produces is kept apart, as `localizedSeverity`.
+
+It also carries `processId`, the same backend process id the log line is prefixed with — which is what a shared handler needs, an `object` or an instance, since it sees the notices of every connection in the pool arriving on one method. The server does not send it as part of the notice; the driver takes it from the connection's startup handshake, so a notice raised before that handshake finished reports `-1`. Nothing reaches that window at the default verbosity — connecting with `client_min_messages=debug5` is what puts a message there, the backend's own catalog-reading transaction — but a handler that buckets by process id should expect the value to exist. It is not the same number as `PgNotification.processId`, which names the *foreign* backend that ran the `NOTIFY`.
 
 > [!WARNING]
 > **`handleNotice` runs synchronously on the connection's network thread**, in the middle of reading the protocol stream. Whatever it does, the query waiting behind it waits too — so no blocking calls, no database work, no HTTP. Hand anything slow to a queue or an executor and return immediately.
@@ -456,7 +470,8 @@ There is no property selecting an authentication method: the server names it and
 | `cancelSignalTimeout`            | `10`                                                        | Seconds allowed for a [cancel request](queries.md#cancelling-a-query-in-flight), covering both its connect and its reads. It travels on a connection of its own, so it gets a budget of its own.                             |
 | `maxCachedRowSize`               | `65536`                                                     | Largest row, in bytes, kept in the reusable row buffer.                                                                                                                                                                      |
 | `notificationBufferCapacity`     | `256`                                                       | Capacity of the `LISTEN`/`NOTIFY` buffer; see [Listen & Notify](listen-notify.md).                                                                                                                                           |
-| `noticeHandler`                  | none                                                        | Fully-qualified class name of a `NoticeHandler` for server notices. A Kotlin `object` is reused as a singleton across connections; a class is instantiated per connection through its no-arg constructor.                    |
+| `noticeHandlerClassName`         | none                                                        | Fully-qualified class name of a `NoticeHandler` for server notices. A Kotlin `object` is reused as a singleton across connections; a class is instantiated per connection through its no-arg constructor.                    |
+| `noticeHandler`                  | none                                                        | A `NoticeHandler` already built, shared by every connection and used in place of `noticeHandlerClassName`. Only code can set it; a URL cannot carry it. See [Handling them yourself](#handling-them-yourself).                |
 | `initialParameterWriterCapacity` | `1024`                                                      | Starting size, in bytes, of the per-connection parameter buffer.                                                                                                                                                             |
 | `maxParameterWriterCapacity`     | `65536`                                                     | Cap for that buffer; it shrinks back to the initial size after a query that exceeded it.                                                                                                                                     |
 | `logParameterValues`             | `false`                                                     | Whether a traced statement carries the values bound to it rather than only their count. Effective only at `trace`, and never applies to credentials — see [Logging](logging.md#parameter-values-are-a-property-not-a-level). |

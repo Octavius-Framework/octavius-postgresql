@@ -4,6 +4,7 @@ import io.github.octaviusframework.driver.auth.ChannelBinding
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.wrapSqlException
+import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.properties.LoadBalanceHosts
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.properties.TargetSessionAttrs
@@ -188,9 +189,17 @@ class OctaviusDataSource : DataSource {
         set(value) { octaviusProperties.notificationBufferCapacity = value }
 
     /**
-     * Fully-qualified class name of a `NoticeHandler` for server notices.
+     * Fully-qualified class name of a `NoticeHandler` for server notices, used where [noticeHandler] is not set.
      */
-    var noticeHandler: String?
+    var noticeHandlerClassName: String?
+        get() = octaviusProperties.noticeHandlerClassName
+        set(value) { octaviusProperties.noticeHandlerClassName = value }
+
+    /**
+     * The `NoticeHandler` for server notices, built in code, shared by every connection this data source opens and
+     * used in place of [noticeHandlerClassName] - see [OctaviusProperties.noticeHandler].
+     */
+    var noticeHandler: NoticeHandler?
         get() = octaviusProperties.noticeHandler
         set(value) { octaviusProperties.noticeHandler = value }
 

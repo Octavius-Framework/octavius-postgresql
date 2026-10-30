@@ -16,8 +16,8 @@ import io.github.octaviusframework.driver.message.backend.ErrorOrNoticeMessage
  *   `BackendKeyData` received at startup, so a notice arriving before that one reports `-1`. That
  *   window is a single message wide and nothing reaches it at the default verbosity; connecting
  *   with `client_min_messages=debug5` fills it with the backend's own catalog-reading transaction.
- *   What it is for is a handler shared between connections: a Kotlin
- *   `object` [NoticeHandler] sees the notices of every connection in a pool, and this is what tells
+ *   What it is for is a handler shared between connections: a Kotlin `object` [NoticeHandler], or
+ *   one set as an instance, sees the notices of every connection in a pool, and this is what tells
  *   them apart. Note that
  *   [PgNotification][io.github.octaviusframework.driver.notification.PgNotification] carries a
  *   process id of its own meaning something else - the *foreign* backend that executed `NOTIFY`,

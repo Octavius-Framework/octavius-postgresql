@@ -1,6 +1,13 @@
-## Version 2.8.1 (v2.8.1)
+## Version 2.9.0 (v2.9.0)
 
 ### Driver
+
+#### Changed
+
+- **[BREAKING]** `noticeHandler` on `OctaviusProperties` and `OctaviusDataSource` takes a `NoticeHandler` already
+  built, shared by every connection opened with it, so a handler gets what it needs through its constructor instead
+  of from a global. The class name it took before is `noticeHandlerClassName`, there and in the URL, which cannot
+  carry an instance.
 
 #### Fixed
 
@@ -11,8 +18,8 @@
   ("marked as rollback-only") instead of saying the connection had gone. It now clears the mark as it does on a
   connection that is still there.
 
-- A `noticeHandler` class is looked up through the driver's own class loader on a thread that has no context class
-  loader, as it already was where the context class loader could not find it. On such a thread the connection failed
+- A notice handler class named by `noticeHandlerClassName` is looked up through the driver's own class loader on a
+  thread that has no context class loader, as it already was where the context class loader could not find it. On such a thread the connection failed
   with an `InitializationException` caused by a `NullPointerException`.
 
 ## Version 2.8.0 (v2.8.0)
