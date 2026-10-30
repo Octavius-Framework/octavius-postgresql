@@ -116,7 +116,18 @@ internal object SslNegotiator {
         
         sslSocket.enabledProtocols = arrayOf("TLSv1.2", "TLSv1.3").filter { it in sslSocket.supportedProtocols }.toTypedArray()
         
-        sslSocket.startHandshake()
+        try {
+            sslSocket.startHandshake()
+        } catch (e: SSLException) {
+            // A certificate the verifying modes refuse - an issuer the trust store does not know, a host name it
+            // does not carry - is the TLS library's exception up to here, and SSL_ERROR is what the caller is told
+            // to expect. A timeout is not an SSLException, so it still reaches the factory as one.
+            throw InitializationException(
+                InitializationExceptionReason.SSL_ERROR,
+                "TLS handshake with $host:$port failed under sslmode=${config.mode.value}: ${e.message}",
+                e
+            )
+        }
         // Same reasoning as the plaintext case: that the connection is encrypted is on the
         // connection line already, and only the protocol and cipher are new here.
         logger.trace {

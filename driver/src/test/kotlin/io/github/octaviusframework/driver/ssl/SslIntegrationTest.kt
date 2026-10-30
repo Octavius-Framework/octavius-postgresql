@@ -170,6 +170,31 @@ class SslIntegrationTest {
     }
 
     @Test
+    fun testSslModeVerifyFullRefusesAnotherHostName() {
+        val rootCert = System.getenv("SSL_ROOT_CERT")
+        assumeTrue(rootCert != null, "No root cert provided.")
+
+        fun properties(mode: SslMode) = OctaviusProperties().apply {
+            user = "postgres"
+            password = "1234"
+            ssl = true
+            sslMode = mode
+            sslRootCert = rootCert
+        }
+
+        // The certificate names localhost and nothing else, so 127.0.0.1 is the same server under a name it does
+        // not carry. verify-ca checks only who signed it and lets the connection through; verify-full checks the
+        // name as well.
+        val byAddress = "jdbc:octavius://127.0.0.1:5433/octavius_test"
+        getOctaviusSession(byAddress, properties(SslMode.VERIFY_CA)).close()
+
+        val ex = assertThrows<InitializationException> {
+            getOctaviusSession(byAddress, properties(SslMode.VERIFY_FULL))
+        }
+        assertEquals(InitializationExceptionReason.SSL_ERROR, ex.reason)
+    }
+
+    @Test
     fun testSslClientAuth() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         val clientCert = System.getenv("SSL_CERT")

@@ -22,6 +22,10 @@
   thread that has no context class loader, as it already was where the context class loader could not find it. On such a thread the connection failed
   with an `InitializationException` caused by a `NullPointerException`.
 
+- A server certificate that `VERIFY_CA` or `VERIFY_FULL` refuses - an issuer the trust store does not know, a host
+  name it does not carry - is `InitializationException(SSL_ERROR)`, as `exceptions.md` describes. The TLS library's
+  `SSLHandshakeException` left the connection attempt as it was.
+
 ### Client
 
 #### Added

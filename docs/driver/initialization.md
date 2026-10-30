@@ -501,6 +501,6 @@ resolves the name to a setter, so it wants `sslMode`.
 | `VERIFY_CA`   | Require TLS and verify the server certificate — against `sslrootcert` when given, otherwise the JVM's default trust store. |
 | `VERIFY_FULL` | Also verify that the certificate matches the hostname.                                                                     |
 
-The handshake is restricted to TLS 1.2 and 1.3. A server that refuses TLS under `REQUIRE`, `VERIFY_CA` or `VERIFY_FULL` produces an `InitializationException(SSL_ERROR)` naming the mode you asked for. Note the default: unless you say otherwise, Octavius *attempts* an encrypted connection and quietly accepts plaintext if the server has no TLS — set `REQUIRE` or stronger when that fallback is not acceptable.
+The handshake is restricted to TLS 1.2 and 1.3. A server that refuses TLS under `REQUIRE`, `VERIFY_CA` or `VERIFY_FULL` produces an `InitializationException(SSL_ERROR)` naming the mode you asked for, and so does a certificate that `VERIFY_CA` or `VERIFY_FULL` refuses. Note the default: unless you say otherwise, Octavius *attempts* an encrypted connection and quietly accepts plaintext if the server has no TLS — set `REQUIRE` or stronger when that fallback is not acceptable.
 
 The mode covers more than the session's own socket. [`cancelQuery()`](queries.md#cancelling-a-query-in-flight) has to open a second connection — the protocol gives it no choice — and it carries the backend's cancel key, so it negotiates under the same settings rather than falling back to plaintext.
