@@ -11,6 +11,10 @@
   ("marked as rollback-only") instead of saying the connection had gone. It now clears the mark as it does on a
   connection that is still there.
 
+- A `noticeHandler` class is looked up through the driver's own class loader on a thread that has no context class
+  loader, as it already was where the context class loader could not find it. On such a thread the connection failed
+  with an `InitializationException` caused by a `NullPointerException`.
+
 ## Version 2.8.0 (v2.8.0)
 
 ### Driver

@@ -369,14 +369,17 @@ internal object OctaviusConnectionFactory {
         return exception
     }
 
-    /** The configured [NoticeHandler]: a Kotlin `object` as it is, a class instantiated through its no-arg constructor. */
+    /**
+     * The configured [NoticeHandler]: a Kotlin `object` as it is, a class instantiated through its no-arg constructor.
+     *
+     * The class is looked up through the context class loader of the thread opening the connection, then through the
+     * driver's own, which is also the only one tried on a thread that has no context class loader.
+     */
     private fun noticeHandlerOf(className: String?): NoticeHandler? {
         if (className == null) return null
-        val clazz = try {
-            Thread.currentThread().contextClassLoader.loadClass(className)
-        } catch (_: ClassNotFoundException) {
-            Class.forName(className)
-        }
+        val clazz = Thread.currentThread().contextClassLoader
+            ?.let { loader -> try { loader.loadClass(className) } catch (_: ClassNotFoundException) { null } }
+            ?: Class.forName(className)
         return clazz.kotlin.objectInstance as? NoticeHandler
             ?: clazz.getDeclaredConstructor().newInstance() as NoticeHandler
     }
