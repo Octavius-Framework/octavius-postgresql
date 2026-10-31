@@ -301,10 +301,10 @@ stack. What it costs is that *every* call is a failure to handle, including the 
 a transaction block which is going to roll back anyway. Threading a result type through code whose only
 sensible response is to abort adds ceremony at every step and does not make anything safer.
 
-Throwing by default puts the ceremony where the decision is. A `ConstraintViolationException` you actually
-intend to handle — a duplicate on insert, a serialization failure worth retrying — is caught where you handle
-it, and everything else propagates to the boundary that logs it. Where you want the result shape, you say so,
-and the same boundary applies either way.
+Throwing by default puts the ceremony where the decision is. An exception you actually intend to handle — a
+`ConstraintViolationException` on a duplicate insert, a `ConcurrencyException` worth retrying — is caught where
+you handle it, and everything else propagates to the boundary that logs it. Where you want the result shape, you
+say so, and the same boundary applies either way.
 
 What makes this work is that the exceptions are worth catching. They descend from one `OctaviusException`, the
 class says what kind of failure it is and a `reason` enum says which one, `path` says where in a nested

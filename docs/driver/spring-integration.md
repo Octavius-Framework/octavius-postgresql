@@ -120,7 +120,7 @@ spring:
 
 ## Using `OctaviusTemplate`
 
-Once auto-configured, you can inject `OctaviusTemplate` into your services. It manages getting the connection, extracting the `OctaviusSession`, and translating exceptions. The session is the receiver of the `execute` block, so its operations are called directly on `this`.
+Once auto-configured, you can inject `OctaviusTemplate` into your services. It manages getting the connection and extracting the `OctaviusSession`, and a failure leaves it as the driver's own exception, as it would from a session used directly (see [Exceptions](#exceptions)). The session is the receiver of the `execute` block, so its operations are called directly on `this`.
 
 ```kotlin
 import io.github.octaviusframework.driver.spring.OctaviusTemplate
