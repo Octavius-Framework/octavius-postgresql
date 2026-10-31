@@ -3,6 +3,14 @@ package io.github.octaviusframework.driver.message.frontend
 import io.github.octaviusframework.driver.io.PgOutputStream
 import java.nio.charset.StandardCharsets
 
+private val NO_BYTES = ByteArray(0)
+
+/**
+ * [s] in UTF-8. The empty name of the unnamed statement and portal, which every query goes through, comes back without
+ * being encoded, since encoding it builds a new empty array each time.
+ */
+private fun utf8(s: String): ByteArray = if (s.isEmpty()) NO_BYTES else s.toByteArray(StandardCharsets.UTF_8)
+
 /**
  * Message sent to the backend to parse a prepared statement.
  *
@@ -16,14 +24,14 @@ internal class ParseMessage(
     private val parameterTypes: IntArray = IntArray(0) // List of parameter OIDs (can be empty to be inferred by Postgres)
 ) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
-        val nameBytes = statementName.toByteArray(StandardCharsets.UTF_8)
-        val queryBytes = query.toByteArray(StandardCharsets.UTF_8)
+        val nameBytes = utf8(statementName)
+        val queryBytes = utf8(query)
         val length = 4 + nameBytes.size + 1 + queryBytes.size + 1 + 2 + (parameterTypes.size * 4)
 
         out.writeByte('P'.code.toByte())
         out.writeInt(length)
-        out.writeCString(statementName)
-        out.writeCString(query)
+        out.writeCString(nameBytes)
+        out.writeCString(queryBytes)
         out.writeShort(parameterTypes.size)
         parameterTypes.forEach { out.writeInt(it) }
     }
@@ -49,8 +57,8 @@ internal class BindMessage(
     private val parameterValuesLength: Int = parameterValues.size
 ) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
-        val portalBytes = portalName.toByteArray(StandardCharsets.UTF_8)
-        val statementBytes = statementName.toByteArray(StandardCharsets.UTF_8)
+        val portalBytes = utf8(portalName)
+        val statementBytes = utf8(statementName)
 
         val length = 4 + portalBytes.size + 1 + statementBytes.size + 1 +
                 2 + (parameterFormats.size * 2) +
@@ -59,8 +67,8 @@ internal class BindMessage(
 
         out.writeByte('B'.code.toByte())
         out.writeInt(length)
-        out.writeCString(portalName)
-        out.writeCString(statementName)
+        out.writeCString(portalBytes)
+        out.writeCString(statementBytes)
 
         // Parameter formats
         out.writeShort(parameterFormats.size)
@@ -87,13 +95,13 @@ internal class BindMessage(
 internal class DescribeMessage(private val targetType: Char, private val name: String) :
     FrontendMessage {
     override fun encode(out: PgOutputStream) {
-        val nameBytes = name.toByteArray(StandardCharsets.UTF_8)
+        val nameBytes = utf8(name)
         val length = 4 + 1 + nameBytes.size + 1
 
         out.writeByte('D'.code.toByte())
         out.writeInt(length)
         out.writeByte(targetType.code.toByte())
-        out.writeCString(name)
+        out.writeCString(nameBytes)
     }
 }
 
@@ -105,12 +113,12 @@ internal class DescribeMessage(private val targetType: Char, private val name: S
  */
 internal class ExecuteMessage(private val portalName: String, private val maxRows: Int = 0) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
-        val portalBytes = portalName.toByteArray(StandardCharsets.UTF_8)
+        val portalBytes = utf8(portalName)
         val length = 4 + portalBytes.size + 1 + 4
 
         out.writeByte('E'.code.toByte())
         out.writeInt(length)
-        out.writeCString(portalName)
+        out.writeCString(portalBytes)
         out.writeInt(maxRows)
     }
 }
@@ -143,12 +151,12 @@ internal class FlushMessage : FrontendMessage {
  */
 internal class CloseMessage(private val targetType: Char, private val name: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
-        val nameBytes = name.toByteArray(StandardCharsets.UTF_8)
+        val nameBytes = utf8(name)
         val length = 4 + 1 + nameBytes.size + 1
         out.writeByte('C'.code.toByte())
         out.writeInt(length)
         out.writeByte(targetType.code.toByte())
-        out.writeCString(name)
+        out.writeCString(nameBytes)
     }
 }
 

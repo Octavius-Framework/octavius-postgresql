@@ -9,6 +9,10 @@
   of from a global. The class name it took before is `noticeHandlerClassName`, there and in the URL, which cannot
   carry an instance.
 
+- A statement encodes its text once instead of twice, and the empty name of the unnamed statement and portal goes
+  out as the zero byte it is instead of being encoded to a new empty array each of the ten times a statement writes
+  it.
+
 #### Fixed
 
 - A transaction that catches the exception of a `Propagation.NESTED` method and carries on raises

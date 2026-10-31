@@ -85,8 +85,10 @@ internal class PgOutputStream(private var outputStream: OutputStream) {
     /**
      * Writes a null-terminated string.
      */
-    fun writeCString(s: String) {
-        val bytes = s.toByteArray(StandardCharsets.UTF_8)
+    fun writeCString(s: String) = writeCString(s.toByteArray(StandardCharsets.UTF_8))
+
+    /** Writes a null-terminated string already encoded, for a message that needed its bytes to count its length. */
+    fun writeCString(bytes: ByteArray) {
         writeBytes(bytes)
         writeByte(0)
     }
