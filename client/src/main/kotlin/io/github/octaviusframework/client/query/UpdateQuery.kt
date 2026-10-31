@@ -3,16 +3,11 @@ package io.github.octaviusframework.client.query
 import io.github.octaviusframework.client.session.SessionProvider
 
 /**
- * An `UPDATE` under construction.
+ * An `UPDATE` under construction. [setValue] and [setValues] assign from `@name` parameters supplied at the
+ * terminal; [setExpression] assigns SQL, which may read the column: `setExpression("quantity", "quantity - 1")`.
  *
- * Columns are declared the same way as in an [InsertQuery]: [setValue] and [setValues] put a `@name`
- * placeholder on the right of the assignment, and the values are supplied at the terminal.
- * [setExpression] puts SQL there instead, which is what an increment needs -
- * `setExpression("quantity", "quantity - 1")` reads the column it is assigning.
- *
- * **A `WHERE` is required.** An `UPDATE` over a whole table is a statement worth having to mean, and this
- * builder is not where you mean it: write it as [OctaviusClient.rawQuery][io.github.octaviusframework.client.OctaviusClient.rawQuery]
- * and it is obvious to whoever reads the diff.
+ * A `WHERE` is required. An `UPDATE` of every row is written with
+ * [rawQuery][io.github.octaviusframework.client.OctaviusClient.rawQuery].
  *
  * ```kotlin
  * db.update("legion_supplies")
@@ -46,10 +41,8 @@ class UpdateQuery @PublishedApi internal constructor(
     fun setValues(columns: List<String>): UpdateQuery = apply { columns.forEach { addAssignment(it, "@$it") } }
 
     /**
-     * Assigns the columns named by a map's keys, each from the parameter of the same name.
-     *
-     * **The values in the map are not read** - only the keys - and the map is passed again at the terminal.
-     * See [InsertQuery.values] for why a query carries no parameters of its own.
+     * Assigns the columns named by [data]'s keys, each from the parameter of the same name. The map's values are
+     * not read, so pass it to the terminal too.
      */
     fun setValues(data: Map<String, Any?>): UpdateQuery = apply { setValues(data.keys.toList()) }
 

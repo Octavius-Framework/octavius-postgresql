@@ -5,13 +5,8 @@ import io.github.octaviusframework.client.dbResult
 import io.github.octaviusframework.driver.row.Row
 
 /**
- * The same query, with every terminal handing back a [DataResult] instead of throwing.
- *
- * Reached by [RunnableQuery.asResult] and equivalent to wrapping the call in
- * [dbResult][io.github.octaviusframework.client.dbResult] - the same boundary, the same classification, the
- * same failures let through. What it changes is only the shape at the call site: a chain stays a chain rather
- * than being indented inside a lambda, which is worth something once a builder has put four calls in front of
- * the terminal.
+ * The same query with every terminal returning a [DataResult] instead of throwing, as if wrapped in
+ * [dbResult][io.github.octaviusframework.client.dbResult]. Reached by [RunnableQuery.asResult].
  *
  * ```kotlin
  * val senators = db.rawQuery("SELECT id, cognomen FROM senate WHERE province_id = @p")
@@ -19,16 +14,15 @@ import io.github.octaviusframework.driver.row.Row
  *     .fetchObjects<Senator>("p" to 7)
  * ```
  *
- * `dbResult { }` is still what to reach for around anything wider than one query - a whole unit of work, a
- * `db.execute { }` block, a `RawQuery.execute()`. Around a **transaction** reach for neither: use
- * [transactionResult][io.github.octaviusframework.client.OctaviusClient.transactionResult], which rolls back on a failure
- * rather than committing over one.
+ * Inside a transaction, return the failure from
+ * [transactionResult][io.github.octaviusframework.client.OctaviusClient.transactionResult], which rolls back on it;
+ * a plain transaction commits over it.
  */
 class ResultQuery @PublishedApi internal constructor(
     @PublishedApi internal val query: RunnableQuery<*>
 ) {
 
-    /** As [RunnableQuery.toSql] - the rendered SQL, for embedding in a larger statement or for a log line. */
+    /** As [RunnableQuery.toSql]. */
     fun toSql(): String = query.toSql()
 
     // --- Rows -------------------------------------------------------------------------------------
@@ -47,11 +41,11 @@ class ResultQuery @PublishedApi internal constructor(
     /** As [RunnableQuery.fetchRow]. */
     fun fetchRow(vararg params: Pair<String, Any?>): DataResult<Row?> = fetchRow(params.toMap())
 
-    /** As [RunnableQuery.fetchRowStrict] - which means a missing row is still thrown, not returned. */
+    /** As [RunnableQuery.fetchRowStrict] - a missing row is still thrown. */
     fun fetchRowStrict(params: Map<String, Any?> = emptyMap()): DataResult<Row> =
         dbResult { query.fetchRowStrict(params) }
 
-    /** As [RunnableQuery.fetchRowStrict] - which means a missing row is still thrown, not returned. */
+    /** As [RunnableQuery.fetchRowStrict] - a missing row is still thrown. */
     fun fetchRowStrict(vararg params: Pair<String, Any?>): DataResult<Row> = fetchRowStrict(params.toMap())
 
     /** As [RunnableQuery.forEachRow]. */
@@ -86,11 +80,11 @@ class ResultQuery @PublishedApi internal constructor(
     inline fun <reified T : Any> fetchObject(vararg params: Pair<String, Any?>): DataResult<T?> =
         fetchObject<T>(params.toMap())
 
-    /** As [RunnableQuery.fetchObjectStrict] - which means a missing row is still thrown, not returned. */
+    /** As [RunnableQuery.fetchObjectStrict] - a missing row is still thrown. */
     inline fun <reified T : Any> fetchObjectStrict(params: Map<String, Any?> = emptyMap()): DataResult<T> =
         dbResult { query.fetchObjectStrict<T>(params) }
 
-    /** As [RunnableQuery.fetchObjectStrict] - which means a missing row is still thrown, not returned. */
+    /** As [RunnableQuery.fetchObjectStrict] - a missing row is still thrown. */
     inline fun <reified T : Any> fetchObjectStrict(vararg params: Pair<String, Any?>): DataResult<T> =
         fetchObjectStrict<T>(params.toMap())
 
@@ -118,11 +112,11 @@ class ResultQuery @PublishedApi internal constructor(
     inline fun <reified T> fetchFields(vararg params: Pair<String, Any?>): DataResult<List<T>> =
         fetchFields<T>(params.toMap())
 
-    /** As [RunnableQuery.fetchField] - a non-nullable [T] over a missing row is still thrown. */
+    /** As [RunnableQuery.fetchField] - a non-nullable [T] still throws for a missing row. */
     inline fun <reified T> fetchField(params: Map<String, Any?> = emptyMap()): DataResult<T> =
         dbResult { query.fetchField<T>(params) }
 
-    /** As [RunnableQuery.fetchField] - a non-nullable [T] over a missing row is still thrown. */
+    /** As [RunnableQuery.fetchField] - a non-nullable [T] still throws for a missing row. */
     inline fun <reified T> fetchField(vararg params: Pair<String, Any?>): DataResult<T> =
         fetchField<T>(params.toMap())
 

@@ -4,23 +4,9 @@ import io.github.octaviusframework.client.query.RunnableQuery
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 
 /**
- * Renders a value as the chain that will produce it.
- *
- * Used by a plan's description, by a failure that has to say which of several `map`s on one parameter threw,
- * and by [TransactionValue.Transformed.toString].
- *
- * A handle is rendered as its position in [stepIndices] wherever that is known, because a handle's own
- * `toString` carries the index it was *created* at - which after [TransactionPlan.addPlan] is no longer where
- * that step sits in the plan being run. Where it is not known the handle speaks for itself, and naming the
- * plan it was created in is exactly what is wanted at that spot.
- *
- * What a literal *is* is deliberately not rendered. The wiring is the part that is invisible in the code that
- * assembled the plan; a bound value is not, and putting one here would put a `bytea` parameter or a column of
- * personal data into whatever the description was written to.
- *
- * @param value The value to render.
- * @param stepIndices Where each handle's step sits in the plan in hand, where there is one.
- * @return The chain, source first.
+ * Renders a value as the chain that will produce it, source first, never with a literal's value. A handle is
+ * rendered by its place in [stepIndices] where given; its own `toString` has the index it was created at, which
+ * after [TransactionPlan.addPlan] may not be where its step sits.
  */
 internal fun describeValue(
     value: TransactionValue<*>,
@@ -42,15 +28,7 @@ private fun describeParameter(value: Any?, stepIndices: Map<StepHandle<*>, Int>)
     else -> "literal"
 }
 
-/**
- * The whole of what a plan will do, as text.
- *
- * A plan is assembled by one layer and run by another, so the code holding it at the moment it fails is
- * usually not the code that decided what went in. This is what that code can print.
- *
- * @param entries The plan's steps, in the order they will run.
- * @return One block per step: its index, its SQL, and where each parameter comes from.
- */
+/** What a plan will do, as text: one block per step with its index, its SQL, and where each parameter comes from. */
 internal fun describePlan(entries: List<TransactionPlan.PlannedStep>): String {
     if (entries.isEmpty()) return "TransactionPlan, no steps"
 
@@ -74,13 +52,7 @@ internal fun describePlan(entries: List<TransactionPlan.PlannedStep>): String {
     }.trimEnd()
 }
 
-/**
- * A step's SQL, or why there is none.
- *
- * A description is reached for when something is already wrong, and a plan holding a query that cannot render
- * is one of the things that can be wrong with it - so this says so in place of that step's SQL rather than
- * throwing, and the other nineteen steps still get described.
- */
+/** A step's SQL, or in its place why it cannot be rendered, so the other steps are still described. */
 private fun renderSql(query: RunnableQuery<*>): String =
     try {
         query.toSql().trim()

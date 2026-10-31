@@ -4,33 +4,12 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 
 /**
- * Checks what can be checked about a plan without running any of it, before a transaction is opened.
+ * Checks a plan before a transaction is opened, so a malformed one fails before any step has done its work: a
+ * query that cannot render, and a handle naming no step ahead of it in this plan. The second can only come from
+ * another plan - its handle, merged in the wrong order or not at all.
  *
- * A plan is assembled by one layer and run by another, so it can arrive malformed in ways the caller never
- * saw. The faults below are properties of the plan itself rather than of the data, which is what makes them
- * worth finding here: run instead, they surface partway through, after the steps before them have already
- * done their work and with a transaction to unwind - and on a plan whose first eighteen steps are slow, after
- * those eighteen.
- *
- * The cost is one extra [RunnableQuery.toSql][io.github.octaviusframework.client.query.RunnableQuery.toSql]
- * per step, since rendering is not cached. Against a transaction's round trips that is nothing, and it buys
- * the whole plan being legible before any of it is committed to.
- *
- * The one that needs explaining is a step depending on a later one. Within the plan that made it, a [StepHandle]
- * always names a step already added - it comes from [TransactionPlan.add] and from nowhere else - so a forward
- * reference has no way to be written there. Across plans it has: a step can hold another plan's handle, and
- * [TransactionPlan.addPlan] appends that plan wherever the merge puts it, which is after the step when the two
- * were merged the wrong way round. Left to run, that is a result not there yet, found partway through.
- *
- * A handle belonging to a plan that was never merged in is caught by the same walk: it names no step here at
- * all.
- *
- * The index it builds to answer both is returned rather than discarded, because resolving a parameter needs
- * the same map to say which step a value was taken from - and a handle's own index is the one it was created
- * at, which after [TransactionPlan.addPlan] is not where its step sits in the plan being run.
- *
- * @param steps The plan's steps, in the order they will run.
- * @return Where each step sits, by handle.
+ * @return Where each step sits, by handle, for naming steps in failures; after [TransactionPlan.addPlan] a
+ * handle's own index is not where its step sits.
  * @throws InvalidOperationException `INVALID_ARGUMENT` where a step's query cannot render, or a step binds a
  * parameter to a handle from another plan or to a step that runs after it.
  */

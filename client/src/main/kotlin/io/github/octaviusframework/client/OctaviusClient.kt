@@ -35,16 +35,11 @@ import javax.sql.DataSource
 import kotlin.time.Duration
 
 /**
- * Hands out queries and sessions, and runs transactions over them. That is all it is.
+ * Hands out queries and sessions, and runs transactions over them.
  *
- * A query taken from here - [rawQuery], [select], [insertInto], [update], [deleteFrom] - is a
- * [RunnableQuery][io.github.octaviusframework.client.query.RunnableQuery], which carries the terminal family
- * and finds its own session when one of them is called. Nothing has to be opened around it, which is what
- * keeps a single query to a single expression.
- *
- * Where the work is not a query - `copy`, `largeObjects`, `notifications`, or several statements that have to
- * share one session - [execute] hands over the driver's own [OctaviusSessionOperations] and gets out of the
- * way. Neither path wraps or renames anything the driver named.
+ * A query from [rawQuery], [select], [insertInto], [update] or [deleteFrom] finds its own session when a terminal
+ * runs, so nothing has to be opened around it. [execute] hands over the driver's [OctaviusSessionOperations] for
+ * work that is not a query - `copy`, `largeObjects`, `notifications`, several statements on one session.
  *
  * ```kotlin
  * val db = OctaviusClient.fromDataSource(hikariDataSource)
@@ -53,106 +48,50 @@ import kotlin.time.Duration
  *     .fetchObjects<Senator>("p" to 7)
  * ```
  *
- * What it buys over calling `dataSource.getOctaviusSession()` by hand is the thing a data layer of any size
- * ends up needing: a repository function can open a scope without knowing whether it is already inside a
- * transaction, and be right either way. A session opened here joins the transaction running on this thread
- * if there is one, so the same function works standalone and as a step in a larger unit of work, without a
- * session in its signature.
+ * Either way the session joins the transaction running on this thread, if there is one, so the same repository
+ * function works standalone and inside a larger transaction.
  *
- * Failures arrive as exceptions, which is what the driver raises and what a `try`/`catch` expects. Where a
- * failure should be a value instead, the result style has a door for each width:
- * [asResult][io.github.octaviusframework.client.query.RunnableQuery.asResult] for one query,
- * [transactionResult] for a transaction, and [dbResult] for anything else.
+ * Failures are thrown. Where one should be a value,
+ * [asResult][io.github.octaviusframework.client.query.RunnableQuery.asResult] covers one query, [transactionResult]
+ * a transaction, and [dbResult] anything else.
  */
 interface OctaviusClient : AutoCloseable {
 
     /**
-     * Runs [block] on a session, and gives that session back when it returns.
-     *
-     * Inside a [transaction] on this thread the session is the transaction's and the work joins it, committing
-     * or rolling back with it. Outside one, the session is borrowed for this call alone and its statements
-     * commit as they go, exactly as auto-commit statements do.
-     *
-     * @param block The work to run against the session.
-     * @return Whatever [block] produced.
+     * Runs [block] on a session: inside a [transaction] on this thread the transaction's, otherwise one borrowed
+     * for this call, whose statements commit as they go.
      */
     fun <T> execute(block: OctaviusSessionOperations.() -> T): T
 
-    /**
-     * The `dynamic_dto` types this client knows: where they are registered, and where a value is wrapped for
-     * writing.
-     *
-     * Untouched until something registers a type, so an application that does not use them pays nothing and
-     * the database is never asked for a type it does not have.
-     */
+    /** The `dynamic_dto` types this client knows. Nothing reaches the database until a type is registered. */
     val dynamicTypes: DynamicTypes
 
-    /**
-     * Prepares SQL written by hand, with `@name` parameters.
-     *
-     * Nothing is sent until one of the query's terminal methods is called, and calling two of them runs it
-     * twice.
-     *
-     * @param sql The query, with parameters written as `@name`.
-     * @return The query, ready to be run.
-     */
+    /** SQL written by hand, with `@name` parameters. Every terminal call runs it, so calling two runs it twice. */
     fun rawQuery(sql: String): RawQuery
 
-    /**
-     * Starts building a `SELECT` over the given columns.
-     *
-     * Each column is SQL and is passed through: `"id"`, `"count(*) AS total"`, `"p.name AS province_name"`.
-     *
-     * @param columns What to select. At least one.
-     * @return The builder.
-     */
+    /** Starts a `SELECT` of [columns], each passed through as SQL: `"id"`, `"count(*) AS total"`. */
     fun select(vararg columns: String): SelectQuery
 
-    /**
-     * Starts building an `INSERT` into the given table.
-     *
-     * @param table The table to insert into.
-     * @return The builder.
-     */
+    /** Starts an `INSERT` into [table]. */
     fun insertInto(table: String): InsertQuery
 
-    /**
-     * Starts building an `UPDATE` of the given table. A `WHERE` is required before it will render.
-     *
-     * @param table The table to update.
-     * @return The builder.
-     */
+    /** Starts an `UPDATE` of [table], which renders only with a `WHERE`. */
     fun update(table: String): UpdateQuery
 
-    /**
-     * Starts building a `DELETE` from the given table. A `WHERE` is required before it will render.
-     *
-     * @param table The table to delete from.
-     * @return The builder.
-     */
+    /** Starts a `DELETE` from [table], which renders only with a `WHERE`. */
     fun deleteFrom(table: String): DeleteQuery
 
     /**
-     * Runs [block] inside a transaction, committing when it returns and rolling back when it throws.
+     * Runs [block] in a transaction, committing when it returns and rolling back when it throws. The receiver
+     * offers no commit or rollback of its own.
      *
-     * Every [execute] made from this thread while [block] runs lands on the transaction's session, so a
-     * repository function called from in here joins the transaction without being told about it. That binding
-     * is per-thread and does not follow work handed to another one: a coroutine launched on a different
-     * dispatcher inside [block] gets a session and a transaction of its own, and the commit here says nothing
-     * about it.
+     * Every query and [execute] from this thread while [block] runs lands on the transaction's session. Work
+     * handed to another thread does not: a coroutine on another dispatcher gets a session and a transaction of
+     * its own.
      *
-     * The receiver is this client, so queries inside read exactly as they do outside. What it does not offer
-     * is a way to commit or roll back: the surrounding block is what decides, and a session reached through
-     * [execute] is an [OctaviusSessionOperations] rather than the full session for the same reason.
-     *
-     * @param propagation What to do about a transaction already running on this thread.
-     * @param isolation The isolation level to run at, or `null` for the server's. Ignored when joining a
-     * transaction that is already running, which cannot change the level it began at.
-     * @param readOnly Whether the transaction refuses writes. Ignored on the same terms as [isolation].
+     * @param isolation `null` for the server's. Ignored when joining a running transaction, as is [readOnly].
      * @param statementTimeout Aborts any single statement running longer than this.
      * @param transactionTimeout Aborts the transaction once it has been open longer than this.
-     * @param block The work to run in the transaction.
-     * @return Whatever [block] produced.
      */
     fun <T> transaction(
         propagation: TransactionPropagation = TransactionPropagation.REQUIRED,
@@ -164,14 +103,8 @@ interface OctaviusClient : AutoCloseable {
     ): T
 
     /**
-     * Runs [block] in a transaction that understands a returned failure, and hands back what it produced.
-     *
-     * This is [transaction] for the result style, and it exists because the two do not compose by themselves.
-     * A plain transaction rolls back on a throw and on nothing else, so a `dbResult` inside one turns the
-     * failure into a value, the block finishes normally, and the transaction **goes on to commit** - the same
-     * trap `runCatching` sets in the same place. Over a failure the block made itself that commit goes through;
-     * over one the server raised the driver refuses it, and the failure arrives as that refusal, at the end of
-     * the block. Here a returned [DataResult.Failure] rolls back, and comes out as the value it already was.
+     * [transaction] for the result style. A plain [transaction] rolls back only on a throw, so a failure turned
+     * into a value inside it is committed over; here a returned [DataResult.Failure] rolls back.
      *
      * ```kotlin
      * val created = db.transactionResult {
@@ -185,25 +118,12 @@ interface OctaviusClient : AutoCloseable {
      * }
      * ```
      *
-     * Three ways out, and they are not the same:
+     * - [DataResult.Success] commits and is returned.
+     * - [DataResult.Failure] rolls back and is returned.
+     * - A throw rolls back. What [dbResult] would return comes back as a [DataResult.Failure]; the rest - an
+     *   exception from your own code, a caller bug - keeps going up.
      *
-     * - [DataResult.Success]. The transaction commits and that result is returned.
-     * - [DataResult.Failure]. The transaction **rolls back** and that same failure is returned. A failure that
-     *   reached the return value is one the block chose not to handle, so it takes the transaction with it.
-     * - A throw. The transaction rolls back. A database failure the boundary counts as recoverable comes back
-     *   as a [DataResult.Failure]; anything else - an exception from your own code, a bug the boundary counts
-     *   as fatal - keeps going up. A `NullPointerException` in the block is a bug in the block, and turning it
-     *   into a value would only hide it.
-     *
-     * Everything else is [transaction]'s: the receiver, the propagation, the per-thread binding.
-     *
-     * @param propagation What to do about a transaction already running on this thread.
-     * @param isolation The isolation level to run at, or `null` for the server's.
-     * @param readOnly Whether the transaction refuses writes.
-     * @param statementTimeout Aborts any single statement running longer than this.
-     * @param transactionTimeout Aborts the transaction once it has been open longer than this.
-     * @param block The work to run in the transaction.
-     * @return What the block produced, or the failure that rolled it back.
+     * Everything else is as on [transaction].
      */
     fun <T> transactionResult(
         propagation: TransactionPropagation = TransactionPropagation.REQUIRED,
@@ -216,51 +136,33 @@ interface OctaviusClient : AutoCloseable {
         transaction(propagation, isolation, readOnly, statementTimeout, transactionTimeout) {
             when (val result = block()) {
                 is DataResult.Success -> result
-                // The transaction commits on a normal return, so a failure has to leave as an exception or it
-                // would be committed alongside the work it was meant to undo. Caught below and handed back as
-                // the value it already was.
+                // Thrown so the transaction rolls back; caught below and handed back as it was.
                 is DataResult.Failure -> throw RollbackSignal(result)
             }
         }
     } catch (signal: RollbackSignal) {
         signal.failure
     } catch (e: OctaviusException) {
-        // Raised by the transaction itself rather than returned by the block: a commit that failed, a session
-        // that could not be obtained, or a terminal the block let throw.
+        // A commit that failed, a session that could not be obtained, or a terminal the block let throw.
         if (isCallerBug(e)) throw e else DataResult.Failure(e)
     }
 
     /**
-     * Runs every step of [plan] in one transaction, in the order they were added, and returns what each produced.
+     * Runs every step of [plan] in one transaction, in order, and returns what each produced. A step's
+     * [TransactionValue][io.github.octaviusframework.client.transaction.TransactionValue]s are resolved just
+     * before it runs.
      *
-     * A step's parameters are resolved just before it runs, so a
-     * [TransactionValue][io.github.octaviusframework.client.transaction.TransactionValue] pointing at an
-     * earlier step gets the value that step actually produced. Anything else in the map is passed through.
+     * Whatever a step raises is the driver's own exception with `step N` on its
+     * [path][io.github.octaviusframework.driver.exception.OctaviusException.path], `N` being the step's place in
+     * this plan; [describe][io.github.octaviusframework.client.transaction.TransactionPlan.describe] shows which
+     * step that is. A step can only throw, so `dbResult { db.executeTransactionPlan(plan) }` is the result style
+     * here.
      *
-     * There is no `…Result` variant of this the way [transactionResult] is one of [transaction], and the
-     * asymmetry has a reason: a block can *return* a failure, which is what a plain transaction would commit
-     * over, while a plan's steps can only throw. So `dbResult { db.executeTransactionPlan(plan) }` is both
-     * sufficient and correct.
+     * The other parameters are as on [transaction].
      *
-     * **Everything a step raises names that step** on its
-     * [path][io.github.octaviusframework.driver.exception.OctaviusException.path] - resolving its parameters,
-     * running its statement, mapping its result alike - and is otherwise the exception the driver threw, so
-     * what is caught on and retried is unchanged. The number is where the step sits in the plan being run,
-     * which after [TransactionPlan.addPlan][io.github.octaviusframework.client.transaction.TransactionPlan.addPlan]
-     * is not the index its handle was created at;
-     * [describe][io.github.octaviusframework.client.transaction.TransactionPlan.describe] is what turns it
-     * back into a step.
-     *
-     * @param plan The steps to run.
-     * @param propagation What to do about a transaction already running on this thread.
-     * @param isolation The isolation level to run at, or `null` for the server's.
-     * @param readOnly Whether the transaction refuses writes.
-     * @param statementTimeout Aborts any single statement running longer than this.
-     * @param transactionTimeout Aborts the transaction once it has been open longer than this.
-     * @return Every step's result, by handle.
-     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException `INVALID_ARGUMENT` where
-     * a step's query cannot be rendered or a step binds a handle whose step is not ahead of it in this plan,
-     * both found before any step runs.
+     * @throws io.github.octaviusframework.driver.exception.InvalidOperationException `INVALID_ARGUMENT`, before
+     * any step runs, where a step's query cannot be rendered or a step binds a handle whose step is not ahead of
+     * it in this plan.
      */
     fun executeTransactionPlan(
         plan: TransactionPlan,
@@ -274,10 +176,8 @@ interface OctaviusClient : AutoCloseable {
         // Nothing to run is not a transaction worth opening
         if (steps.isEmpty()) return TransactionPlanResult(emptyMap(), 0)
 
-        // Before the transaction rather than inside it, so a plan that was malformed when it arrived is
-        // refused without any of it having run.
-        // The index it builds is kept: a failure while resolving a parameter names the step it came from,
-        // and after addPlan a handle's own index is not where its step sits here.
+        // Before the transaction, so a malformed plan runs none of it. The index names steps in failures:
+        // after addPlan a handle's own index is not where its step sits here.
         val stepIndices = validatePlan(steps)
 
         return transaction(propagation, isolation, readOnly, statementTimeout, transactionTimeout) {
@@ -302,22 +202,14 @@ interface OctaviusClient : AutoCloseable {
     companion object {
 
         /**
-         * Builds a client over [dataSource], running its own transactions on the calling thread.
+         * A client over [dataSource] that runs its own transactions, bound to the calling thread. Where a
+         * framework owns transactions, use [fromSessionProvider] with a provider that finds its session, or each
+         * will open one.
          *
-         * This is the standalone case: a connection pool, and nothing else deciding when transactions begin
-         * and end. Where a framework owns transactions itself, give it a [SessionProvider] that finds the
-         * session where that framework put it, through [fromSessionProvider], or the two will each open one.
-         *
-         * @param dataSource Where connections come from.
-         * @param ownsDataSource Whether [close] should close [dataSource] as well. Leave it `false` for a pool
-         * the application built and shuts down itself.
-         * @param dynamicJson How `dynamic_dto` payloads are read and written. Only consulted where dynamic
-         * types are registered at all. The default is
-         * [octaviusJson][io.github.octaviusframework.serializer.octaviusJson]: strict, and carrying the
-         * contextual serializers a `BigDecimal` or an unbounded date needs to survive JSON.
+         * @param ownsDataSource Whether [close] closes [dataSource] too.
+         * @param dynamicJson How `dynamic_dto` payloads are read and written, as [DynamicTypes.json].
          * @param dynamicWriteStrategy When an unwrapped instance of a registered class is written as a
          * `dynamic_dto`.
-         * @return A client ready to use.
          */
         fun fromDataSource(
             dataSource: DataSource,
@@ -338,21 +230,12 @@ interface OctaviusClient : AutoCloseable {
         }
 
         /**
-         * Builds a client over a [SessionProvider] of your own.
+         * A client over a [SessionProvider] of your own: a framework's transaction manager, or a test harness
+         * that pins every query to one connection.
          *
-         * The seam for anything that decides which session an operation belongs on other than a `ThreadLocal`:
-         * a framework's transaction manager, or a test harness that pins every query to one connection and
-         * rolls it back at the end.
-         *
-         * @param provider Decides which session each operation runs on.
-         * @param ownsProvider Whether [close] should close [provider] as well.
-         * @param dynamicJson How `dynamic_dto` payloads are read and written. Only consulted where dynamic
-         * types are registered at all. The default is
-         * [octaviusJson][io.github.octaviusframework.serializer.octaviusJson]: strict, and carrying the
-         * contextual serializers a `BigDecimal` or an unbounded date needs to survive JSON.
-         * @param dynamicWriteStrategy When an unwrapped instance of a registered class is written as a
-         * `dynamic_dto`.
-         * @return A client ready to use.
+         * @param ownsProvider Whether [close] closes [provider] too.
+         * @param dynamicJson As on [fromDataSource].
+         * @param dynamicWriteStrategy As on [fromDataSource].
          */
         fun fromSessionProvider(
             provider: SessionProvider,

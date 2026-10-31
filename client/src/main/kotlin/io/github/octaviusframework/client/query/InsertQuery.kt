@@ -16,10 +16,8 @@ enum class OverridingValue {
 }
 
 /**
- * The `ON CONFLICT` clause of an [InsertQuery], configured inside [InsertQuery.onConflict].
- *
- * A target is optional - PostgreSQL infers one for `DO NOTHING` - but an action is not, since a clause that
- * says what to conflict on and nothing about what to do is not a clause.
+ * The `ON CONFLICT` clause of an [InsertQuery], configured inside [InsertQuery.onConflict]. The target is
+ * optional; an action is required.
  */
 class OnConflictClause @PublishedApi internal constructor() {
 
@@ -27,10 +25,8 @@ class OnConflictClause @PublishedApi internal constructor() {
     private var action: String? = null
 
     /**
-     * Conflicts on a unique index over these columns.
-     *
-     * @param columns The index's columns or expressions.
-     * @param where The index predicate, rendered as `WHERE` after the columns. `null` or blank leaves it out.
+     * Conflicts on a unique index over [columns], which may be expressions. [where] is the index predicate;
+     * `null` or blank leaves it out.
      */
     fun onColumns(vararg columns: String, where: String? = null) {
         requireBuildable(columns.isNotEmpty()) { "ON CONFLICT on columns needs at least one column." }
@@ -52,15 +48,9 @@ class OnConflictClause @PublishedApi internal constructor() {
     }
 
     /**
-     * Updates the existing row.
-     *
-     * The assignment is SQL, so the values on the right come from `excluded` - PostgreSQL's name for the row
-     * that could not be inserted - or from the target table, or from anywhere else an expression may look:
-     * `doUpdate("cognomen = excluded.cognomen, updated_at = now()")`.
-     *
-     * @param setExpression The `SET` body, written out.
-     * @param whereCondition An optional condition on the update, which is how a conflict resolves to "update
-     * only where it is worth updating".
+     * Updates the existing row. [setExpression] is the `SET` body as SQL, in which `excluded` is the row that
+     * could not be inserted: `doUpdate("cognomen = excluded.cognomen, updated_at = now()")`. [whereCondition]
+     * limits which conflicting rows are updated.
      */
     fun doUpdate(setExpression: String, whereCondition: String? = null) {
         requireBuildable(setExpression.isNotBlank()) { "ON CONFLICT DO UPDATE needs something to set." }
@@ -101,13 +91,9 @@ class OnConflictClause @PublishedApi internal constructor() {
 }
 
 /**
- * An `INSERT` under construction.
- *
- * Its one real job is the pair of lists that have to match: the columns, and the values in the same order.
- * Declaring a column with [value] or [values] puts a `@name` placeholder in the second list for it, so the two
- * cannot drift, and the values themselves are supplied at the terminal like every other parameter. Where a
- * value is not a parameter but an expression - `now()`, `DEFAULT`, a subselect - [valueExpression] puts that
- * there instead.
+ * An `INSERT` under construction. [value] and [values] declare a column together with its `@name` placeholder in
+ * `VALUES`, so the two lists cannot drift; [valueExpression] puts SQL there instead - `now()`, `DEFAULT`, a
+ * subselect. The values are supplied at the terminal.
  *
  * ```kotlin
  * val id = db.insertInto("citizens")
@@ -147,12 +133,8 @@ class InsertQuery @PublishedApi internal constructor(
     fun values(columns: List<String>): InsertQuery = apply { columns.forEach { addAssignment(it, "@$it") } }
 
     /**
-     * Declares columns from a map's keys, each taking its value from the parameter of the same name.
-     *
-     * **The values in the map are not read.** Only the keys are, and the map is passed again at the terminal
-     * to supply the values - which is what keeps a query free of the parameters it names, so its
-     * [toSql] can be embedded in a larger statement. Passing the same map twice is the design:
-     * `insertInto("t").values(row).executeUpdate(row)`.
+     * Declares columns from [data]'s keys, each taking its value from the parameter of the same name. The map's
+     * values are not read, so pass it to the terminal too: `insertInto("t").values(row).executeUpdate(row)`.
      */
     fun values(data: Map<String, Any?>): InsertQuery = apply { values(data.keys.toList()) }
 
@@ -164,18 +146,10 @@ class InsertQuery @PublishedApi internal constructor(
         expressions.forEach { (column, expression) -> addAssignment(column, expression) }
     }
 
-    /**
-     * Names the target columns for an `INSERT … SELECT`, where there are no values to declare.
-     *
-     * Only for use with [fromSelect]; the `VALUES` forms declare their columns themselves.
-     */
+    /** The target columns of an `INSERT … SELECT`, for [fromSelect]; the `VALUES` form declares its own. */
     fun columns(vararg columns: String): InsertQuery = apply { targetColumns.addAll(columns) }
 
-    /**
-     * Inserts the rows a `SELECT` produces instead of a `VALUES` list.
-     *
-     * @param query The `SELECT`, written out. [RunnableQuery.toSql] of another builder fits here.
-     */
+    /** Inserts the rows [query] produces instead of a `VALUES` list. Another builder's [toSql] fits. */
     fun fromSelect(query: String): InsertQuery = apply {
         requireBuildable(assignments.isEmpty()) {
             "An INSERT takes its rows from VALUES or from a SELECT, not from both."

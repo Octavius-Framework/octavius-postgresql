@@ -17,12 +17,9 @@ import kotlinx.serialization.json.Json
 import kotlin.time.Duration
 
 /**
- * The only implementation of [OctaviusClient]. Everything it does, it does through its [SessionProvider].
+ * The only implementation of [OctaviusClient], doing everything through its [SessionProvider].
  *
- * @param provider Decides which session each operation runs on.
- * @param onClose What [close] should release, or `null` where the client owns nothing.
- * @param dynamicJson How `dynamic_dto` payloads are read and written.
- * @param dynamicWriteStrategy When an unwrapped instance of a registered class is written as a `dynamic_dto`.
+ * @param onClose What [close] releases, or `null` where the client owns nothing.
  */
 internal class OctaviusClientImpl(
     private val provider: SessionProvider,
@@ -62,8 +59,7 @@ internal class OctaviusClientImpl(
             transactionTimeout = transactionTimeout
         )
 
-        // The block gets this client, not a session: a query inside it finds the bound session through the
-        // provider when its terminal runs, exactly as one outside a transaction finds a borrowed one.
+        // The block gets this client; its queries find the bound session through the provider.
         return provider.transaction(definition) { block() }
     }
 

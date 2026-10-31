@@ -17,19 +17,11 @@ import kotlinx.serialization.modules.overwriteWith
 import kotlin.reflect.KClass
 
 /**
- * Writes a registered enum into JSON under the label PostgreSQL holds, and reads it back.
+ * Writes a registered enum into JSON under its PostgreSQL label, as the driver writes it in an enum column, and
+ * reads it back. Built from the registration, so an enum named at `registerEnum` and one found by `@PgEnumType`
+ * are covered alike.
  *
- * The driver's enum converters answer for an enum **column**; nothing about them reaches a value that travels
- * as JSON instead, where kotlinx.serialization writes the Kotlin constant's own name. That leaves one value
- * spelled two ways depending on where it is stored, and a query filtering on `payload ->> 'office'` matching
- * neither reliably.
- *
- * It is built from the registration and not from an annotation, so the enum named at `registerEnum` and the
- * one a classpath scan found by `@PgEnumType` are covered alike: both arrive in the driver's registry the
- * same way, carrying the conventions they were registered under.
- *
- * @property enumClass The Kotlin enum this serializes.
- * @param registration What it was registered as, which is where the two conventions come from.
+ * @param registration Where the two naming conventions come from.
  */
 internal class PgEnumSerializer(
     private val enumClass: KClass<*>,
@@ -71,21 +63,13 @@ internal class PgEnumSerializer(
 }
 
 /**
- * The registered enums' serializers, as a module and as a [Json] with that module folded in, both rebuilt
- * only when the set of registrations changes.
+ * The registered enums' serializers, as a module and as a [Json] with it folded in, resolved per conversion and
+ * rebuilt only when the registrations change. The driver replaces [TypeCatalog.registeredEnums] whole on every
+ * registration, so its identity is the version and checking it is a reference comparison.
  *
- * They cannot be composed once and kept: a client is built before anything is registered on it, and the enums
- * arrive afterwards - named one by one, or all at once by a classpath scan. So the base is kept as it was
- * given and the derived pair is resolved per conversion. That costs a volatile read and a reference
- * comparison, because the driver replaces the catalog holding [TypeCatalog.registeredEnums] wholesale on each
- * registration:
- * the map's identity *is* the version, and a reader that sees the map it saw last time gets back what it
- * built last time.
+ * A serializer [base] already has for an enum wins over the generated one.
  *
- * The base's own registrations win over the generated ones, so an application that wrote a serializer for one
- * of its enums keeps it and the rest are filled in.
- *
- * @property base The [Json] to fold them into, which is what is handed back where no enum is registered.
+ * @property base The [Json] to fold them into, handed back as it is where no enum is registered.
  */
 internal class EnumAwareJson(private val base: Json) {
 

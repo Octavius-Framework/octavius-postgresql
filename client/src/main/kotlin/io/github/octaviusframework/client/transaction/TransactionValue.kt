@@ -1,95 +1,60 @@
 package io.github.octaviusframework.client.transaction
 
 /**
- * A parameter value in a [TransactionPlan] step, which may not exist yet.
- *
- * A plan is assembled before any of it runs, so a step that needs the id of a row a previous step will insert
- * cannot be handed that id - there is none. It is handed one of these instead, and the executor replaces it
- * with the real value at the moment the step runs.
- *
- * Anything that is not one of these is passed through untouched, so an ordinary parameter map needs no
- * wrapping: only the values that depend on an earlier step do.
+ * A parameter of a [TransactionPlan] step whose value may not exist until an earlier step runs - the id an
+ * earlier insert generates. It is resolved when the step runs; anything else in a parameter map is passed
+ * through as it is.
  *
  * @param T The type the value will have once resolved.
  */
 sealed class TransactionValue<out T> {
 
-    /** A value that was known all along. Rarely written by hand; [toTransactionValue] is shorter. */
+    /** A value known all along. [toTransactionValue] is shorter. */
     data class Value<out T>(val value: T) : TransactionValue<T>()
 
     /**
-     * An earlier step's result, whole and as its terminal produced it.
-     *
-     * [T] is the terminal's own type: `fetchRowStrict` gives a `Row`, `fetchRows` a `List<Row>`,
-     * `fetchObjectStrict<Senator>` a `Senator`. Taking a column, an element or a property out of one is [map]
-     * over that type; what a step can bind is on [StepHandle.value].
+     * An earlier step's result, as its terminal produced it: a `Row` after `fetchRowStrict`, a `Senator` after
+     * `fetchObjectStrict<Senator>`. [map] takes a part of it.
      */
     data class FromStep<out T>(val handle: StepHandle<T>) : TransactionValue<T>()
 
-    /**
-     * Another value with a function applied to it, run when that value is resolved.
-     *
-     * @param source Where the input comes from.
-     * @param transform What to do to it.
-     */
+    /** [source] with [transform] applied once it resolves. */
     class Transformed<IN, out OUT>(
         val source: TransactionValue<IN>,
         val transform: (IN) -> OUT
     ) : TransactionValue<OUT>() {
 
-        /**
-         * Which application of [map] this is, counting from the one nearest the source.
-         *
-         * A chain is written left to right and applied in that order, so `#1` is the first `map` written and
-         * the number is the whole of what tells two of them on one parameter apart when one throws. A lambda
-         * has no name to report, and the parameter's name is shared by every `map` on it.
-         */
+        /** Which [map] of the chain this is, `#1` being the one nearest the source, for naming it in a failure. */
         internal val position: Int = if (source is Transformed<*, *>) source.position + 1 else 1
 
         /**
-         * The chain that will produce this value, as far as a value holding no plan can say.
-         *
-         * The step is named by the index its handle was *created* at, which after
-         * [TransactionPlan.addPlan] is not where that step sits in the merged plan.
-         * [TransactionPlan.describe] has the plan in hand and says where the step really is.
+         * The chain that will produce this value. The step is named by the index its handle was created at,
+         * which after [TransactionPlan.addPlan] may not be where it sits; [TransactionPlan.describe] says where.
          */
         override fun toString(): String = describeValue(this)
     }
 }
 
 /**
- * Applies [transformation] to this value once it resolves.
- *
- * The step that uses the result gets what the function returned, so a row can become the one column of it the
- * next step needs and a list can become its size, without a step added to compute it. The function's parameter
- * has the type the producing step's terminal declared:
+ * Applies [transformation] to this value once it resolves, so a row becomes the column the next step needs
+ * without a step of its own:
  *
  * ```kotlin
  * "edict_id" to edict.value().map { it.get<Int>("id") }
  * ```
  *
- * Anything the function throws arrives as a
+ * What the function throws arrives as a
  * [MappingException][io.github.octaviusframework.driver.exception.MappingException] naming the step, the
- * parameter and which `map` of the chain it was, with what was thrown as its cause. An
- * [OctaviusException][io.github.octaviusframework.driver.exception.OctaviusException] is passed through as it
- * was thrown - restating one would cost the type the caller catches on - and picks up the same three on its
- * [path][io.github.octaviusframework.driver.exception.OctaviusException.path] instead, which is the
- * breadcrumb every layer leaves and the only thing that can be added to an exception without replacing it.
- *
- * @param transformation What to do to the resolved value.
- * @return The transformed value, still unresolved.
+ * parameter and which `map` of the chain it was, with the original as its cause. An
+ * [OctaviusException][io.github.octaviusframework.driver.exception.OctaviusException] is rethrown as it was,
+ * with the same three on its [path][io.github.octaviusframework.driver.exception.OctaviusException.path].
  */
 fun <IN, OUT> TransactionValue<IN>.map(transformation: (IN) -> OUT): TransactionValue<OUT> =
     TransactionValue.Transformed(this, transformation)
 
 /**
- * Wraps a value that is already known, so that it has the type an earlier step's result has.
- *
- * That is the whole of what it is for: a function, or a variable, that takes either one. Typed as a
- * `TransactionValue<Int>` rather than an `Any?`, a helper adding steps for an edict takes the id an insert in
- * the same plan will generate and the id of an edict that is already there alike, and binds whichever it got.
- * A parameter map needs nothing of the kind - anything that is not a [TransactionValue] is passed through as
- * it is.
+ * Wraps a known value as a [TransactionValue], for a function that takes either a value already there or one an
+ * earlier step will produce. A parameter map needs no wrapping.
  *
  * ```kotlin
  * fun addSeal(plan: TransactionPlan, edictId: TransactionValue<Int>, sealedBy: String) {
@@ -102,29 +67,15 @@ fun <IN, OUT> TransactionValue<IN>.map(transformation: (IN) -> OUT): Transaction
  * addSeal(plan, newEdict.value(), "Augustus")                // generated by an insert earlier in the plan
  * addSeal(plan, existingId.toTransactionValue(), "Tiberius") // already there
  * ```
- *
- * @return The value, as a [TransactionValue] with nothing left to resolve.
  */
 fun <T> T.toTransactionValue(): TransactionValue.Value<T> = TransactionValue.Value(this)
 
-/**
- * A value marked by [spread], filling a parameter slot with a whole map's worth of parameters.
- *
- * Not a [TransactionValue]: a step's parameters take one of these anywhere a value goes, and nothing takes one
- * back, so `spread()` is the last call in a chain and [map] cannot follow it.
- */
+/** A value marked by [spread]. Not a [TransactionValue], so [map] cannot follow `spread()`. */
 class SpreadParameters internal constructor(internal val source: TransactionValue<*>)
 
 /**
- * Marks this map to be **spread** into parameters of its own rather than assigned to one.
- *
- * Its entries become parameters under their own keys, and the name it was filed under is dropped: that name is
- * a placeholder, there because a map of parameters needs a key, and nothing binds it. A whole row goes into
- * the next step this way without naming a parameter per column.
- *
- * The map comes from a `fetchObject*` terminal, which treats a row as a record like any other. That is where
- * the columns' type is chosen: `Map<String, Any?>` asks the result converters what each column is, and
- * anything narrower asks them for that instead.
+ * Spreads this map into parameters under its own keys. The name it was filed under is only a placeholder and is
+ * not bound.
  *
  * ```kotlin
  * val original = plan.add(
@@ -138,38 +89,24 @@ class SpreadParameters internal constructor(internal val source: TransactionValu
  * )
  * ```
  *
- * `@title`, `@tribute` and `@province` are bound; `@anything` is not. To drop or overwrite an entry, [map]
- * before the spread: `map { it - "id" + ("archived_at" to now) }`.
- *
- * A map that might not be there is not one of these: `fetchObject` returns `Map<String, Any?>?` and does not
- * spread, so what an absent row contributes is said in a [map] first - `map { it ?: emptyMap() }`.
- *
- * @return The value, marked for spreading.
+ * `@title`, `@tribute` and `@province` are bound; `@anything` is not. To drop or overwrite an entry, [map] before
+ * the spread: `map { it - "id" + ("archived_at" to now) }`. A nullable map, from `fetchObject`, has to be made non-null
+ * first: `map { it ?: emptyMap() }`.
  */
 fun TransactionValue<Map<String, Any?>>.spread(): SpreadParameters = SpreadParameters(this)
 
 /**
- * Names a step in a [TransactionPlan], so that later steps can refer to what it will produce.
+ * Names a step of a [TransactionPlan], so that later steps can refer to what it will produce. Returned by
+ * [TransactionPlan.add] and compared by identity alone.
  *
- * Handed out by [TransactionPlan.add] and useful only inside the plan it came from. Identity is the whole of
- * it: two handles are the same handle or they are not, and nothing else about one is inspectable.
- *
- * @param T What the step this names will produce.
+ * @param T What the step will produce.
  */
 class StepHandle<out T> internal constructor(private val position: Int) {
 
     /**
-     * The step's result, whole and as its terminal produced it - the one thing a handle reaches.
-     *
-     * After `fetchFieldStrict<Int>` this is the `Int`, after `fetchObjectStrict<Senator>` the `Senator`,
-     * after `fetchRows` the `List<Row>`. Taking a column, an element or a property out of one is [map] over
-     * that type.
-     *
-     * Whether the step that uses the value can **bind** it is a separate question, answered by what the driver
-     * can send. A scalar goes, and a list of scalars goes as an array; a `Row`, a `List<Row>`, a `Map` or a
-     * class the type registry has never heard of does not, and is refused where the parameter is encoded,
-     * naming the class. [map] takes the part that can be sent, and [spread] turns a map into parameters of its
-     * own.
+     * The step's result, as its terminal produced it. A scalar or a list of scalars can be bound as a parameter;
+     * a `Row`, a `Map` or a class the type registry does not know cannot, and is refused where the parameter is
+     * encoded. [map] takes the part that can be sent, and [spread] turns a map into parameters.
      */
     fun value(): TransactionValue<T> = TransactionValue.FromStep(this)
 
