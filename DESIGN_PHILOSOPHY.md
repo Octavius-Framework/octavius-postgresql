@@ -295,11 +295,10 @@ decide that question differently.
 Failures throw. `DataResult<T>` exists, is a sealed `Success`/`Failure`, and is opt-in — `asResult()` on a
 builder, or a `dbResult { }` block around a stretch of code.
 
-The previous generation had this the other way round: every operation returned a `DataResult`. The case for
-that is real — the signature is honest, and failure is handled at the call site rather than somewhere up the
-stack. What it costs is that *every* call is a failure to handle, including the ninety percent that are inside
-a transaction block which is going to roll back anyway. Threading a result type through code whose only
-sensible response is to abort adds ceremony at every step and does not make anything safer.
+The previous generation had this the other way round: every operation returned a `DataResult`. The case for that
+is real: the signature is honest, and failure is handled at the call site. What it costs is that *every* call is a
+failure to handle, including those inside a transaction block that is going to roll back anyway, where the only
+sensible response is to abort. That is ceremony at every step, and it makes nothing safer.
 
 Throwing by default puts the ceremony where the decision is. An exception you actually intend to handle — a
 `ConstraintViolationException` on a duplicate insert, a `ConcurrencyException` worth retrying — is caught where
@@ -307,10 +306,21 @@ you handle it, and everything else propagates to the boundary that logs it. Wher
 say so, and the same boundary applies either way.
 
 What makes this work is that the exceptions are worth catching. They descend from one `OctaviusException`, the
-class says what kind of failure it is and a `reason` enum says which one, `path` says where in a nested
-structure it happened, and the query context travels with it — so `catch (e: ConstraintViolationException)`
-is a precise thing to write and the message is worth reading when nothing catches it. See
-[Exceptions](docs/driver/exceptions.md).
+class says what kind of failure it is and, where there are several, a `reason` enum says which one, `path` says
+where in a nested structure it happened, and the query context travels with it — so
+`catch (e: ConstraintViolationException)` is a precise thing to write and the message is worth reading when nothing
+catches it. See [Exceptions](docs/driver/exceptions.md).
+
+A failure of the driver's leaves Spring the same way: `OctaviusTemplate` and `OctaviusJdbcTransactionManager` raise
+it as it is, with no `DataAccessException` around it. A single wrapper descending from `DataAccessException` would
+bring none of Spring's taxonomy, being neither a `DuplicateKeyException` nor anything `Transient`, and every handler
+would have to unwrap it. Mapping each failure onto the taxonomy would work, and buy nothing here: that hierarchy
+keeps code independent of the data access technology, and `JdbcTemplate`, Spring Data and Hibernate do not run on
+this driver. It would add a second way of catching one failure, the driver's class inside an `execute` block and
+Spring's outside it, and some forty classes still put a `NOT NULL` and a `CHECK` in one
+`DataIntegrityViolationException`. The `reason`, the `path` and the query context would stay only in the cause, one
+`findOctaviusCause()` away, with little more than a message string on the Spring class itself. See
+[Spring integration](docs/driver/spring-integration.md#exceptions).
 
 ## Why `@name` and not `:name`
 
