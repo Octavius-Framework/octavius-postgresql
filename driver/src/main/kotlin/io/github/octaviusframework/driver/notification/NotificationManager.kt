@@ -15,10 +15,8 @@ import kotlin.concurrent.withLock
 private val logger = KotlinLogging.logger {}
 
 /**
- * Manages asynchronous notifications (`LISTEN` / `NOTIFY`) for a specific database session.
- *
- * This manager provides methods to subscribe to and unsubscribe from PostgreSQL notification channels,
- * emit new notifications, and start listener loops to receive incoming messages via a Flow.
+ * `LISTEN` and `NOTIFY` on this session. Notifications arrive on [messages] while the connection is read: during
+ * any query, or in a listener loop.
  */
 class NotificationManager internal constructor(private val session: OctaviusSessionImpl) {
 
@@ -27,21 +25,17 @@ class NotificationManager internal constructor(private val session: OctaviusSess
     /** Ties a log line to the backend this manager listens on. */
     private val pid: String get() = "[PID: ${connection.stream.processId}]"
 
-    /**
-     * A [SharedFlow] of asynchronous notifications (LISTEN/NOTIFY) received from the database.
-     */
+    /** The notifications received on this connection. */
     val messages: SharedFlow<PgNotification>
         get() = connection.stream.notifications
 
     /**
-     * Starts a listener loop using active polling with a socket timeout.
-     * When the coroutine is cancelled, the loop exits gracefully without closing
-     * the underlying database connection, allowing it to be reused.
+     * Reads the connection until the coroutine is cancelled, waking every [pollTimeoutMs] to check. Cancelling
+     * leaves the connection usable.
      *
-     * @param pollTimeoutMs The socket timeout used for polling in milliseconds.
-     * @param dispatcher The coroutine dispatcher to run the loop on. Defaults to a virtual thread dispatcher if null.
-     * @throws InvalidOperationException `CONNECTION_BUSY` where a transaction is open on the server, which holds
-     * back every notification until it ends - and nothing could end it while the loop holds the connection.
+     * @param dispatcher `null` for virtual threads.
+     * @throws InvalidOperationException `CONNECTION_BUSY` where a transaction is open, which would hold back every
+     * notification.
      */
     suspend fun startPollingListenerLoop(pollTimeoutMs: Int = 500, dispatcher: CoroutineDispatcher? = null) {
         if (connection.isClosedFlag) return
@@ -82,12 +76,11 @@ class NotificationManager internal constructor(private val session: OctaviusSess
     }
 
     /**
-     * Starts a listener loop that blocks indefinitely.
-     * When the coroutine is cancelled, it simply closes the socket.
+     * Reads the connection without waking until the coroutine is cancelled, which aborts the connection.
      *
-     * @param dispatcher The coroutine dispatcher to run the loop on. Defaults to a virtual thread dispatcher if null.
-     * @throws InvalidOperationException `CONNECTION_BUSY` where a transaction is open on the server, as
-     * [startPollingListenerLoop] does. The connection is left as it was.
+     * @param dispatcher `null` for virtual threads.
+     * @throws InvalidOperationException `CONNECTION_BUSY` where a transaction is open; the connection is left as
+     * it was.
      */
     suspend fun startInterruptibleListenerLoop(dispatcher: CoroutineDispatcher? = null) {
         if (connection.isClosedFlag) return
@@ -131,12 +124,8 @@ class NotificationManager internal constructor(private val session: OctaviusSess
     }
 
     /**
-     * Refuses to start a loop that would wait for nothing: PostgreSQL holds back every notification for a session
-     * inside a transaction until the transaction ends, and a running loop holds the connection, so nothing would
-     * end it.
-     *
-     * The server's state rather than the session's. With auto-commit off and no statement since, the `BEGIN` is
-     * still waiting and the server idle, and notifications arrive as they would without it.
+     * Refuses a loop that would wait for nothing: the server holds notifications back until a transaction ends.
+     * Reads the server's state, so a `BEGIN` still waiting does not count.
      */
     private fun refuseOpenTransaction() {
         if (connection.serverTransactionState == TransactionState.IDLE) return
@@ -148,20 +137,11 @@ class NotificationManager internal constructor(private val session: OctaviusSess
         )
     }
 
-    /**
-     * Whether this session has ever subscribed to anything.
-     *
-     * Subscriptions live on the physical connection, which outlives the session when it came
-     * from a pool, so the session has to know whether it left any behind. Tracked as a plain
-     * "ever subscribed" flag rather than a set of channels: `UNLISTEN *` is idempotent, and
-     * one redundant round trip on close is cheaper than keeping an accurate tally.
-     */
+    /** Whether this session has subscribed to anything, which [releaseSubscriptions] undoes with `UNLISTEN *`. */
     @Volatile
     private var hasSubscribed: Boolean = false
 
-    /**
-     * Registers this connection to listen for notifications on the specified channel(s).
-     */
+    /** Listens on [channels]. */
     fun listen(vararg channels: String) {
         if (channels.isEmpty()) return
         val sql = channels.joinToString("; ") { "LISTEN ${it.quoteAsPgIdentifier()}" }
@@ -170,9 +150,7 @@ class NotificationManager internal constructor(private val session: OctaviusSess
         logger.debug { "$pid Listening on ${channels.joinToString(", ")}" }
     }
 
-    /**
-     * Stops listening for notifications on the specified channel(s).
-     */
+    /** Stops listening on [channels]. */
     fun unlisten(vararg channels: String) {
         if (channels.isEmpty()) return
         val sql = channels.joinToString("; ") { "UNLISTEN ${it.quoteAsPgIdentifier()}" }
@@ -180,34 +158,21 @@ class NotificationManager internal constructor(private val session: OctaviusSess
         logger.debug { "$pid Stopped listening on ${channels.joinToString(", ")}" }
     }
 
-    /**
-     * Stops listening for all notifications on this connection.
-     */
+    /** Stops listening on every channel. */
     fun unlistenAll() {
         session.createNativeQuery("UNLISTEN *").execute()
         hasSubscribed = false
         logger.debug { "$pid Stopped listening on all channels" }
     }
 
-    /**
-     * Sends a notification to the specified channel, optionally with a payload string.
-     */
+    /** Sends a notification on [channel]. */
     fun notify(channel: String, payload: String? = null) {
         session.createNativeQuery("SELECT pg_notify($1, $2)").fetchField<Unit>(channel, payload)
     }
 
     /**
-     * Drops whatever this session subscribed to, if anything.
-     *
-     * Called when a session closes over a connection that will outlive it: leaving the
-     * registrations in place would hand the next borrower of a pooled connection someone
-     * else's subscriptions, and let them pile up over the connection's lifetime. Sessions
-     * that never called [listen] pay nothing.
-     *
-     * Sent as a statement about the connection rather than as the session's own work, so that it never
-     * opens the transaction a `BEGIN` may be waiting for: inside one, `UNLISTEN` takes effect only at its
-     * commit. Where the session leaves open a transaction its connection's owner began, it goes out inside
-     * that one, and stands or falls with it as the session's `LISTEN`s there do.
+     * Drops this session's subscriptions before its connection goes to the next borrower. Never opens a waiting
+     * transaction, since inside one `UNLISTEN` takes effect only at commit.
      */
     internal fun releaseSubscriptions() {
         if (!hasSubscribed) return

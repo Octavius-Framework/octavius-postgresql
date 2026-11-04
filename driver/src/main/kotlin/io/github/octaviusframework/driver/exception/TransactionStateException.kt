@@ -2,11 +2,9 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
-/**
- * Represents the transaction state that made a statement inadmissible.
- */
+/** The transaction state that refused the statement. */
 enum class TransactionStateExceptionReason {
-    /** The transaction is already doomed by an earlier error and rejects everything until it is rolled back (25P02). */
+    /** An earlier error aborted the transaction, which refuses everything until rolled back (25P02). */
     IN_FAILED_TRANSACTION,
 
     /** A write was attempted inside a read-only transaction (25006). */
@@ -23,25 +21,11 @@ enum class TransactionStateExceptionReason {
 }
 
 /**
- * Exception thrown when the statement itself is fine and the transaction it arrived in is not.
+ * The statement is fine and the transaction it arrived in is not. Under `IN_FAILED_TRANSACTION` the failure to
+ * look for is the earlier one. The class-25 timeouts end the session: [SessionTerminatedException].
  *
- * The server rejects these before the statement is considered on its own merits, which is why they are not
- * [StatementException]: nothing about the SQL is wrong, and the server sends no error position to point at.
- * What is wrong is the state around it - a transaction an earlier error already doomed, one declared
- * read-only, one open where the command forbids it, or none open where the command requires one.
- *
- * `25P02` is the one worth naming twice, because it is a consequence rather than a cause: after any error
- * inside an explicit transaction PostgreSQL discards the work and rejects every further command until a
- * `ROLLBACK` arrives. The failure to read is the *first* one; this one only says the session never left it.
- *
- * The two class-25 timeouts, `25P03` and `25P04`, are not here - they end the session rather than refuse a
- * statement, and a session the server ended is [SessionTerminatedException].
- *
- * @property reason The transaction state that refused the statement.
- * @property dbMessage The primary error message the server raised.
- * @property hint Explicit HINT field provided by PostgreSQL.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property dbMessage The server's message.
+ * @property hint The server's hint.
  */
 class TransactionStateException(
     val reason: TransactionStateExceptionReason,

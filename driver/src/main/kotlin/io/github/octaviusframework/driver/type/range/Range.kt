@@ -3,29 +3,11 @@ package io.github.octaviusframework.driver.type.range
 import kotlin.reflect.KClass
 
 /**
- * Represents a generic, user-friendly PostgreSQL range.
- * This class is designed to be used in application code, mapping directly to/from [io.github.octaviusframework.driver.container.PgRange].
+ * A range for application code, read and written as the range type over [T]. The defaults give PostgreSQL's
+ * `[)`, and a `null` bound is unbounded unless `isLowerNull` or `isUpperNull` says it is a `NULL`.
  *
- * The defaults produce PostgreSQL's own `[)` convention: lower inclusive, upper exclusive, and a bound
- * left `null` treated as unbounded rather than as a `NULL` value.
- *
- * Note that ranges over a **discrete** subtype - `int4range`, `int8range`, `daterange` - are rewritten
- * by the server into the canonical `[)` form, so what comes back describes the same span with different
- * bounds than what went out: `(1,5]` is stored and read back as `[2,6)`. Comparing a returned range
- * field-by-field against the one you sent will not match. Continuous types (`numrange`, `tsrange`,
- * `tstzrange`) have no canonical form and are stored as written.
- *
- * @param T The type of the range bounds (e.g., Int, LocalDate, or a data class).
- * @property elementClass The class of the bounds, needed to resolve the PostgreSQL range type.
- * @property lowerBound The lower bound value, or `null` for none.
- * @property upperBound The upper bound value, or `null` for none.
- * @property isLowerInclusive Whether the lower bound is part of the range.
- * @property isUpperInclusive Whether the upper bound is part of the range.
- * @property isLowerInfinite Whether the range is unbounded below.
- * @property isUpperInfinite Whether the range is unbounded above.
- * @property isLowerNull Whether the lower bound is present but `NULL`, as distinct from unbounded.
- * @property isUpperNull Whether the upper bound is present but `NULL`, as distinct from unbounded.
- * @property isEmpty Whether the range contains nothing at all; use [Range.empty] to build one.
+ * @property elementClass The class of the bounds, which picks the range type.
+ * @property isEmpty Whether the range contains nothing; [Range.empty] builds one.
  */
 data class Range<T : Any>(
     val elementClass: KClass<T>,
@@ -40,9 +22,7 @@ data class Range<T : Any>(
     val isEmpty: Boolean = false
 ) {
     companion object {
-        /**
-         * Creates an empty range.
-         */
+        /** The empty range over [T]. */
         inline fun <reified T : Any> empty(): Range<T> = Range(
             elementClass = T::class,
             lowerBound = null,
@@ -59,23 +39,8 @@ data class Range<T : Any>(
 }
 
 /**
- * Creates a range, inferring the PostgreSQL range type from [T].
- *
- * Resolution goes by subtype and a subtype maps to exactly one range type, so declaring a custom range
- * over a built-in subtype makes unqualified ranges of that element type ambiguous - the highest OID
- * wins, which is always the custom one. Pin the type with
- * [withPgType][io.github.octaviusframework.driver.type.withPgType] where that matters.
- *
- * @param T The type of the range bounds.
- * @param lowerBound The lower bound value, or `null` for none.
- * @param upperBound The upper bound value, or `null` for none.
- * @param isLowerInclusive Whether the lower bound is part of the range.
- * @param isUpperInclusive Whether the upper bound is part of the range.
- * @param isLowerInfinite Whether the range is unbounded below. Defaults to `lowerBound == null`.
- * @param isUpperInfinite Whether the range is unbounded above. Defaults to `upperBound == null`.
- * @param isLowerNull Whether the lower bound is present but `NULL`, as distinct from unbounded.
- * @param isUpperNull Whether the upper bound is present but `NULL`, as distinct from unbounded.
- * @return The constructed range.
+ * A range over [T]. Where a custom range type shares its subtype with a built-in one, the custom one wins; pin
+ * the type with [withPgType][io.github.octaviusframework.driver.type.withPgType] where that matters.
  */
 inline fun <reified T : Any> rangeOf(
     lowerBound: T? = null,

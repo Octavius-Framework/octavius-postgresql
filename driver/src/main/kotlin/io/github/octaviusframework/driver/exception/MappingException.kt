@@ -1,42 +1,23 @@
 package io.github.octaviusframework.driver.exception
 
-/**
- * Represents the specific reason for a mapping failure.
- */
+/** Why a value could not be mapped. */
 enum class MappingExceptionReason {
-    /** No suitable converter was found for the target data types. */
+    /** No converter produces the type asked for. */
     NO_CONVERTER_FOUND,
-    /**
-     * The requested column, composite attribute, record field or array element does not exist - by that
-     * name, or at that position.
-     */
+    /** No column, attribute, field or element by that name or at that position. */
     COLUMN_NOT_FOUND,
-    /** The data could not be converted or cast to the target type. */
+    /** A converter failed, or a value is not of the type asked for. */
     CONVERSION_ERROR,
-    /** A required, non-nullable property in the target object received a null value. */
+    /** A `NULL` where a non-nullable type was asked for. */
     REQUIRED_ATTRIBUTE_MISSING,
-    /**
-     * The block handed to a streaming terminal threw something of its own.
-     *
-     * It is wrapped rather than let through because the result has to be drained before anything can be
-     * rethrown, and by then the frame that knows the query is gone - so this carries the `QueryContext` that
-     * a bare rethrow would lose. What the block actually threw is the `cause`.
-     */
+    /** The block handed to a streaming terminal threw; what it threw is the `cause`. */
     BLOCK_FAILED
 }
 
 /**
- * Exception thrown when a type conversion or data mapping operation fails.
+ * A value could not be mapped between its PostgreSQL and its Kotlin form.
  *
- * This includes scenarios like failing to convert data between incompatible types (e.g., mapping an Int to a String),
- * missing columns in a database row, or missing required non-nullable properties in a Kotlin class.
- *
- * @property reason The reason the mapping failed.
- * @property details Additional details about the mapping failure.
- * @param cause The underlying exception that caused this failure, if any.
- * @param path Where in the nested object structure the mapping error occurred, for a frame that knows it
- * already. Kept on [OctaviusException], which every layer that has something to add to it writes to; this is
- * only the first segment, for the mapper that raises the exception at the depth it found the fault.
+ * @param path The innermost segments of [OctaviusException.path], for a mapper that knows them already.
  */
 class MappingException(
     val reason: MappingExceptionReason,

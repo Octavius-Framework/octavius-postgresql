@@ -6,10 +6,7 @@ import io.github.octaviusframework.driver.container.PgContainer
 import io.github.octaviusframework.driver.registry.CodecScope
 import kotlin.reflect.KClass
 
-/**
- * Dynamic codec for PostgreSQL container types (Array, Composite, Range, Multirange, Record).
- * It delegates the actual parsing and serialization to the [ContainerCodec] object.
- */
+/** Reads and writes an array, composite, range, multirange or record through [ContainerCodec]. */
 internal class DynamicContainerCodec<T : PgContainer>(
     override val oid: Int,
     override val pgTypeName: String,

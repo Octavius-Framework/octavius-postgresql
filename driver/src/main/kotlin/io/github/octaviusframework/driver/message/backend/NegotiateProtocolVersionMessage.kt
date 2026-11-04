@@ -1,14 +1,10 @@
 package io.github.octaviusframework.driver.message.backend
 
 /**
- * Sent by a server that speaks an older protocol minor version than the startup message asked for, or does not
- * recognise some of the protocol options in it. It arrives before authentication, and the login then carries on
- * over the version it names.
+ * `NegotiateProtocolVersion`, from a server on an older minor version than the 3.2 asked for.
  *
- * @property newestVersion The newest version the server speaks, as the full protocol version word - major in the
- *   upper 16 bits, minor in the lower. PostgreSQL and the poolers in front of it send it that way, although the protocol
- *   documentation describes the field as the minor version alone.
- * @property unrecognizedOptions The `_pq_.` options from the startup message that the server did not recognise.
+ * @property newestVersion The newest version it speaks, as the full word: major in the upper 16 bits.
+ * @property unrecognizedOptions The `_pq_.` options it did not recognize.
  */
 internal class NegotiateProtocolVersionMessage(
     val newestVersion: Int,

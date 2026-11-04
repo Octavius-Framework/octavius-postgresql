@@ -10,17 +10,8 @@ import kotlin.time.Duration
 private val logger = KotlinLogging.logger {}
 
 /**
- * A high-level API for managing transactions via scoped blocks.
- * 
- * This manager provides robust block-based transaction scoping, such as 
- * [required] and [nested], automatically handling commit, rollback, and 
- * savepoints based on the execution result. Within these scopes, the receiver 
- * is restricted to [OctaviusSessionOperations], preventing manual interference 
- * with the transaction lifecycle.
- * 
- * If you need manual, low-level transaction control (e.g., explicit `commit()`, 
- * `rollback()`, `autoCommit` manipulation, or manual savepoints), use the methods 
- * provided directly on the parent [OctaviusSession].
+ * Runs blocks in transaction scopes that commit, roll back or use savepoints on how the block ends. The block's
+ * receiver is [OctaviusSessionOperations], which has no commit or rollback; those are on [OctaviusSession].
  */
 class TransactionManager internal constructor(
     @PublishedApi internal val session: OctaviusSession,
@@ -28,36 +19,16 @@ class TransactionManager internal constructor(
 ) {
 
     /**
-     * Executes the given [block] within a transaction scope.
-     * 
-     * If a transaction is currently active (autoCommit = false), the block will be
-     * executed within the existing transaction. Otherwise, a new transaction is started,
-     * and it will be committed upon successful completion, or rolled back if an exception occurs.
-     * 
-     * Inside the block, manual transaction operations such as `commit`, `rollback`, 
-     * and `autoCommit` modifications are not accessible as the receiver is restricted
-     * to [OctaviusSessionOperations]. A `return` out of the block does not compile either - use
-     * `return@required`, since an early exit would otherwise commit whatever the block had already
-     * done, which is the same decision the restricted receiver is there to keep out of the block.
+     * Runs [block] in the transaction already open, or in a new one that commits when it returns and rolls back
+     * when it throws. Leave the block with `return@required`; a plain `return` does not compile.
      *
-     * Whatever of [isolation], [readOnly], [statementTimeout] and [transactionTimeout] is asked for goes out
-     * right behind the `BEGIN`, and both go with the block's first statement - at no round trip of their own,
-     * and not at all where the block runs no statement. A term the server refuses
-     * fails that first statement, inside the block, so it rolls back like any other failure - and so does
-     * one sent at once because a hand-written `BEGIN` had already opened the transaction. All four end
-     * with the transaction, which is what separates them from
-     * [OctaviusSessionOperations.transactionIsolationLevel] and [OctaviusSessionOperations.readOnly] - those
-     * are session-wide, and are not what this sets.
+     * The terms belong to this transaction alone and go out with the block's first statement, at no round trip
+     * of their own; one the server refuses fails that statement. Joining a running transaction ignores them,
+     * with a warning.
      *
-     * A transaction already running keeps the terms it began at: none of the four applies, and a warning
-     * names them.
-     *
-     * @param isolation The isolation level for this transaction, or `null` for the session's.
-     * @param readOnly Whether this transaction refuses writes.
-     * @param statementTimeout Aborts any single statement in this transaction that runs longer than this.
-     * @param transactionTimeout Aborts this transaction once it has been open longer than this.
-     * @param block The block of code to execute.
-     * @return The result of the block.
+     * @param isolation `null` for the session's.
+     * @param statementTimeout Aborts any single statement running longer than this.
+     * @param transactionTimeout Aborts the transaction once it has been open longer than this.
      */
     inline fun <T> required(
         isolation: TransactionIsolationLevel? = null,
@@ -74,8 +45,7 @@ class TransactionManager internal constructor(
         session.autoCommit = false
         var failure: Throwable? = null
         try {
-            // Inside the try, because the terms do not always wait for the first statement: on a transaction a
-            // hand-written BEGIN already opened they go out here, and a refusal has to be rolled back like the rest.
+            // Inside the try: after a hand-written BEGIN the terms go out here, and a refusal has to roll back.
             applySettings(isolation, readOnly, statementTimeout, transactionTimeout)
             val result = session.block()
             session.commit()
@@ -94,27 +64,9 @@ class TransactionManager internal constructor(
     }
 
     /**
-     * Executes the given [block] within a nested transaction scope.
-     * 
-     * If a transaction is already active, a savepoint is created. Upon successful
-     * completion of the block, the savepoint is released. If an exception occurs,
-     * the transaction is rolled back to the savepoint. If no transaction is active,
-     * a new one is started similar to [required].
-     * 
-     * Inside the block, manual transaction operations are not accessible as the receiver
-     * is restricted to [OctaviusSessionOperations]. A `return` out of the block does not compile
-     * either - use `return@nested`, since an early exit would otherwise slip past the release and
-     * the rollback alike and leave the savepoint standing.
-     *
-     * The four terms reach only the case where this starts a transaction of its own; on the savepoint path
-     * they are ignored and a warning names them.
-     *
-     * @param isolation See [required].
-     * @param readOnly See [required].
-     * @param statementTimeout See [required].
-     * @param transactionTimeout See [required].
-     * @param block The block of code to execute.
-     * @return The result of the block.
+     * Runs [block] under a savepoint in the transaction already open, released when it returns and rolled back to
+     * when it throws; with none open, as [required]. Leave the block with `return@nested`. The terms apply only to
+     * a new transaction; under a savepoint they are ignored with a warning.
      */
     inline fun <T> nested(
         isolation: TransactionIsolationLevel? = null,
@@ -144,15 +96,8 @@ class TransactionManager internal constructor(
     }
 
     /**
-     * Hands the terms this transaction was opened with to its `BEGIN`, as one statement.
-     *
-     * `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts: both
-     * end with the transaction, so nothing here has to be undone before the connection goes back to a pool.
-     * The first of them has to precede the first query of the transaction, and nothing precedes it more
-     * closely than a message right behind the `BEGIN` - a script, sent with the `BEGIN` and the first statement
-     * alike, with nothing to bind.
-     *
-     * Sent now only where the server already has a transaction running that no `BEGIN` of the driver's opened.
+     * Hands the terms to the transaction's `BEGIN` as one script of `SET TRANSACTION` and `SET LOCAL`, which end
+     * with the transaction. Sent at once where a transaction the driver did not begin is already running.
      */
     @PublishedApi
     internal fun applySettings(
@@ -174,9 +119,7 @@ class TransactionManager internal constructor(
                 )
             }
             statementTimeout?.let { add("SET LOCAL statement_timeout = ${it.inWholeMilliseconds}") }
-            // The server starts a transaction's clock with whatever transaction_timeout is in force - its own
-            // default, the database's, the role's or the session's - and a later value leaves a running clock as
-            // it is, SHOW reporting the new one all the same. 0 stops it, and the value starts it again.
+            // A running transaction_timeout clock ignores a new value; 0 stops it and the value starts it again.
             transactionTimeout?.let {
                 add("SET LOCAL transaction_timeout = 0")
                 add("SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}")
@@ -187,12 +130,10 @@ class TransactionManager internal constructor(
     }
 
     /**
-     * Says out loud that a scope asked for terms it is in no position to set.
+     * Warns that a scope asked for terms it cannot set. Not raised, since an inner unit of work often states a
+     * level its caller already provides.
      *
-     * Raising would be the stricter reading, and would also break the ordinary case: an inner unit of work
-     * states the level it needs and is called from an outer one that already provides it.
-     *
-     * @param scope What is being entered instead - a transaction already running, or a savepoint.
+     * @param scope What is entered instead: a running transaction, or a savepoint.
      */
     @PublishedApi
     internal fun warnSettingsIgnored(
@@ -211,15 +152,9 @@ class TransactionManager internal constructor(
     }
 
     /**
-     * Puts auto-commit back once a scope is over, however it ended.
-     *
-     * A failure here is only rethrown when the scope was already failing, and then as a suppressed
-     * exception on [failure] rather than in its place. Out of a scope that **committed** it is logged
-     * and goes no further. The commit left nothing open, so switching back sends nothing, and what can
-     * still fail is only the check that the connection is there - which means it went away after the
-     * commit, and that is already on the record: `checkClosed` raises `NetworkException` the next time
-     * anything touches this session, logged or not. Raising it here would only report a failed
-     * transaction for one whose work is in the database, and invite a retry that writes it twice.
+     * Puts auto-commit back once a scope is over. A failure is suppressed on [failure] where the scope failed, and
+     * only logged after a commit: the work is in the database, and raising would invite a retry that writes it
+     * twice. The next use of the session raises anyway.
      */
     @PublishedApi
     internal fun restoreAutoCommit(failure: Throwable?) {

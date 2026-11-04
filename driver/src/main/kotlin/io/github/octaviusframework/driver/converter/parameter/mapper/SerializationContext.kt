@@ -5,61 +5,30 @@ import io.github.octaviusframework.driver.type.UNRESOLVED_OID
 import io.github.octaviusframework.driver.type.isKnownOid
 import kotlin.reflect.KClass
 
-/**
- * What a [ParameterConverter] is handed to convert the values nested inside the one it was given.
- *
- * Going through [convert] rather than converting a nested value by hand is what keeps the failure
- * legible: each call contributes a segment to the `path` of any `MappingException` raised below it,
- * so an error in one attribute of a composite arrives naming that attribute.
- */
+/** What a [ParameterConverter] converts a nested value through, where that value's codec does not take it as it is. */
 interface SerializationContext {
-    /**
-     * The type system as this execution pinned it: dictionaries, containers and OID resolution.
-     *
-     * Reading only - a conversion cannot register a type, a codec or a converter, and would have nothing to
-     * gain by it, since the catalog it is running against was fixed before the statement went out.
-     */
+    /** The catalog this execution pinned, read-only. */
     val types: TypeLookup
 
     /**
-     * Converts a Kotlin value to an object compatible with PostgreSQL using registered converters.
+     * Converts [source] for [expectedOid] through the registered converters.
      *
-     * @param source The value to convert.
-     * @param expectedOid The expected PostgreSQL OID.
-     * @param pathSegment Optional segment name (e.g., property name or array index) for debugging purposes. 
-     * If a MappingException occurs during conversion, this segment is added to the exception's path 
-     * to help trace the exact location of the error in nested structures.
-     * @return A value a registered codec can encode.
+     * @param pathSegment Added to the path of a failure: a property name, or `[i]`.
      */
     fun convert(source: Any, expectedOid: Int, pathSegment: String? = null): Any?
 
     /**
-     * Looks up the converter that would claim a value, without converting anything.
-     *
-     * @param source The value being sent.
-     * @param expectedOid The expected PostgreSQL OID, or `0` when it is not known.
-     * @return The converter that would be used, or `null` if none claims it.
+     * Returns the converter that would claim [source] for [expectedOid], or `null` if none would. Pass `0` if the OID
+     * is not known.
      */
     fun findConverter(source: Any, expectedOid: Int): ParameterConverter<Any>?
 
-    /**
-     * Same as [findConverter], keyed on a class rather than an instance.
-     *
-     * @param sourceClass The class of the value being sent.
-     * @param expectedOid The expected PostgreSQL OID, or `0` when it is not known.
-     * @return The converter that would be used, or `null` if none claims it.
-     */
+    /** [findConverter] for a class rather than an instance. */
     fun findConverterByClass(sourceClass: KClass<*>, expectedOid: Int): ParameterConverter<Any>?
 
     /**
-     * The OID a value of [kClass] would be declared as, worked out from the class alone - for a container whose
-     * elements are not there to ask, such as an empty range or array.
-     *
-     * The converter that would claim the class names its type first, so a registered enum or composite answers
-     * with its own; failing that, the codec registered as the default for the class does.
-     *
-     * @param kClass The class of the elements.
-     * @return The OID, or `null` where neither knows the class.
+     * The OID a value of [kClass] would go out as, for an empty container with no element to ask: the type its
+     * converter names, else its codec's, else `null`.
      */
     fun defaultOidForClass(kClass: KClass<*>): Int? {
         findConverterByClass(kClass, UNRESOLVED_OID)?.getDefaultTypeName(kClass, this)

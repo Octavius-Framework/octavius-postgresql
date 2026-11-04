@@ -5,11 +5,7 @@ import io.github.octaviusframework.driver.exception.CodecException
 import io.github.octaviusframework.driver.io.PgByteWriter
 import kotlin.math.min
 
-/**
- * Safely decodes a value using this [TypeCodec].
- * Any standard exceptions (like [IllegalArgumentException] or [IllegalStateException])
- * thrown by the codec's [TypeCodec.fromBinary] method are caught and wrapped in a [CodecException].
- */
+/** Runs [TypeCodec.fromBinary], raising what it throws as a [CodecException]. */
 internal fun <T : Any> TypeCodec<T>.decodeSafely(data: ByteArray, offset: Int, length: Int): T {
     return try {
         this.fromBinary(data, offset, length)
@@ -32,11 +28,7 @@ internal fun <T : Any> TypeCodec<T>.decodeSafely(data: ByteArray, offset: Int, l
     }
 }
 
-/**
- * Safely encodes a value using this [TypeCodec].
- * Any standard exceptions (like [IllegalArgumentException] or [IllegalStateException])
- * thrown by the codec's [TypeCodec.toBinary] method are caught and wrapped in a [CodecException].
- */
+/** Runs [TypeCodec.toBinary], raising what it throws as a [CodecException]. */
 internal fun <T : Any> TypeCodec<T>.encodeSafely(value: T, writer: PgByteWriter) {
     try {
         this.toBinary(value, writer)

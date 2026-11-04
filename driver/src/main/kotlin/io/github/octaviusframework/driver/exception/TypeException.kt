@@ -1,28 +1,16 @@
 package io.github.octaviusframework.driver.exception
 
-/**
- * Represents the reason for a type resolution or validation failure.
- */
+/** Why a type could not be used. */
 enum class TypeExceptionReason {
-    /** The specified type was not found in the type catalog. */
+    /** The type catalog has no such type. */
     TYPE_NOT_FOUND,
-    /** The type with the specified OID is not a valid container type (Composite, Array, Enum, etc.). */
+    /** The type is not the kind of container - composite, array, range, multirange - asked for. */
     NOT_A_CONTAINER,
-    /** Missing codec for the specific OID when parsing or serializing. */
+    /** No codec for the type. */
     MISSING_CODEC
 }
 
-/**
- * Exception thrown when type resolution or validation fails within the driver's type registry.
- *
- * Includes scenarios where a type cannot be found, an incorrect container type is used,
- * or an expected codec is missing.
- *
- * @property reason The specific reason for the type error.
- * @property oid The OID of the type that caused the error, if applicable.
- * @property typeName The name of the type that caused the error, if applicable.
- * @property details Additional human-readable details about the failure.
- */
+/** A type the driver's catalog cannot resolve or has no codec for. */
 class TypeException(
     val reason: TypeExceptionReason,
     val oid: Int? = null,

@@ -4,32 +4,22 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 
 /**
- * In what order the listed servers are tried, in `libpq`'s vocabulary and with its meaning.
+ * In what order the listed servers are tried, as `libpq` means it.
  *
- * @property value The spelling used in a JDBC URL and by `libpq`.
+ * @property value The spelling in a URL and in `libpq`.
  */
 enum class LoadBalanceHosts(val value: String) {
-    /**
-     * The servers in the order they are listed, and each one's addresses in the order its name resolves to. The
-     * default.
-     */
+    /** As listed, and each server's addresses as they resolve. The default. */
     DISABLE("disable"),
 
-    /**
-     * The servers, and each one's addresses, in an order drawn afresh for every connection - which spreads a pool's
-     * connections across the servers that `target_session_attrs` accepts.
-     */
+    /** Servers and addresses in an order drawn afresh for every connection, which spreads a pool across them. */
     RANDOM("random");
 
     companion object {
         /**
-         * Parses a setting from its URL spelling, accepting the enum name as well.
+         * The setting [value] spells or names, case-insensitively, or [DISABLE] for `null`.
          *
-         * A stated setting that matches nothing is refused.
-         *
-         * @param value `disable` or `random`, case-insensitive. `null` means the setting was not stated at all.
-         * @return The matching setting, or [DISABLE] when [value] is `null`.
-         * @throws InvalidOperationException `INVALID_ARGUMENT` if [value] is stated but unrecognized.
+         * @throws InvalidOperationException `INVALID_ARGUMENT` if [value] matches nothing.
          */
         fun of(value: String?): LoadBalanceHosts {
             if (value == null) return DISABLE

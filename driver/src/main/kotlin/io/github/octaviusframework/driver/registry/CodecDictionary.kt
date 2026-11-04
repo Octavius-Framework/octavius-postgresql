@@ -16,21 +16,13 @@ import kotlin.reflect.KClass
 
 private val logger = KotlinLogging.logger {}
 
-/**
- * A dictionary that maps PostgreSQL OIDs and Kotlin classes to their corresponding [TypeCodec]s.
- * 
- * Provides methods for looking up codecs for parameters and results mapping, as well as 
- * registering custom codecs. Instances are immutable.
- */
+/** The [TypeCodec]s by OID, and the default one for each Kotlin class. Immutable. */
 class CodecDictionary private constructor(
     private val codecsByOid: IntObjectMap<TypeCodec<*>>,
     private val codecsByClass: Map<KClass<*>, TypeCodec<*>>,
     private val codecToOid: Map<TypeCodec<*>, Int>,
     val registeredCodecs: List<TypeCodec<*>>,
-    /**
-     * How many of [registeredCodecs] the driver ships with. They come first and a registration appends, so the
-     * rest are the ones an application asked for - the only ones worth reporting on when they map to nothing.
-     */
+    /** How many of [registeredCodecs], at the front, the driver ships with; the rest an application registered. */
     private val builtinCount: Int
 ) {
     //-------------------------------------------Construction-----------------------------------------------------------
@@ -106,11 +98,8 @@ class CodecDictionary private constructor(
     }
 
     /**
-     * Creates a new [CodecDictionary] by registering an additional [TypeCodec].
+     * This dictionary with [codec] registered against [dictionary]'s types.
      *
-     * @param codec the new codec to register.
-     * @param dictionary the [TypeDictionary] used to resolve the type OID if not explicitly provided by the codec.
-     * @return a new instance of [CodecDictionary] containing the newly registered codec.
      * @throws io.github.octaviusframework.driver.exception.TypeException `TYPE_NOT_FOUND` where [codec] names a
      *   schema-qualified type the catalog does not describe.
      * @throws InvalidOperationException `INVALID_ARGUMENT` where [codec] declares OID `0`.
@@ -124,9 +113,7 @@ class CodecDictionary private constructor(
 
         val result = build(this.registeredCodecs + codec, dictionary)
 
-        // A schema-qualified type the catalog does not describe is a mistake in the registration, and this is the
-        // one moment the caller is still on the stack to hear about it - a reload finding the same thing later is
-        // the database having changed, and only warns. resolveOid is what raises it, naming the type and schema.
+        // Raised here, while the registering call is on the stack; a reload finding the same later only warns.
         if (codec.oid == null && codec.pgSchema.isNotBlank() && result.getOidForCodec(codec) == null) {
             dictionary.resolveOid(codec.pgTypeName, codec.pgSchema, searchPath = emptyList())
         }
@@ -134,22 +121,12 @@ class CodecDictionary private constructor(
         return result
     }
 
-    /**
-     * Rebuilds the dictionary against a catalog's types, keeping the codecs registered by hand and creating one
-     * for every type they leave uncovered.
-     *
-     * @param dictionary the types this dictionary is to describe.
-     * @return a new updated instance of [CodecDictionary].
-     */
+    /** This dictionary over [dictionary]'s types: the registered codecs, and a generated one for every other type. */
     internal fun buildUpdated(dictionary: TypeDictionary): CodecDictionary = build(this.registeredCodecs, dictionary)
 
     /**
-     * The one way a dictionary with dynamic codecs in it comes to exist.
-     *
-     * Every codec it creates is bound to a [CodecScope] carrying [dictionary] and the dictionary being built, so
-     * a codec never reads a catalog other than the one it belongs to. That is also why both callers come through
-     * here rather than editing a copy of an existing dictionary: a dynamic codec kept from a previous one would
-     * still be resolving nested values through the previous one's pair.
+     * Builds a dictionary whose generated codecs resolve nested values through a [CodecScope] of [dictionary] and
+     * this one, so none reads another catalog.
      */
     private fun build(registered: List<TypeCodec<*>>, dictionary: TypeDictionary): CodecDictionary {
         val newOidMap = IntObjectMap<TypeCodec<*>>()
@@ -220,41 +197,21 @@ class CodecDictionary private constructor(
 
     //----------------------------------------------API-----------------------------------------------------------------
 
-    /**
-     * Retrieves a [TypeCodec] suitable for the given PostgreSQL OID.
-     *
-     * @param oid the Object Identifier of the PostgreSQL type.
-     * @return the corresponding [TypeCodec] or null if no codec is registered for this OID.
-     */
+    /** The codec for [oid], or `null`. */
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> getCodecByOid(oid: Int): TypeCodec<T>? {
         return codecsByOid[oid] as TypeCodec<T>?
     }
 
-    /**
-     * Retrieves a default [TypeCodec] for the given Kotlin class.
-     *
-     * @param kClass the Kotlin class to find a codec for.
-     * @return the corresponding [TypeCodec] or null if no default codec is registered for this class.
-     */
+    /** The default codec for [kClass], or `null`. */
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> getCodecByClass(kClass: KClass<T>): TypeCodec<T>? {
         return codecsByClass[kClass] as TypeCodec<T>?
     }
 
     /**
-     * Retrieves the mapped OID for a specific [TypeCodec].
-     *
-     * @param codec the codec to look up.
-     * @return the OID associated with the codec or null if it cannot be determined.
-     */
-    /**
-     * Says that a registered codec has nothing to decode.
-     *
-     * It stays registered - a later reload finds it again if the type comes back - but until then values of that
-     * type go through whatever else the catalog binds to their OID, which for a composite or an array is the
-     * driver's own container codec. That is a different shape coming back rather than an error, so it is worth a
-     * line: nothing else in the driver will mention it.
+     * Warns that a registered codec binds to no type in the catalog. It stays registered, and values of that type
+     * come back through another codec, in another shape.
      */
     private fun warnUnreachable(codec: TypeCodec<*>, declaredOid: Int?) {
         val name = codec::class.simpleName ?: codec::class
@@ -273,6 +230,7 @@ class CodecDictionary private constructor(
         }
     }
 
+    /** The OID [codec] is bound to, or `null`. */
     fun getOidForCodec(codec: TypeCodec<*>): Int? {
         return codecToOid[codec]
     }

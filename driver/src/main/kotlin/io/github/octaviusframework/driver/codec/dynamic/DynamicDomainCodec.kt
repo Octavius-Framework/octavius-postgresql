@@ -7,17 +7,7 @@ import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.registry.CodecScope
 import kotlin.reflect.KClass
 
-/**
- * Codec for PostgreSQL domain types, which are essentially custom types based on underlying base types.
- * It delegates serialization and deserialization to the codec of the base type.
- *
- * @param T The Kotlin type of the underlying base type.
- * @property oid The OID of the domain type.
- * @property pgTypeName The name of the domain type in PostgreSQL.
- * @property pgSchema The schema where the domain type is defined.
- * @property baseTypeOid The OID of the underlying base type.
- * @property scope The dictionaries this codec resolves its base type through.
- */
+/** Reads and writes a domain through the codec of its base type [baseTypeOid], found through [scope]. */
 internal class DynamicDomainCodec<T : Any>(
     override val oid: Int,
     override val pgTypeName: String,

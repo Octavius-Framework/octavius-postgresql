@@ -2,58 +2,33 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
-/**
- * Represents specific types of database constraint violations that can occur during query execution.
- *
- * This enum categorizes standard constraint violation errors (such as unique, foreign key, or not-null violations)
- * allowing the application to handle specific constraint errors programmatically without parsing SQL error codes manually.
- */
+/** Which constraint was violated. */
 enum class ConstraintViolationExceptionReason {
-    /** A duplicate value was provided for a unique column or index (PostgreSQL 23505). */
+    /** A duplicate in a unique column or index (23505). */
     UNIQUE_CONSTRAINT_VIOLATION,
 
-    /**
-     * A value was provided that does not exist in the referenced table, or a referenced row was deleted or had
-     * its key changed (PostgreSQL 23503, or 23001 when the key's action is `RESTRICT`).
-     */
+    /** A key the referenced table lacks, or a referenced row deleted or rekeyed (23503, 23001 under `RESTRICT`). */
     FOREIGN_KEY_VIOLATION,
 
-    /** A null value was provided for a non-nullable column (PostgreSQL 23502). */
+    /** A `NULL` in a `NOT NULL` column (23502). */
     NOT_NULL_VIOLATION,
 
-    /** A value was provided that fails a CHECK constraint (PostgreSQL 23514). */
+    /** A value a `CHECK` constraint refuses (23514). */
     CHECK_CONSTRAINT_VIOLATION,
 
-    /** Exclusion constraint violations (PostgreSQL 23P01). */
+    /** A row an exclusion constraint refuses (23P01). */
     EXCLUSION_CONSTRAINT_VIOLATION,
 
-    /**
-     * General or unmapped constraint violations (e.g., PostgreSQL 23000, 40002).
-     * 
-     * In practice, these generic constraint violation codes rarely occur during standard operations.
-     * They are typically encountered only if explicitly raised within a stored procedure, 
-     * trigger, or when using specific database extensions.
-     */
+    /** Any other constraint violation, such as 23000 or 40002 raised by a function or an extension. */
     UNKNOWN
 }
 
 /**
- * Exception thrown when a database operation violates a defined constraint (e.g., unique index, foreign key, check constraint).
+ * A statement violated a constraint.
  *
- * This exception encapsulates details about the constraint violation, including the specific type of violation 
- * ([reason]), and optional metadata such as the schema, table, column, and constraint name involved in the error.
- *
- * @property reason The specific type of constraint violation mapped from the database error.
- * @property dbMessage The primary error message the database raised.
- * @property details Additional, human-readable details about the violation provided by the database.
- *   For a unique violation this is where the offending key and value appear.
- * @property where The call stack the violation arose in, for one raised inside a trigger or function.
- * @property schema The name of the schema containing the table where the violation occurred, if available.
- * @property table The name of the table where the constraint violation occurred, if available.
- * @property column The name of the column associated with the constraint violation, if available.
- * @property constraint The specific name of the constraint that was violated, if available.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property dbMessage The server's message.
+ * @property details The server's detail; for a unique violation, the offending key and value.
+ * @property where The call stack, for a violation raised inside a trigger or function.
  */
 class ConstraintViolationException(
     val reason: ConstraintViolationExceptionReason,

@@ -4,26 +4,18 @@ import java.io.EOFException
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 
-/**
- * A highly optimized, buffered input stream tailored for the PostgreSQL wire protocol.
- *
- * It provides specialized methods for efficiently reading protocol primitives
- * like bytes, integers, shorts, and null-terminated C-style strings.
- * Internal buffering is used to minimize network reads and object allocations.
- */
+/** A buffered reader of protocol primitives: bytes, big-endian integers, C strings. */
 internal class PgInputStream(private var inputStream: InputStream) {
     private val buffer = ByteArray(8192)
     private var position = 0
     private var limit = 0
     
-    // We use this buffer to reduce allocations when reading C-style strings
+    // Reused for C strings.
     private var stringBuffer = ByteArray(256)
 
     /**
-     * Swaps the underlying stream, discarding whatever is still buffered from the old one.
-     *
-     * Discarding is the point: this is how the TLS upgrade takes over a connection, and bytes read before
-     * the handshake belong to the plaintext stream that no longer exists.
+     * Swaps the underlying stream for the TLS upgrade. Plaintext still buffered is dropped, since only an intermediary
+     * could have sent any after the server's `S`.
      */
     fun changeStream(newStream: InputStream) {
         this.inputStream = newStream
@@ -49,10 +41,7 @@ internal class PgInputStream(private var inputStream: InputStream) {
     }
 
     private fun fillBuffer() {
-        // The buffer state is only advanced once the read has actually succeeded. Resetting
-        // position beforehand would, on a SocketTimeoutException - which polling hits on every
-        // idle tick - leave position at 0 with the previous limit intact, replaying bytes that
-        // were already consumed and desynchronizing every later exchange on the connection.
+        // Advanced only after the read succeeds, so a polling timeout replays nothing.
         val read = inputStream.read(buffer, 0, buffer.size)
         if (read == -1) {
             position = 0
@@ -63,13 +52,7 @@ internal class PgInputStream(private var inputStream: InputStream) {
         limit = read
     }
 
-    /**
-     * Whether a read would find something without waiting: bytes left in the buffer, or bytes the underlying
-     * stream already holds.
-     *
-     * The underlying stream's own count is what `available()` makes of it - on a plain socket what the kernel
-     * has received, on a TLS one only what has already been decrypted.
-     */
+    /** Whether a read would find something without waiting; over TLS, only what is already decrypted counts. */
     fun hasPending(): Boolean = position < limit || inputStream.available() > 0
 
     /** Reads one byte, refilling the buffer if it is spent. */
@@ -80,7 +63,7 @@ internal class PgInputStream(private var inputStream: InputStream) {
         return buffer[position++]
     }
     
-    /** Reads a 32-bit integer, most significant byte first. */
+    /** Reads a big-endian 32-bit integer. */
     fun readInt(): Int {
         ensure(4)
         val b1 = buffer[position++].toInt() and 0xFF
@@ -90,7 +73,7 @@ internal class PgInputStream(private var inputStream: InputStream) {
         return (b1 shl 24) or (b2 shl 16) or (b3 shl 8) or b4
     }
     
-    /** Reads a 16-bit integer, most significant byte first. */
+    /** Reads a big-endian 16-bit integer. */
     fun readShort(): Short {
         ensure(2)
         val b1 = buffer[position++].toInt() and 0xFF
@@ -98,12 +81,7 @@ internal class PgInputStream(private var inputStream: InputStream) {
         return ((b1 shl 8) or b2).toShort()
     }
 
-    /**
-     * Fills [bytes] with exactly [length] bytes, reading as many times as it takes.
-     *
-     * A protocol message has a declared length, so a short read is never an answer - this loops until it
-     * has them all or the stream ends.
-     */
+    /** Fills [bytes] with exactly [length] bytes, or fails at the end of the stream. */
     fun readFully(bytes: ByteArray, length: Int = bytes.size) {
         var offset = 0
         var remaining = length
@@ -122,13 +100,7 @@ internal class PgInputStream(private var inputStream: InputStream) {
         }
     }
 
-    /**
-     * Advances past exactly [length] bytes without materializing them.
-     *
-     * The bytes still have to leave the stream - a payload left in it is read as the next message's
-     * tag by everything that comes after - but a payload nothing will look at needs no array to be
-     * read into, which is the only part [readBytes] would add.
-     */
+    /** Reads past exactly [length] bytes without an array for them. */
     fun skip(length: Int) {
         var remaining = length
         while (remaining > 0) {
@@ -144,18 +116,14 @@ internal class PgInputStream(private var inputStream: InputStream) {
         }
     }
 
-    /**
-     * Returns exactly the specified number of bytes.
-     */
+    /** Reads exactly [length] bytes. */
     fun readBytes(length: Int): ByteArray {
         val array = ByteArray(length)
         readFully(array)
         return array
     }
 
-    /**
-     * Reads a null-terminated string.
-     */
+    /** Reads a zero-terminated UTF-8 string. */
     fun readCString(): String {
         var length = 0
         while (true) {

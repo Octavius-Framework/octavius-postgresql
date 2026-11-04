@@ -2,11 +2,7 @@ package io.github.octaviusframework.driver.message.frontend
 
 import io.github.octaviusframework.driver.io.PgOutputStream
 
-/**
- * Initial message sent by the frontend to start a connection with the server.
- *
- * @property parameters Map of configuration parameters (e.g., user, database).
- */
+/** `StartupMessage`, carrying the startup [parameters]. */
 internal class StartupMessage(private val parameters: Map<String, String>) : FrontendMessage {
 
     override fun encode(out: PgOutputStream) {

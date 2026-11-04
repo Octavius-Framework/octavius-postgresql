@@ -2,10 +2,7 @@ package io.github.octaviusframework.driver.lo
 
 import java.io.InputStream
 
-/**
- * An [InputStream] that reads data from a PostgreSQL [LargeObject].
- * Closing this stream also closes the underlying LargeObject.
- */
+/** Reads a [LargeObject]; closing it closes the object. */
 class LargeObjectInputStream(private val obj: LargeObject) : InputStream() {
 
     override fun read(): Int {

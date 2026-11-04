@@ -4,27 +4,15 @@ import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.execution.QueryExecutor
 import io.github.octaviusframework.driver.type.PgType
 
-/**
- * Utility object responsible for loading PostgreSQL type definitions from the database 
- * and populating a [CatalogHolder].
- */
+/** Reads the database's types from `pg_catalog`. */
 internal object CatalogLoader {
 
     /**
-     * Executes a query against the `pg_catalog` to fetch all relevant type information
-     * (base types, arrays, composites, enums, domains, ranges, etc.) and updates
-     * the given [CatalogHolder]'s catalog with the constructed [PgType] instances.
-     *
-     * Temporary schemas are left out whole. The catalog is one per database, and a `pg_temp_N` belongs to one
-     * session: read in, its types would be every session's to resolve and decode, and would stay behind as OIDs
-     * of nothing once that session ended and the next one took the slot. What the load happened to find would
-     * also decide whether a temporary type worked at all.
-     *
-     * @param holder The cell whose catalog the loaded types replace.
-     * @param queryExecutor The executor used to run the type extraction query.
+     * Reads the types into [holder]'s catalog. Temporary schemas are left out: each belongs to one session, while the
+     * catalog is shared across the database.
      */
     fun load(holder: CatalogHolder, queryExecutor: QueryExecutor) {
-        // typtype is b for a base type, c for a composite type (e.g., a table's row type), d for a domain, e for an enum type, p for a pseudo-type, r for a range type, or m for a multirange type.
+        // typtype: b base, c composite, d domain, e enum, p pseudo, r range, m multirange.
         val typesSql = """
             SELECT 
                 t.oid, t.typname, t.typelem, t.typarray, t.typtype, t.typbasetype, n.nspname,
@@ -50,8 +38,7 @@ internal object CatalogLoader {
 
         val enumMap = mutableMapOf<Int, MutableList<String>>()
         val attrMap = mutableMapOf<Int, LinkedHashMap<String, Int>>()
-        // Kept alongside attrMap rather than folded into it: an attribute number is not the position of the
-        // attribute, a dropped column having taken its own number out of the sequence for good.
+        // Apart from attrMap: a dropped column leaves a gap, so a number is not a position.
         val attrNumberMap = mutableMapOf<Int, MutableList<Int>>()
         val rangeMap = mutableMapOf<Int, Int>()
         val multirangeMap = mutableMapOf<Int, Int>()

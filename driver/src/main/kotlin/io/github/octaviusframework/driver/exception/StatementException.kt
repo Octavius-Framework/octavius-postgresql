@@ -2,16 +2,12 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
-/**
- * Represents specific reasons for a SQL statement execution failure.
- */
+/** What is wrong with the statement. */
 enum class StatementExceptionReason {
     /** The statement contains a syntax error. */
     SYNTAX_ERROR,
     /**
-     * The statement leaves something open where the driver's own parser needed it closed - a string or
-     * identifier quote, a dollar-quoted body, a multi-line comment. `details` names which, and `position`
-     * points at where it began.
+     * A quote, dollar-quoted body or comment the driver's parser found unclosed; `position` is where it began.
      */
     UNCLOSED_TOKEN,
     /** An object's definition or current state does not permit what was asked of it. */
@@ -27,20 +23,10 @@ enum class StatementExceptionReason {
 }
 
 /**
- * Exception thrown when an error occurs during the parsing, planning, or execution of a SQL statement.
+ * The SQL itself is wrong: syntax, a missing or duplicate object, an ambiguous name, a type mismatch. The message
+ * points at [position] in the SQL where there is one.
  *
- * This exception covers various query-related errors such as syntax errors, undefined objects,
- * ambiguous references, and data type mismatches. If the database provides error positioning, 
- * this exception will format the original SQL query to visually indicate where the error occurred.
- *
- * Every reason here is about the statement itself, which is what [position] is the evidence of: whether the
- * server reported it or the driver's own parser did, there is somewhere in the SQL to point at.
- *
- * @property reason The categorized reason for the statement failure.
- * @property details Additional context or hints provided by the database regarding the error.
- * @property position The 1-based character position in the SQL string where the error occurred, if available.
- * @param sqlState The SQL state code returned by the database, if available.
- * @param serverErrorMessage The original error message from the database server, if available.
+ * @property position The 1-based character position of the fault.
  */
 class StatementException(
     val reason: StatementExceptionReason,

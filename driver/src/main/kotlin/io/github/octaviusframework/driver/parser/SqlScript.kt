@@ -1,52 +1,26 @@
 package io.github.octaviusframework.driver.parser
 
 /**
- * One statement out of a script, and where it stood in the text it was cut from.
+ * One statement of a script.
  *
- * @property sql The statement itself, without the `;` that ended it and without the whitespace around it.
- * Comments that fell inside it are kept - they cost nothing to send and removing them would move every
- * position after them.
- * @property offset Index in the original script of this statement's first character. The server reports an
- * error position against what it was sent, so a statement sent on its own has its errors numbered from its
- * own beginning; adding this puts that number back where the author can find it.
- * @property keyword The statement's first word, upper-cased, with whatever comments stand in front of it
- * stepped over - `COMMIT` for `-- why we do this
-COMMIT`. `null` where the statement opens with something
- * that is not a word: a quote, a dollar-quoted body, a parenthesis. Upper-cased because SQL keywords are
- * case-insensitive and comparing them as written is a bug waiting to happen.
+ * @property sql The statement, trimmed, without its `;`; comments inside it are kept.
+ * @property offset Where it starts in the script, to add to an error position the server reports.
+ * @property keyword Its first word past any comments, upper-cased, or `null` where it opens with something else.
  */
 data class SqlStatement(val sql: String, val offset: Int, val keyword: String?)
 
 /**
- * Cuts a script into the statements it is made of.
- *
- * PostgreSQL takes a whole script in one message and runs it inside an implicit transaction, which is what
- * is wanted right up until one of the statements is `CREATE INDEX CONCURRENTLY`, `VACUUM`, or anything else
- * the server refuses inside a transaction block. Those have to arrive one message at a time, and sending
- * them one at a time means knowing where each one ends.
- *
- * Nothing here parses SQL. A statement is the text between separators; whether the server will accept it is
- * the server's answer to give. The one place words are read at all is a standard-SQL function body, which is
- * not quoted and so cannot be skipped the way a dollar-quoted one is.
+ * Cuts a script into statements, for those the server refuses inside the implicit transaction of a script, such
+ * as `CREATE INDEX CONCURRENTLY`. Nothing is parsed beyond finding separators.
  */
 object SqlScript {
 
     /**
-     * Splits [sql] on the `;` that separate statements, and on no other `;`.
+     * The statements of [sql], split on every `;` outside quotes, dollar quotes, comments, parentheses and a
+     * `BEGIN ATOMIC ... END` body. Whitespace and comments alone are no statement.
      *
-     * A `;` does not separate anything when it stands inside `'...'`, inside `E'...'` where a backslash
-     * escapes what follows it, inside `"..."`, inside `$tag$...$tag$` - which is where a PL/pgSQL body keeps
-     * most of its semicolons - inside a `--` comment, inside a `/* */` comment nested to any depth, inside
-     * parentheses, where `CREATE RULE ... DO (a; b)` puts one legitimately, or inside the `BEGIN ATOMIC ...
-     * END` body of a `CREATE FUNCTION` or `CREATE PROCEDURE`.
-     *
-     * @param sql The script, one statement or many.
-     * @return The statements in the order they appear. A stretch holding nothing but whitespace and comments
-     * is not a statement and is not returned, so a trailing `;` adds nothing and a script of comments alone
-     * comes back empty.
      * @throws io.github.octaviusframework.driver.exception.StatementException `UNCLOSED_TOKEN` where a
-     * quote, dollar quote or block comment opens and never closes. The whole point of the walk is telling
-     * which `;` are separators, and past an unterminated construct none of them can be told apart.
+     * quote, dollar quote or block comment never closes.
      */
     fun split(sql: String): List<SqlStatement> {
         val statements = mutableListOf<SqlStatement>()
@@ -54,9 +28,7 @@ object SqlScript {
         var i = 0
         var start = 0
         var parenDepth = 0
-        // Where the first thing that makes this a statement rather than a gap between statements began.
-        // Whitespace and comments are neither, so it stays -1 across them - which answers both "is there a
-        // statement here at all" and "where does its first word start".
+        // Where the statement's first token began, -1 across whitespace and comments.
         var contentStart = -1
         val body = AtomicBody()
 
@@ -90,8 +62,7 @@ object SqlScript {
                 if (c == '(') {
                     parenDepth++
                 } else if (c == ')' && parenDepth > 0) {
-                    // Clamped rather than allowed to go negative: a script with an unbalanced `)` in it is
-                    // the server's to refuse, and a negative depth here would hide every separator after it.
+                    // Clamped: an unbalanced `)` is the server's to refuse, not a reason to hide later separators.
                     parenDepth--
                 }
                 if (!c.isWhitespace() && contentStart < 0) contentStart = i
@@ -133,18 +104,9 @@ object SqlScript {
 }
 
 /**
- * Whether the statement being walked stands inside a standard-SQL routine body, `BEGIN ATOMIC ... END`, where a
- * `;` ends a statement of the body and not of the script.
- *
- * Such a body is SQL the server parses rather than a string the scanner could step over, so this goes by words
- * instead, the way psql's own lexer does: in a statement that opens `CREATE [OR REPLACE] FUNCTION` or
- * `PROCEDURE`, a `BEGIN` at the top level opens a block, a `CASE` inside one opens another - it ends with `END`
- * as well - and an `END` closes one. A `RETURN` body has no block, so nothing opens and its `;` separates as
- * any other.
- *
- * Fed only the words outside parentheses: a `CASE ... END` inside them closes inside them too, so counting
- * neither half changes nothing. A word straight after a `.` or after `AS` is a name, whatever it spells -
- * `f.end`, `AS end` - and is not counted, where psql would count it.
+ * Whether the walk stands inside a `BEGIN ATOMIC ... END` body, counted by words as psql does: in a `CREATE
+ * FUNCTION` or `PROCEDURE`, `BEGIN` and `CASE` open a block and `END` closes one. Fed the words outside
+ * parentheses; a word after `.` or `AS` is a name and not counted.
  */
 private class AtomicBody {
     private val opening = ArrayList<String>(4)

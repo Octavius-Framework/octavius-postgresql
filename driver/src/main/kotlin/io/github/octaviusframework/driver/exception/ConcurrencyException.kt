@@ -2,9 +2,7 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
-/**
- * Categorizes the specific reason why a [ConcurrencyException] was thrown.
- */
+/** Which concurrency failure it was. */
 enum class ConcurrencyExceptionReason {
     /** A required lock could not be obtained. */
     LOCK_NOT_AVAILABLE,
@@ -16,13 +14,7 @@ enum class ConcurrencyExceptionReason {
     UNKNOWN
 }
 
-/**
- * Exception thrown when a transaction fails due to concurrency issues like deadlocks, lock unavailability, or serialization failures.
- *
- * @property reason The specific type of concurrency issue.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
- */
+/** A transaction lost to another: a deadlock, a lock not available, a serialization failure. Worth retrying. */
 class ConcurrencyException(
     val reason: ConcurrencyExceptionReason,
     sqlState: String,

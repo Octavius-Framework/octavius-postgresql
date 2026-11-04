@@ -10,16 +10,9 @@ import io.github.octaviusframework.driver.type.isKnownOid
 import kotlin.reflect.KClass
 
 /**
- * Entry point of the write conversion chain: hands a Kotlin value to the converters.
+ * Hands each bound value to the converters. One per execution, over its pinned [catalog].
  *
- * One of these belongs to each execution, over the [TypeCatalog] that execution pinned and whatever converters
- * the query registered for itself. It is what the parameter serializer calls for every value bound to a
- * statement.
- *
- * @param catalog The pinned catalog to resolve converters and codecs against.
- * @param localConverters Converters registered on the query itself, in registration order, or `null` where it
- *   registered none. Consulted ahead of the catalog's.
- * @param types The lookup handed to converters, reading the same pinned catalog.
+ * @param localConverters The query's own converters, in registration order, asked ahead of the catalog's.
  */
 internal class ParameterMapper(
     catalog: TypeCatalog,
@@ -29,11 +22,8 @@ internal class ParameterMapper(
     private val context = DefaultSerializationContext(catalog, localConverters, types)
 
     /**
-     * Converts a Kotlin value into something a codec can encode.
+     * Converts [source] for [expectedOid] into a value a codec encodes. Pass `0` if the OID is not known.
      *
-     * @param source The value being sent; `null` passes straight through.
-     * @param expectedOid The OID the server expects, or `0` when it is not known.
-     * @return A value a registered codec can encode, or `null`.
      * @throws MappingException
      *   `NO_CONVERTER_FOUND` if nothing claims the value and the target codec cannot accept its class,
      *   `CONVERSION_ERROR` if a converter failed.
@@ -50,24 +40,16 @@ internal class DefaultSerializationContext(
     override val types: TypeLookup
 ) : SerializationContext {
     /**
-     * Runs a value through the first converter that claims it.
-     *
-     * Where the target OID was not known and the converter named a default type for the value, the
-     * result is wrapped in [PgTyped] so the type reaches the server with it.
-     *
-     * A value nothing claims is returned untouched - correct for a scalar the codec already accepts.
-     * Where the target OID is known and its codec cannot accept that class, nothing downstream can
-     * either, so this fails here rather than one layer down as an encoding error: failing at this point
-     * is what keeps the attribute name or element index in the exception's `path`, since by the time the
-     * codec runs the structure the value sat in is gone.
+     * Runs [source] through the first converter that claims it, wrapping the result in [PgTyped] where the OID is
+     * unknown and the converter names a type. A value nothing claims goes on as it is, unless the known OID's
+     * codec cannot take it: that fails here, where the path still names it.
      */
     override fun convert(source: Any, expectedOid: Int, pathSegment: String?): Any {
         try {
             val converter = findConverterByClass(source::class, expectedOid)
             if (converter != null) {
                 var result = converter.convert(source, expectedOid, this)
-                // A PgContainer already carries its own OID, so wrapping it would only force
-                // the serializer to resolve a name it then discards in favour of containerOid.
+                // A PgContainer carries its own OID already.
                 if (result !is PgTyped && result !is PgContainer && !expectedOid.isKnownOid) {
                     val defaultType = converter.getDefaultTypeName(source::class, this)
                     if (defaultType != null) {
@@ -77,11 +59,7 @@ internal class DefaultSerializationContext(
                 return result
             }
 
-            // Nothing claimed the value. Passing it through untouched is right for a scalar the codec takes as it
-            // stands, but where the target OID is known and its codec cannot accept this class, nothing downstream
-            // can either. Failing here is what keeps the attribute name in the path - by the time the codec runs,
-            // the structure the value sat in is gone. The read direction reports the same mistake the same way,
-            // as MappingException(NO_CONVERTER_FOUND).
+            // Nothing claimed the value; fail here, while the path still names it, if its codec cannot take it.
             rejectIfCodecCannotAccept(source, expectedOid)
             return source
         } catch (e: MappingException) {
@@ -114,7 +92,7 @@ internal class DefaultSerializationContext(
     override fun findConverter(source: Any, expectedOid: Int): ParameterConverter<Any>? =
         findConverterByClass(source::class, expectedOid)
 
-    /** The query's own converters first, most recently registered first, then the catalog's. */
+    /** The query's converters, newest first, then the catalog's. */
     @Suppress("UNCHECKED_CAST")
     override fun findConverterByClass(sourceClass: KClass<*>, expectedOid: Int): ParameterConverter<Any>? {
         val local = localConverters

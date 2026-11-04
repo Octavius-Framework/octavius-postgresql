@@ -5,19 +5,10 @@ import java.nio.charset.StandardCharsets
 
 private val NO_BYTES = ByteArray(0)
 
-/**
- * [s] in UTF-8. The empty name of the unnamed statement and portal, which every query goes through, comes back without
- * being encoded, since encoding it builds a new empty array each time.
- */
+/** [s] in UTF-8, with the empty name every query uses held rather than encoded each time. */
 private fun utf8(s: String): ByteArray = if (s.isEmpty()) NO_BYTES else s.toByteArray(StandardCharsets.UTF_8)
 
-/**
- * Message sent to the backend to parse a prepared statement.
- *
- * @property statementName The name of the destination prepared statement (empty for unnamed).
- * @property query The query string to be parsed.
- * @property parameterTypes List of OIDs of the parameter data types.
- */
+/** `Parse`: [query] as the statement [statementName], its parameters declared as [parameterTypes]. */
 internal class ParseMessage(
     private val statementName: String,
     private val query: String,
@@ -38,14 +29,9 @@ internal class ParseMessage(
 }
 
 /**
- * Message sent to the backend to bind a prepared statement to a portal.
+ * `Bind`: the statement [statementName] with its parameters, as the portal [portalName].
  *
- * @property portalName The name of the destination portal (empty for unnamed).
- * @property statementName The name of the source prepared statement (empty for unnamed).
- * @property parameterCount The number of parameter values.
- * @property parameterValues Pre-serialized parameter values including their lengths.
- * @property parameterFormats The format codes for the parameters (0 for text, 1 for binary).
- * @property resultFormats The format codes for the result columns.
+ * @property parameterValues The serialized values, each behind its length.
  */
 internal class BindMessage(
     private val portalName: String,
@@ -86,12 +72,7 @@ internal class BindMessage(
     }
 }
 
-/**
- * Message sent to the backend to describe a statement or portal.
- *
- * @property targetType The type of object to describe ('S' for Statement, 'P' for Portal).
- * @property name The name of the statement or portal to describe.
- */
+/** `Describe` of the statement (`S`) or portal (`P`) [name]. */
 internal class DescribeMessage(private val targetType: Char, private val name: String) :
     FrontendMessage {
     override fun encode(out: PgOutputStream) {
@@ -105,12 +86,7 @@ internal class DescribeMessage(private val targetType: Char, private val name: S
     }
 }
 
-/**
- * Message sent to the backend to execute a portal.
- *
- * @property portalName The name of the portal to execute (empty for unnamed).
- * @property maxRows The maximum number of rows to return (0 for no limit).
- */
+/** `Execute` of [portalName], returning at most [maxRows] rows, `0` for all. */
 internal class ExecuteMessage(private val portalName: String, private val maxRows: Int = 0) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         val portalBytes = utf8(portalName)
@@ -123,9 +99,7 @@ internal class ExecuteMessage(private val portalName: String, private val maxRow
     }
 }
 
-/**
- * Message sent to the backend to synchronize the connection state and signal the end of a sequence of extended query messages.
- */
+/** `Sync`, ending an extended-query exchange. */
 internal class SyncMessage : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         out.writeByte('S'.code.toByte())
@@ -133,9 +107,7 @@ internal class SyncMessage : FrontendMessage {
     }
 }
 
-/**
- * Message sent to the backend to force it to flush its output buffer.
- */
+/** `Flush`, asking the server to send what it has. */
 internal class FlushMessage : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         out.writeByte('H'.code.toByte())
@@ -143,12 +115,7 @@ internal class FlushMessage : FrontendMessage {
     }
 }
 
-/**
- * Message sent to the backend to close a statement or portal.
- *
- * @property targetType The type of object to close ('S' for Statement, 'P' for Portal).
- * @property name The name of the statement or portal to close.
- */
+/** `Close` of the statement (`S`) or portal (`P`) [name]. */
 internal class CloseMessage(private val targetType: Char, private val name: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         val nameBytes = utf8(name)

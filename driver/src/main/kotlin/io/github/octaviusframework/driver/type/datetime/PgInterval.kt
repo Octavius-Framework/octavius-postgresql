@@ -8,16 +8,12 @@ import kotlinx.datetime.DateTimePeriod
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.microseconds
 
-/**
- * Represents a PostgreSQL interval type, which can be a finite period of time or infinite.
- */
+/** An `interval`, finite or infinite. */
 sealed interface PgInterval {
     /**
-     * Represents a finite PostgreSQL interval.
+     * A finite interval, in PostgreSQL's three fields.
      *
-     * @property time The time part of the interval in microseconds.
-     * @property days The number of days in the interval.
-     * @property months The number of months in the interval.
+     * @property time The time part, in microseconds.
      */
     data class Finite(
         val time: Long,
@@ -25,22 +21,14 @@ sealed interface PgInterval {
         val months: Int
     ) : PgInterval
 
-    /**
-     * Represents a PostgreSQL positive infinity interval.
-     */
+    /** `infinity`. */
     data object Infinity : PgInterval
 
-    /**
-     * Represents a PostgreSQL negative infinity interval.
-     */
+    /** `-infinity`. */
     data object MinusInfinity : PgInterval
 }
 
-/**
- * Converts this [PgInterval] to a Kotlinx [DateTimePeriod].
- *
- * @return The equivalent [DateTimePeriod].
- */
+/** This interval as a [DateTimePeriod]. */
 fun PgInterval.toDateTimePeriod(): DateTimePeriod = when (this) {
     Infinity -> DateTimePeriod.INFINITY
     MinusInfinity -> DateTimePeriod.MINUS_INFINITY
@@ -70,10 +58,9 @@ fun PgInterval.toDateTimePeriod(): DateTimePeriod = when (this) {
 }
 
 /**
- * Converts a Kotlinx [DateTimePeriod] to a [PgInterval].
+ * This period as a [PgInterval].
  *
- * @return The equivalent [PgInterval].
- * @throws IllegalArgumentException if the calendar fields or time units overflow during conversion.
+ * @throws IllegalArgumentException if the months or the time overflow.
  */
 fun DateTimePeriod.toPgInterval(): PgInterval = when (this) {
     DateTimePeriod.INFINITY -> Infinity
@@ -108,8 +95,9 @@ fun DateTimePeriod.toPgInterval(): PgInterval = when (this) {
 // ==========================================
 
 /**
- * Converts strictly. The interval cannot have days and months set,
- * because they have variable length in the calendar.
+ * This interval as a [Duration].
+ *
+ * @throws IllegalArgumentException if it has days or months, whose length varies.
  */
 fun PgInterval.toDurationExact(): Duration = when (this) {
     Infinity -> Duration.INFINITE
@@ -124,11 +112,7 @@ fun PgInterval.toDurationExact(): Duration = when (this) {
     }
 }
 
-/**
- * Converts this [Duration] strictly to a [PgInterval].
- * The resulting interval will solely have the [PgInterval.Finite.time] component set,
- * with [PgInterval.Finite.days] and [PgInterval.Finite.months] set to zero.
- */
+/** This duration as an interval of [PgInterval.Finite.time] alone. */
 fun Duration.toPgIntervalExact(): PgInterval = when {
     this == Duration.INFINITE -> Infinity
     this == -Duration.INFINITE -> MinusInfinity
@@ -147,8 +131,9 @@ private const val MICROS_PER_DAY = 86_400_000_000L
 private const val MICROS_PER_MONTH = 30 * MICROS_PER_DAY // 2,592,000,000,000L
 
 /**
- * Converts by flattening everything to microseconds, assuming (like PostgreSQL `justify_interval`):
- * 1 month = 30 days, 1 day = 24 hours.
+ * This interval as a [Duration], counting a month as 30 days and a day as 24 hours, as `justify_interval` does.
+ *
+ * @throws IllegalArgumentException if the microseconds overflow.
  */
 fun PgInterval.toDurationApproximate(): Duration = when (this) {
     Infinity -> Duration.INFINITE
@@ -166,10 +151,7 @@ fun PgInterval.toDurationApproximate(): Duration = when (this) {
     }
 }
 
-/**
- * Splits absolute time into months (30 days), days (24h) and the rest of the time,
- * according to the PostgreSQL approximation standard.
- */
+/** This duration as months of 30 days, days of 24 hours and the rest, as `justify_interval` splits it. */
 fun Duration.toPgIntervalApproximate(): PgInterval = when {
     this == Duration.INFINITE -> Infinity
     this == -Duration.INFINITE -> MinusInfinity

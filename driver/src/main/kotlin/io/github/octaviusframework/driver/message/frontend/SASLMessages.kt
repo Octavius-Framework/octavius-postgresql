@@ -3,9 +3,7 @@ package io.github.octaviusframework.driver.message.frontend
 import io.github.octaviusframework.driver.io.PgOutputStream
 import java.nio.charset.StandardCharsets
 
-/**
- * First client response in the SASL mechanism.
- */
+/** `SASLInitialResponse`, naming the mechanism. */
 internal class SASLInitialResponse(private val mechanism: String, private val clientFirstMessage: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         val mechBytes = mechanism.toByteArray(StandardCharsets.UTF_8)
@@ -22,9 +20,7 @@ internal class SASLInitialResponse(private val mechanism: String, private val cl
     }
 }
 
-/**
- * Next client response in the SASL mechanism (usually sending client-final-message).
- */
+/** `SASLResponse`, carrying the client-final-message. */
 internal class SASLResponse(private val clientFinalMessage: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         val dataBytes = clientFinalMessage.toByteArray(StandardCharsets.UTF_8)
@@ -36,14 +32,7 @@ internal class SASLResponse(private val clientFinalMessage: String) : FrontendMe
     }
 }
 
-/**
- * The password itself, in the clear, in answer to an `AuthenticationCleartextPassword` request.
- *
- * It shares the `p` tag with the SASL responses above because the tag says only "authentication
- * material"; which of them the server is reading is decided by the request it sent. Nothing here
- * protects the password - that is the connection's job, and the driver only sends this over one
- * that is encrypted.
- */
+/** The cleartext password, in answer to `AuthenticationCleartextPassword`; sent only over TLS. */
 internal class PasswordMessage(private val password: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         val passwordBytes = password.toByteArray(StandardCharsets.UTF_8)

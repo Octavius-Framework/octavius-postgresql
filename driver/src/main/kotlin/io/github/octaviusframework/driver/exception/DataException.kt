@@ -2,9 +2,7 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
-/**
- * Categorizes the specific reason why a [DataException] was thrown.
- */
+/** What was wrong with the value. */
 enum class DataExceptionReason {
     /** String, interval, or datetime truncation/overflow (22001, 22008, 22015). */
     DATA_TRUNCATION,
@@ -31,18 +29,11 @@ enum class DataExceptionReason {
 }
 
 /**
- * Exception thrown when an operation fails due to invalid data values during execution.
+ * A value the server could not take: too long, out of range, a division by zero, a malformed literal.
  *
- * Unlike syntax or definition errors, this occurs when the query structure is correct, 
- * but the runtime values (often parameters) cause an error. Examples include string truncation, 
- * numeric overflow, division by zero, or invalid text representation of a data type.
- *
- * @property reason The specific reason for the data error.
- * @property dbMessage The primary error message the database raised.
- * @property details Additional, human-readable details provided by the database.
- * @property where The call stack the error arose in, for one raised inside a trigger or function.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property dbMessage The server's message.
+ * @property details The server's detail.
+ * @property where The call stack, for an error raised inside a trigger or function.
  */
 class DataException(
     val reason: DataExceptionReason,

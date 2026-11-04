@@ -1,46 +1,24 @@
 package io.github.octaviusframework.driver.message.backend
 
-/**
- * Authentication response sent by the server (Tag 'R').
- */
+/** A message the server sends during authentication (tag `R`). */
 internal sealed interface AuthenticationMessage : BackendMessage {
-    /**
-     * Indicates that the authentication was successful.
-     */
+    /** The login succeeded. */
     object Ok : AuthenticationMessage
 
-    /**
-     * Indicates that the server requires a clear-text password.
-     */
+    /** The server asks for a cleartext password. */
     object CleartextPassword : AuthenticationMessage
 
-    /**
-     * Indicates that the server requires an MD5-encrypted password.
-     *
-     * @property salt The salt to use when encrypting the password.
-     */
+    /** The server asks for an MD5 password, which the driver refuses. */
     class MD5Password(val salt: ByteArray) : AuthenticationMessage
 
-    /**
-     * Indicates that the server requires SASL authentication.
-     *
-     * @property mechanisms List of SASL mechanisms supported by the server.
-     */
+    /** The server asks for SASL with one of [mechanisms]. */
     class SASL(val mechanisms: List<String>) : AuthenticationMessage
 
-    /**
-     * Contains the next step of SASL authentication data from the server.
-     *
-     * @property data The SASL challenge data.
-     */
+    /** The server's SASL challenge. */
     class SASLContinue(val data: ByteArray) : AuthenticationMessage
 
-    /**
-     * Contains the final step of SASL authentication data from the server.
-     *
-     * @property data The final SASL outcome data.
-     */
+    /** The server's final SASL message. */
     class SASLFinal(val data: ByteArray) : AuthenticationMessage
 
-    // Currently we support the above, the rest may throw exceptions in the parsing block.
+    // Any other request raises where it is parsed.
 }

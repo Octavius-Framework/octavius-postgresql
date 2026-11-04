@@ -3,13 +3,12 @@ package io.github.octaviusframework.driver.container
 import io.github.octaviusframework.driver.exception.MappingException
 
 /**
- * Represents a PostgreSQL range type (e.g., int4range, tsrange).
+ * A value of a range type, such as `int4range` or `tsrange`, as its codec reads and writes it.
  *
- * @property rangeOid OID of the range type.
- * @property elementOid OID of the underlying element type of the range bounds.
- * @property flags Bitmask flags representing the range properties (e.g., empty, inclusive/exclusive bounds).
- * @property lowerBound The lower bound value of the range, or null if infinite/unbounded.
- * @property upperBound The upper bound value of the range, or null if infinite/unbounded.
+ * @property elementOid OID of the bound type.
+ * @property flags The protocol's flag byte, which the `is…` properties read.
+ * @property lowerBound The lower bound, `null` where there is none.
+ * @property upperBound The upper bound, `null` where there is none.
  */
 class PgRange internal constructor(
     val rangeOid: Int,
@@ -20,7 +19,7 @@ class PgRange internal constructor(
 ) : PgContainer {
     override val containerOid: Int get() = rangeOid
 
-    /** The range contains nothing at all. All other flags are meaningless when this is set. */
+    /** The range contains nothing. The other flags mean nothing then. */
     val isEmpty: Boolean get() = (flags.toInt() and 0x01) != 0
 
     /** The lower bound is part of the range - `[` rather than `(` in PostgreSQL's own notation. */
@@ -42,14 +41,8 @@ class PgRange internal constructor(
     val isUpperNull: Boolean get() = (flags.toInt() and 0x40) != 0
 
     /**
-     * Returns the lower bound, cast to [T].
+     * Returns the lower bound, cast to [T]. An empty range, an unbounded side and a `NULL` bound all give `null`.
      *
-     * Empty, unbounded and `NULL` all mean there is no value to give back, and they are not
-     * distinguished here - declare [T] nullable to receive `null` for any of the three, or interrogate
-     * [isEmpty], [isLowerInfinite] and [isLowerNull] to tell them apart.
-     *
-     * @param T The expected bound type.
-     * @return The lower bound.
      * @throws MappingException `CONVERSION_ERROR` if there is no bound and [T] is not nullable, or the
      *   bound is not a [T].
      */
@@ -70,14 +63,8 @@ class PgRange internal constructor(
     }
 
     /**
-     * Returns the upper bound, cast to [T].
+     * Returns the upper bound, cast to [T]. An empty range, an unbounded side and a `NULL` bound all give `null`.
      *
-     * Empty, unbounded and `NULL` all mean there is no value to give back, and they are not
-     * distinguished here - declare [T] nullable to receive `null` for any of the three, or interrogate
-     * [isEmpty], [isUpperInfinite] and [isUpperNull] to tell them apart.
-     *
-     * @param T The expected bound type.
-     * @return The upper bound.
      * @throws MappingException `CONVERSION_ERROR` if there is no bound and [T] is not nullable, or the
      *   bound is not a [T].
      */
@@ -98,13 +85,7 @@ class PgRange internal constructor(
     }
 
     companion object {
-        /**
-         * Creates the empty range of a given range type - the one that contains nothing.
-         *
-         * @param rangeOid OID of the range type.
-         * @param elementOid OID of its bound type.
-         * @return An empty [PgRange].
-         */
+        /** The empty range of [rangeOid], whose bounds are of [elementOid]. */
         fun empty(rangeOid: Int, elementOid: Int): PgRange {
             return PgRange(
                 rangeOid = rangeOid,
@@ -116,23 +97,8 @@ class PgRange internal constructor(
         }
 
         /**
-         * Creates a range, packing the bound descriptions into the protocol's flag byte.
-         *
-         * The defaults produce PostgreSQL's own `[)` convention: lower inclusive, upper exclusive, and a
-         * bound left `null` treated as unbounded rather than as a `NULL` value. Pass `isLowerNull` or
-         * `isUpperNull` to mean the other thing. `Infinite` wins over `Null` where both are asked for.
-         *
-         * @param rangeOid OID of the range type.
-         * @param elementOid OID of its bound type.
-         * @param lowerBound The lower bound value, or `null` for none.
-         * @param upperBound The upper bound value, or `null` for none.
-         * @param isLowerInclusive Whether the lower bound is part of the range.
-         * @param isUpperInclusive Whether the upper bound is part of the range.
-         * @param isLowerInfinite Whether the range is unbounded below. Defaults to `lowerBound == null`.
-         * @param isUpperInfinite Whether the range is unbounded above. Defaults to `upperBound == null`.
-         * @param isLowerNull Whether the lower bound is present but `NULL`.
-         * @param isUpperNull Whether the upper bound is present but `NULL`.
-         * @return The constructed [PgRange].
+         * A range of [rangeOid]. The defaults give PostgreSQL's `[)`, and a `null` bound is unbounded unless
+         * `isLowerNull` or `isUpperNull` says it is a `NULL`; unbounded wins where both are asked for.
          */
         fun create(
             rangeOid: Int,

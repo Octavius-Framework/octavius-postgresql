@@ -1,43 +1,30 @@
 package io.github.octaviusframework.driver.registry
 
 /**
- * The type system as something to read: dictionaries, containers and OID resolution, and nothing that writes.
- *
- * This is what a converter is handed. A conversion has no business registering a codec, a converter or a type -
- * it is running inside an execution that pinned its catalog before the first byte went out, so a registration
- * made here could not affect the conversion it was made from, and would reach every other session on the
- * database instead. Registration lives on [TypeManager], which is reached from a session rather than from a
- * conversion; there is no way back to one from here.
- *
- * What it reads depends on where it came from: [TypeManager.pinnedTo] fixes it to one catalog for the length of
- * an execution, while the one [TypeManager] reads through follows whatever its database's holder publishes.
+ * The type system to read, which is what a converter is handed; registering is on [TypeManager]. The one a converter
+ * gets reads the catalog its execution pinned; the one a session holds follows the current catalog.
  */
 class TypeLookup internal constructor(
     private val catalogSource: () -> TypeCatalog,
     private val searchPathProvider: () -> List<String>
 ) {
-    /**
-     * Everything the driver knows about this database: dictionaries, converters and registrations, as one value.
-     */
+    /** Everything the driver knows about this database: dictionaries, converters and registrations. */
     val catalog: TypeCatalog get() = catalogSource()
 
-    /**
-     * The dictionary mapping PostgreSQL type names to their OIDs and vice versa.
-     */
+    /** Type names to OIDs and back. */
     val dictionary: TypeDictionary get() = catalog.dictionary
 
-    /**
-     * The dictionary maintaining [TypeCodec][io.github.octaviusframework.driver.codec.TypeCodec] implementations.
-     */
+    /** The codecs for this database's types. */
     val codecs: CodecDictionary get() = catalog.codecs
 
-    /**
-     * Factory for creating container types (like composites).
-     */
+    /** Builds composites, ranges and multiranges of a type named or given by OID. */
     val containers = ContainerFactory(this)
 
     /**
-     * Resolves an OID for a given type name, considering the current search path.
+     * The OID of a type, by name through the search path or in [schema].
+     *
+     * @throws io.github.octaviusframework.driver.exception.TypeException `TYPE_NOT_FOUND` if [typeName] is not in
+     *   [schema] or on the search path.
      */
     fun resolveOid(
         typeName: String,

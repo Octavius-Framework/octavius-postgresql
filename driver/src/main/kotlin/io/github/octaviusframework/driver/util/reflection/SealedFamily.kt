@@ -6,13 +6,8 @@ import kotlin.reflect.KClass
 private val sealedFamilies = ConcurrentHashMap<KClass<*>, Set<KClass<*>>>()
 
 /**
- * This class and, where it is sealed, every class below it - through sealed classes all the way down.
- *
- * A codec decodes to one concrete class, and a value is looked up by its own class: `PgInterval.Finite`, never
- * `PgInterval`. So what is registered under a sealed class is indexed under each of these, which keeps every
- * lookup an exact one. A class below one that is open rather than sealed cannot be listed, and is not.
- *
- * Cached for good, being asked again for every execution that carries converters of its own.
+ * This class and, where it is sealed, every class below it, through sealed classes only: what a converter under it
+ * is indexed by, so a lookup by a value's own class is exact. Cached for good.
  */
 internal fun KClass<*>.sealedFamily(): Set<KClass<*>> = sealedFamilies.getOrPut(this) {
     if (!isSealed) return@getOrPut setOf(this)

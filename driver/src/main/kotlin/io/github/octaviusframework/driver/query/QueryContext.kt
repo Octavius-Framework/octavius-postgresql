@@ -3,22 +3,13 @@ package io.github.octaviusframework.driver.query
 import io.github.octaviusframework.driver.util.formatDiagnosticValue
 
 /**
- * Context of a database operation execution.
+ * The query a failure happened in, on
+ * [OctaviusException.queryContext][io.github.octaviusframework.driver.exception.OctaviusException.queryContext].
  *
- * Contains all the information needed to reproduce or debug a failed query,
- * including both the high-level query and the low-level SQL sent to the database.
- *
- * Attached to an [OctaviusException][io.github.octaviusframework.driver.exception.OctaviusException] as
- * it propagates out of a query, and rendered into its `toString`. The two levels differ only for a named
- * query, where the statement is rewritten before it is sent; for a native query they are the same text.
- *
- * @property sql The statement as it was written, named parameters and all.
- * @property parameters The values as they were supplied — by name for a named query, by position as
- *   `"1"`, `"2"`, … for a native one.
- * @property dbSql The statement actually sent to the server, with names rewritten to `$n`.
- *   `null` where the failure happened before that rewriting.
- * @property dbParameters The values in the positional order they were bound in. `null` where the
- *   failure happened before binding.
+ * @property sql The statement as written.
+ * @property parameters The values as supplied: by name, or by position as `"1"`, `"2"`.
+ * @property dbSql The statement sent to the server, or `null` where the failure came first.
+ * @property dbParameters The values in the order they were bound, or `null` where the failure came first.
  */
 data class QueryContext(
     val sql: String,
@@ -31,9 +22,7 @@ data class QueryContext(
         val line = "=".repeat(width)
         val thinLine = "-".repeat(width)
 
-        // Rendered through the shared formatter rather than interpolated: a `bytea` parameter would
-        // otherwise print as an identity hash and a large `text` or `json` one would print in full,
-        // putting the whole value into whatever log this exception is written to.
+        // Through the shared formatter, so a large value does not reach the log whole.
         val paramsStr = if (parameters.isEmpty()) "none"
             else parameters.entries.joinToString("\n") { "${it.key} - ${formatDiagnosticValue(it.value)}" }
         val dbParamsStr = dbParameters

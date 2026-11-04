@@ -4,15 +4,12 @@ import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.StatementExceptionReason
 
 /**
- * Escapes a PostgreSQL identifier (e.g. table name, type name, channel name) by wrapping it in double quotes
- * and escaping any internal double quotes if it contains special characters.
+ * This string as a quoted identifier, its double quotes doubled.
  *
- * Also performs validation to ensure the identifier does not contain the NUL (\0) character,
- * which is invalid in PostgreSQL identifiers and will throw a [StatementException] if found.
+ * @throws StatementException if it holds a NUL character.
  */
 fun String.quoteAsPgIdentifier(): String {
-    // Always quote the identifier to match pgjdbc behavior and prevent case-folding issues.
-    // We add ~10% extra capacity to account for potential escaped quotes.
+    // Always quoted, which also stops case folding. Capacity allows for some escaped quotes.
     val capacity = 2 + (this.length + 10) / 10 * 11
 
     return buildString(capacity) {

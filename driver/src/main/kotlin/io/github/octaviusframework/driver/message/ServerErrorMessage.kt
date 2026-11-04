@@ -3,34 +3,17 @@ package io.github.octaviusframework.driver.message
 import io.github.octaviusframework.driver.message.backend.ErrorOrNoticeMessage
 
 /**
- * A publicly exposed data class containing all detailed fields provided by the PostgreSQL backend
- * when an error occurs.
+ * Every field of a server error, on
+ * [OctaviusException.serverErrorMessage][io.github.octaviusframework.driver.exception.OctaviusException.serverErrorMessage]
+ * of whatever the server raised.
  *
- * Reachable as [OctaviusException.serverErrorMessage][io.github.octaviusframework.driver.exception.OctaviusException.serverErrorMessage]
- * on any exception the server raised, and the place to look when the driver's own categorization is
- * not specific enough
- *
- * @property severity `ERROR`, `FATAL` or `PANIC`, always in English: it is read from the non-localized
- *   field, which every server the driver will talk to sends. Safe to compare against as a string.
- * @property localizedSeverity The same severity as the server translated it, which is what a non-English
- *   `lc_messages` changes. Fit for showing to a person, not for comparing against.
- * @property code The five-character SQLSTATE.
- * @property message The primary human-readable message.
- * @property detail Secondary detail carrying more about the problem.
- * @property hint A suggestion of what to do about it.
- * @property position The 1-based character position of the error in the submitted statement.
- * @property internalPosition The equivalent position within [internalQuery], for an error raised inside
- *   a statement the server generated itself.
- * @property internalQuery The server-generated statement the error arose in, such as the body of a
- *   PL/pgSQL function.
- * @property where The call stack the error arose in.
- * @property schema The schema of the object at fault, for the errors that name one.
- * @property table The table of the object at fault.
- * @property column The column at fault.
- * @property datatype The data type at fault.
- * @property constraint The constraint that was violated.
- * @property file The PostgreSQL source file that reported it - server internals, not your SQL.
- * @property line The line in that source file.
+ * @property severity `ERROR`, `FATAL` or `PANIC`, always in English, so safe to compare.
+ * @property localizedSeverity The severity in the server's `lc_messages`, for showing to a person.
+ * @property code The SQLSTATE.
+ * @property position The 1-based character position in the statement.
+ * @property internalQuery The server-generated statement it arose in, such as a PL/pgSQL body.
+ * @property where The call stack.
+ * @property file The PostgreSQL source file that reported it.
  * @property routine The PostgreSQL C function that reported it.
  */
 data class ServerErrorMessage(

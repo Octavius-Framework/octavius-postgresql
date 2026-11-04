@@ -1,35 +1,19 @@
 package io.github.octaviusframework.driver.type
 
-/**
- * Represents a PostgreSQL data type.
- *
- * This sealed class hierarchy maps to PostgreSQL's internal type system,
- * providing a structured representation of types, including their Object Identifier (OID),
- * name, and the schema they belong to.
- *
- * @property oid The Object Identifier (OID) of the type.
- * @property name The name of the type.
- * @property schema The schema in which the type is defined.
- */
+/** A PostgreSQL type: one subclass per kind, and one object each for the pseudo-types `record` and `void`. */
 sealed class PgType(
     open val oid: Int,
     open val name: String,
     open val schema: String,
 ) {
-    /**
-     * Represents a standard PostgreSQL base type (e.g., int4, text, varchar).
-     */
+    /** A base type: `int4`, `text`, `uuid`. */
     data class Base(
         override val oid: Int,
         override val name: String,
         override val schema: String
     ) : PgType(oid, name, schema)
 
-    /**
-     * Represents a PostgreSQL array type.
-     *
-     * @property elementOid The OID of the elements contained in the array.
-     */
+    /** An array type. */
     data class Array(
         override val oid: Int,
         override val name: String,
@@ -38,9 +22,9 @@ sealed class PgType(
     ) : PgType(oid, name, schema)
 
     /**
-     * Represents a PostgreSQL range type.
+     * A range type.
      *
-     * @property subtypeOid The OID of the subtype (the type of the bounds of the range).
+     * @property subtypeOid The OID of the bounds' type.
      */
     data class Range(
         override val oid: Int,
@@ -50,17 +34,12 @@ sealed class PgType(
     ) : PgType(oid, name, schema)
 
     /**
-     * Represents a PostgreSQL composite type (row type).
+     * A composite type: one declared with `CREATE TYPE ... AS`, or the row type of a table or view.
      *
-     * Every relation has one of these - a table, a view, a materialized view - carrying that relation's columns
-     * under the relation's own name, and [relationOid] is what ties the two together.
-     *
-     * @property attributes A map of attribute names to their respective OIDs, preserving declaration order.
-     * @property relationOid The OID of the relation this type describes (`pg_class.oid`), which for a type declared
-     *   with `CREATE TYPE ... AS (...)` is the entry PostgreSQL creates to hold its attributes.
-     * @property attributeNumbers The attribute number of each attribute, in the same order as [attributes]. Not the
-     *   index plus one: a dropped column keeps its number for good, leaving a hole that everything declared after it
-     *   sits behind.
+     * @property attributes Each attribute's type OID by name, in declaration order.
+     * @property relationOid The `pg_class.oid` this type describes.
+     * @property attributeNumbers Each attribute's number, in the order of [attributes]. A dropped column leaves a
+     *   gap.
      */
     data class Composite(
         override val oid: Int,
@@ -70,43 +49,27 @@ sealed class PgType(
         val relationOid: Int = 0,
         val attributeNumbers: List<Int> = emptyList()
     ) : PgType(oid, name, schema) {
-        /**
-         * A list of the OIDs of the attributes in the composite type, in declaration order.
-         */
+        /** The attributes' type OIDs, in declaration order. */
         val attributeOids: List<Int> = attributes.values.toList()
 
-        /**
-         * A list of the names of the attributes in the composite type, in declaration order.
-         */
+        /** The attribute names, in declaration order. */
         val attributeNames: List<String> = attributes.keys.toList()
 
-        /**
-         * A mapping from attribute name to its zero-based index in the composite type.
-         */
+        /** Each attribute's zero-based index, by name. */
         val nameToIndex: Map<String, Int> = run {
             val map = HashMap<String, Int>()
             attributes.keys.forEachIndexed { index, name -> map[name] = index }
             map
         }
 
-        /**
-         * Returns the name of the attribute carrying [attributeNumber], or `null` when this type has no attribute
-         * under that number - a dropped column's, a system column's, or any number at all for a type loaded
-         * without them.
-         *
-         * @param attributeNumber the attribute number to look up, as PostgreSQL numbers it.
-         */
+        /** The attribute numbered [attributeNumber], or `null` for a dropped or system column. */
         fun attributeNameByNumber(attributeNumber: Int): String? {
             val index = attributeNumbers.indexOf(attributeNumber)
             return if (index == -1) null else attributeNames[index]
         }
     }
 
-    /**
-     * Represents a PostgreSQL domain type.
-     *
-     * @property baseTypeOid The OID of the underlying base type of the domain.
-     */
+    /** A domain over the type [baseTypeOid]. */
     data class Domain(
         override val oid: Int,
         override val name: String,
@@ -115,9 +78,9 @@ sealed class PgType(
     ) : PgType(oid, name, schema)
 
     /**
-     * Represents a PostgreSQL enum type.
+     * An enum type.
      *
-     * @property values A list of the string values defined for the enum.
+     * @property values The labels, in their declared order.
      */
     data class Enum(
         override val oid: Int,
@@ -126,11 +89,7 @@ sealed class PgType(
         val values: List<String>
     ) : PgType(oid, name, schema)
 
-    /**
-     * Represents a PostgreSQL multirange type.
-     *
-     * @property rangeOid The OID of the underlying range type.
-     */
+    /** A multirange of the range type [rangeOid]. */
     data class Multirange(
         override val oid: Int,
         override val name: String,
@@ -138,14 +97,10 @@ sealed class PgType(
         val rangeOid: Int
     ) : PgType(oid, name, schema)
 
-    /**
-     * Represents the special PostgreSQL `record` pseudo-type.
-     */
+    /** The `record` pseudo-type. */
     data object Record : PgType(2249, "record", "pg_catalog")
 
-    /**
-     * Represents the special PostgreSQL `void` pseudo-type.
-     */
+    /** The `void` pseudo-type. */
     data object Void : PgType(2278, "void", "pg_catalog")
 }
 

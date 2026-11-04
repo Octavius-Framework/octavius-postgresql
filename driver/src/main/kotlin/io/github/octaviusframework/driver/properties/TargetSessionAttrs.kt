@@ -4,20 +4,16 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 
 /**
- * Which kind of server a connection settles for when several are listed, in `libpq`'s vocabulary and with its
- * meaning.
+ * Which kind of server to settle for among those listed, as `libpq` means it, read from what the server reports at
+ * login.
  *
- * A server's kind is read from what it reports at login - `in_hot_standby`, and for the two read/write modes
- * `default_transaction_read_only` too. A server that is not the kind asked for is logged out of, and the next one in
- * the list is tried.
- *
- * @property value The spelling used in a JDBC URL and by `libpq`.
+ * @property value The spelling in a URL and in `libpq`.
  */
 enum class TargetSessionAttrs(val value: String) {
     /** Any server that accepts the connection. The default. */
     ANY("any"),
 
-    /** A server whose sessions accept writes by default: not in hot standby, and `default_transaction_read_only` off. */
+    /** A server whose sessions accept writes by default: not in hot standby, `default_transaction_read_only` off. */
     READ_WRITE("read-write"),
 
     /** The converse of [READ_WRITE]: a server in hot standby, or one with `default_transaction_read_only` on. */
@@ -34,14 +30,9 @@ enum class TargetSessionAttrs(val value: String) {
 
     companion object {
         /**
-         * Parses a setting from its URL spelling, accepting the enum name as well.
+         * The setting [value] spells or names, case-insensitively, or [ANY] for `null`.
          *
-         * A stated setting that matches nothing is refused.
-         *
-         * @param value `any`, `read-write`, `read-only`, `primary`, `standby` or `prefer-standby`, or the
-         *   equivalent enum name; case-insensitive. `null` means the setting was not stated at all.
-         * @return The matching setting, or [ANY] when [value] is `null`.
-         * @throws InvalidOperationException `INVALID_ARGUMENT` if [value] is stated but unrecognized.
+         * @throws InvalidOperationException `INVALID_ARGUMENT` if [value] matches nothing.
          */
         fun of(value: String?): TargetSessionAttrs {
             if (value == null) return ANY

@@ -3,15 +3,9 @@ package io.github.octaviusframework.driver.exception
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 /**
- * Exception thrown when a generic database system error occurs.
+ * The server failed on its own account - out of disk or memory, an internal error - rather than over the query.
  *
- * This typically represents internal server errors, disk full errors, out of memory errors,
- * or other administrative failures originating from the database engine itself rather than
- * from user query mistakes.
- *
- * @property details The primary error message provided by the database system, with the SQLSTATE already in it.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property details The server's message, with the SQLSTATE in it.
  */
 class DatabaseSystemException(
     val details: String,

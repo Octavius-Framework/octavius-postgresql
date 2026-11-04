@@ -30,7 +30,7 @@ PostgreSQL identifies every type by an **OID** (Object Identifier). Built-in OID
 
 So the driver asks. On the first physical connection to a given database within the JVM, `GlobalCatalogStore.ensureLoaded` fires `CatalogLoader`, which reads the whole catalog in a **single** query. One round trip, paid by whoever connects first; every later connection to the same database reuses the result.
 
-The loader deliberately skips noise: composites belonging to `pg_catalog` and `information_schema`, and all pseudo-types except `void`, `record` and `_record`. It also leaves out every temporary schema, whose types belong to one session where the catalog belongs to all of them — see [the search path](#what-is-per-session-the-search-path) for what that means for a temporary table.
+The loader deliberately skips noise: composites belonging to `pg_catalog` and `information_schema`, and all pseudo-types except `void`, `record`, `_record` and `unknown`. It also leaves out every temporary schema, whose types belong to one session where the catalog belongs to all of them — see [the search path](#what-is-per-session-the-search-path) for what that means for a temporary table.
 
 What comes back is classified into a sealed `PgType` hierarchy:
 
@@ -252,9 +252,9 @@ PostgreSQL would find none, it is refused:
      round.
    * `$user` is the schema named after the session user, where there is one, so a path of `"$user", public` finds
      each user's own types ahead of the shared ones.
-3. A name the path does not reach is refused with `TypeException(TYPE_NOT_FOUND)`, even where only one schema has
-   it, and the refusal names the schemas that do: *"Type 'legio_status' is not on the search path [pg_catalog,
-   public], but schema 'imperium' has it. Name the schema, or put it on the search path."*
+3. A name the path does not reach is refused with `TypeException(TYPE_NOT_FOUND)`, and the refusal names the schemas
+   that have it: *"Type 'legio_status' is not on the search path [pg_catalog, public], but schema 'imperium' has it.
+   Name the schema, or put it on the search path."*
 
 So two sessions with different search paths — or one `"$user"` path under different users — can resolve the same type name to different OIDs, even though they share one catalog. A type in a schema off the path, an extension installed into `extensions` among them, is reached by naming the schema — at registration (`registerEnum<LegioStatus>(schema = "imperium")`) or in `withPgType` — or by putting the schema on the path.
 

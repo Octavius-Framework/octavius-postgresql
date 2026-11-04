@@ -3,27 +3,13 @@ package io.github.octaviusframework.driver.exception
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 /**
- * Exception thrown when a PL/pgSQL routine raises an error of its own, through `RAISE EXCEPTION`.
+ * A PL/pgSQL routine refused on purpose with `RAISE EXCEPTION` (P0001, or P0000). A `RAISE` with another
+ * `ERRCODE` arrives as the exception for that code.
  *
- * This is the database saying no on purpose: a business rule expressed where the data is, rather than a
- * routine that turned out to be broken. Those are [RoutineAssertionException] and are a separate type
- * precisely so the two can be handled apart.
- *
- * There is no reason enum here because there is nothing to tell apart. A plain `RAISE EXCEPTION` reports
- * `P0001`; `P0000` is reachable only by asking for it - `RAISE ... USING ERRCODE = 'plpgsql_error'` - so it
- * is another deliberate raise rather than an unclassified failure. Which one it was is [sqlState][OctaviusException.sqlState], and
- * what it was about is [dbMessage].
- *
- * `RAISE EXCEPTION ... USING ERRCODE` reaching further than `P0`, on the other hand, leaves this class
- * entirely: `ERRCODE = '23505'` is routed by the code it names and arrives as a
- * [ConstraintViolationException].
- *
- * @property dbMessage The primary error message the routine raised (the PostgreSQL MESSAGE field).
- * @property dbDetail Explicit DETAIL field provided by PostgreSQL.
- * @property hint Explicit HINT field provided by PostgreSQL.
- * @property where Call stack or context (WHERE field) of the PL/pgSQL execution.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property dbMessage The message the routine raised.
+ * @property dbDetail The server's detail.
+ * @property hint The server's hint.
+ * @property where The PL/pgSQL call stack.
  */
 class RoutineRaiseException(
     sqlState: String,

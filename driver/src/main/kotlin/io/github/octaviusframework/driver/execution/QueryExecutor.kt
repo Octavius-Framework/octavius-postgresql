@@ -17,12 +17,8 @@ import kotlin.concurrent.withLock
 private val logger = KotlinLogging.logger {}
 
 /**
- * Handles the low-level execution of PostgreSQL queries over the wire protocol.
- *
- * This executor manages communication with the database using both the Simple Query Protocol
- * (for utility statements) and the Extended Query Protocol (for parameterized DML and DQL).
- * It is responsible for parsing responses, managing the transaction state flag, and mapping
- * results back into usable domain objects.
+ * Runs statements on one connection: the simple protocol for unparameterized SQL, the extended protocol for the
+ * rest, with the `BEGIN` a transaction waits on sent ahead of its first statement.
  */
 internal class QueryExecutor(
     private val stream: PgStream,
@@ -36,52 +32,23 @@ internal class QueryExecutor(
     )
 
     private companion object {
-        /**
-         * The name every statement and every portal here goes out under.
-         *
-         * Nothing is prepared server-side and nothing outlives its exchange, so there is only ever
-         * one of each in flight on a connection and it needs no name to be told apart.
-         */
+        /** The name of every statement and portal: nothing outlives its exchange. */
         const val UNNAMED = ""
 
-        /**
-         * `[1]` - binary, for every parameter and every result column alike.
-         *
-         * A one-element list is how the protocol says "this format, for all of them", and it is
-         * held rather than built because `listOf(1)` at the call site is two allocations on every
-         * statement the driver executes.
-         */
+        /** Binary for every parameter and column, held so no statement allocates it. */
         val BINARY_FORMAT = listOf(1)
     }
 
-    /** Ties a log line to the backend this executor talks to. */
+    /** The backend process id every log line carries. */
     private val pid: String get() = "[PID: ${stream.processId}]"
 
-    /**
-     * Whether a statement that finds no transaction on the server opens one first.
-     *
-     * On for as long as auto-commit is off. Turning it off sends nothing, and neither `COMMIT` nor `ROLLBACK`
-     * begins the next transaction, so the `BEGIN` has to come from somewhere: from here, ahead of the first
-     * statement that finds the server idle. A transaction that never runs a statement is never sent at all.
-     */
+    /** Whether a statement that finds the server idle sends `BEGIN` first; on while auto-commit is off. */
     var beginsTransactions: Boolean = false
 
-    /**
-     * What the next `BEGIN` carries after it - `SET TRANSACTION`, `SET LOCAL` - or `null` for nothing.
-     *
-     * Terms belong to one transaction, so they go with the `BEGIN` that opens it, in a message right behind it
-     * and at no round trip of their own, and are dropped once it has gone. Whoever ends that transaction without a
-     * statement having begun it drops them too.
-     */
+    /** What the next `BEGIN` carries - `SET TRANSACTION`, `SET LOCAL` - dropped once it has gone. */
     var deferredTerms: String? = null
 
-    /**
-     * Notes a statement on its way out and returns the clock reading [traceDone] measures against.
-     *
-     * The clock is only read once the level is known to be on, so a statement running with tracing
-     * off pays a single flag check and nothing more - which matters here and nowhere else in the
-     * driver, this being the one method every query goes through.
-     */
+    /** Logs a statement at `trace` and returns the clock reading [traceDone] measures from; `0` with tracing off. */
     private fun traceStart(sql: String, params: Array<out Any?>): Long {
         if (!logger.isTraceEnabled()) return 0L
         logger.trace {
@@ -91,14 +58,7 @@ internal class QueryExecutor(
         return System.nanoTime()
     }
 
-    /**
-     * The parameter part of a traced statement's header line.
-     *
-     * Without [logParameterValues] this is a count and nothing more, because the values are the
-     * contents of your tables and a log file is the wrong place for them by default. With it, they
-     * are numbered to match the `$n` placeholders in the statement printed underneath, and each is
-     * truncated exactly as it would be inside an exception - the same renderer does both.
-     */
+    /** The parameters of a traced statement: their count, or with [logParameterValues] each `$n` truncated. */
     private fun describeParameters(params: Array<out Any?>): String {
         if (params.isEmpty()) return ""
         if (!logParameterValues) return " (${params.size} params)"
@@ -106,41 +66,18 @@ internal class QueryExecutor(
             .joinToString(", ", prefix = " (", postfix = ")")
     }
 
-    /**
-     * Closes the pair opened by [traceStart], reporting what the statement produced.
-     *
-     * Only reached when the statement succeeded: a failure carries its own SQL and parameters in
-     * the exception, so logging it here would print the same diagnostic twice.
-     *
-     * [outcome] is a lambda and this function is inline for one reason: passing the description as
-     * a plain `String` builds it at every call site whether anything will read it.
-     */
+    /** Logs what a successful statement produced and how long it took; [outcome] is built only when logged. */
     private inline fun traceDone(startedAt: Long, crossinline outcome: () -> String) {
         if (startedAt == 0L || !logger.isTraceEnabled()) return
         val elapsedNanos = System.nanoTime() - startedAt
         logger.trace { "$pid < ${outcome()} in ${formatMillis(elapsedNanos)}" }
     }
 
-    /**
-     * Renders a duration as milliseconds with three decimals, always.
-     *
-     * A single unit across every statement is what makes the column sortable and two lines
-     * comparable at a glance; switching to seconds once a query gets slow would mean reading the
-     * suffix before you can tell which of two numbers is bigger. Three decimals keep the sub-
-     * millisecond statements - most of them, on a local server - from all collapsing onto `0`.
-     *
-     * [Locale.ROOT] is not optional: the default locale decides the decimal separator.
-     */
+    /** Milliseconds with three decimals, in [Locale.ROOT] so the separator is always a dot. */
     private fun formatMillis(elapsedNanos: Long): String =
         String.format(Locale.ROOT, "%.3fms", elapsedNanos / 1_000_000.0)
 
-    /**
-     * Runs one exchange with the server: takes the connection, marks it busy, and releases it
-     * whatever happens.
-     *
-     * The busy mark is what makes a reentrant call fail cleanly instead of interleaving its
-     * messages into an exchange already in flight - the lock alone cannot, being reentrant.
-     */
+    /** Runs [block] as one exchange, under the lock and marked busy, so a reentrant call is refused. */
     private inline fun <T> exchange(block: () -> T): T = stream.lock.withLock {
         stream.beginExchange()
         try {
@@ -151,20 +88,11 @@ internal class QueryExecutor(
     }
 
     /**
-     * Writes the `BEGIN` a transaction is waiting on, if one is: auto-commit is off and the server's last
-     * `ReadyForQuery` said idle.
+     * Writes, without flushing, the `BEGIN` a transaction waits on, so it goes out with the statement. The terms
+     * follow in a message of their own: one the server cannot parse then fails the transaction rather than leave
+     * the statement to run outside one.
      *
-     * Nothing is flushed. The statement that needed it is written straight after and goes out in the same
-     * write, so the `BEGIN` costs no round trip of its own, and [receiveBegin] reads its answer ahead of the
-     * statement's.
-     *
-     * The terms go in a message of their own behind it rather than in the `BEGIN`'s. The server parses a whole
-     * message before running any of it, so a message it could not parse would never have begun the transaction -
-     * and the statement already on its way behind it would then run, and commit, outside one. Sent alone, the
-     * `BEGIN` has run by the time anything after it can fail, which leaves the transaction failed rather than
-     * never begun, and the statement refused.
-     *
-     * @return How many messages it went out as: none, one, or two with terms - each answered by a `ReadyForQuery`.
+     * @return How many messages went out - none, one, or two with terms - each answered by a `ReadyForQuery`.
      */
     private fun sendWaitingBegin(): Int {
         if (!beginsTransactions || stream.transactionStatus != 'I') return 0
@@ -175,15 +103,9 @@ internal class QueryExecutor(
     }
 
     /**
-     * Reads the answer to what [sendWaitingBegin] wrote, up to its last `ReadyForQuery`, and hands back the
-     * refusal if there was one - a term the server would not take.
-     *
-     * Read before anything of the statement's, which is what keeps the readers below unaware of it: the
-     * `BEGIN`'s `CommandComplete` would otherwise be the first one they saw. A refusal is returned rather than
-     * thrown, so that the statement's own answer - a refusal too, the transaction having failed - is read off
-     * the connection first; the caller throws this one in its place. A refused term leaves the transaction
-     * begun and failed, which is where the terms stop mattering; only a `BEGIN` that did not take at all keeps
-     * them for the next try.
+     * Reads the answer to [sendWaitingBegin], ahead of the statement's, and returns the error, if any, for the caller
+     * to throw once the statement's own answer is read. [deferredTerms] are dropped once the transaction has begun,
+     * and stay for the next try if it has not.
      *
      * @param messages What [sendWaitingBegin] returned.
      */
@@ -206,11 +128,7 @@ internal class QueryExecutor(
         return refusal
     }
 
-    /**
-     * Opens the transaction a `BEGIN` is waiting on, for the one caller that talks to the server without an
-     * exchange of this class: a `COPY`, whose transfer outlives any single exchange. This one waits for the
-     * answer, a round trip of its own, before the `COPY` goes out.
-     */
+    /** Sends the waiting `BEGIN` now and reads its answer, for a `COPY`, which starts outside an exchange. */
     fun beginWaitingTransactionNow() = exchange {
         val messages = sendWaitingBegin()
         if (messages == 0) return@exchange
@@ -218,32 +136,16 @@ internal class QueryExecutor(
         receiveBegin(messages)?.let { throw ExceptionTranslator.translate(it) }
     }
 
-    /**
-     * Uses Simple Query Protocol (Q).
-     * Intended for calls that do not return results or where results are ignored (e.g., SET TIME ZONE, BEGIN).
-     *
-     * Rows are read and dropped whatever [ignoreRows] says - the exchange has to reach
-     * [ReadyForQueryMessage] before this connection is usable again, and that means draining whatever the
-     * server sent. What [ignoreRows] governs is only whether their arrival is reported as a mistake.
-     */
+    /** Runs [sql] through the simple protocol, dropping any rows; they raise unless [ignoreRows]. */
     fun execute(sql: String, ignoreRows: Boolean = false) = exchange { simpleQuery(sql, ignoreRows, beginFirst = true) }
 
     /**
-     * Runs a statement that manages the connection or its transaction itself: `COMMIT`, `ROLLBACK`, a savepoint
-     * being rolled back to or released, a session setting, the validation probe.
-     *
-     * The one difference from [execute] is that no waiting `BEGIN` goes out first. Each of these either ends
-     * the transaction, only makes sense inside one already running, or is about the session rather than any
-     * transaction - so opening one for it would be at best a wasted round trip, and for a session setting
-     * would take the setting out of the transaction it was meant to reach.
+     * [execute] without a waiting `BEGIN` first, for what ends a transaction, needs one running, or is about the
+     * session: `COMMIT`, `ROLLBACK`, savepoints, session settings, the validation probe.
      */
     fun control(sql: String) = exchange { simpleQuery(sql, ignoreRows = false, beginFirst = false) }
 
-    /**
-     * The body of [execute] and [control], run inside an exchange one of them has taken.
-     *
-     * @param beginFirst Whether a waiting `BEGIN` goes out ahead of [sql] - off only for [control].
-     */
+    /** The body of [execute] and [control], inside their exchange. */
     private fun simpleQuery(sql: String, ignoreRows: Boolean, beginFirst: Boolean) {
         val startedAt = traceStart(sql, emptyArray())
 
@@ -285,17 +187,10 @@ internal class QueryExecutor(
     }
 
     /**
-     * Sends the opening of an Extended Query exchange: `Parse`, `Bind` and a `Describe` of the portal.
+     * Serializes the parameters, then writes a waiting `BEGIN`, `Parse`, `Bind` and `Describe`; the caller writes
+     * the `Execute`s. A parameter that cannot be encoded leaves nothing written.
      *
-     * Stops there because what follows is the one thing the three callers disagree on - a single
-     * `Execute` and a `Sync` for a result read whole, an `Execute` per batch for one streamed.
-     * Serializing the parameters is part of this: it fills [parameterWriter], which the `Bind` built
-     * here is the only reader of.
-     *
-     * A waiting `BEGIN` is written here too, between the two: after the parameters, so that a value which
-     * cannot be encoded leaves nothing in the buffer for the next exchange to send, and before the `Parse`.
-     *
-     * @return What [sendWaitingBegin] returned, for the caller to hand to [receiveBegin] once it has flushed.
+     * @return What [sendWaitingBegin] returned, for [receiveBegin] once the caller has flushed.
      */
     private fun sendParseBindDescribe(
         sql: String,
@@ -318,9 +213,9 @@ internal class QueryExecutor(
     }
 
     /**
-     * Uses Extended Query Protocol (Parse, Bind, Execute, Sync).
-     * Intended for DML (INSERT, UPDATE, DELETE). Expects no rows returned.
-     * Returns the number of updated rows.
+     * Runs a statement that returns no rows and returns how many it changed.
+     *
+     * @throws InvalidOperationException `UNEXPECTED_RESULT` if it returned rows.
      */
     fun executeUpdate(
         sql: String,
@@ -370,9 +265,7 @@ internal class QueryExecutor(
                         )
                     }
                 }
-                // Not guarded against a second error, because there cannot be a second one: an error
-                // anywhere in an extended-query exchange makes the server discard every message that
-                // follows it up to the Sync sent above, and answer that with ReadyForQuery.
+                // At most one error: the server skips everything up to the Sync after one.
                 is ErrorOrNoticeMessage -> errorResponse = msg
                 is ReadyForQueryMessage -> break
                 else -> { /* Ignore */ }
@@ -387,24 +280,13 @@ internal class QueryExecutor(
             throw executionError
         }
 
-        // Copied to a val first, and the copy is the whole point. `logger.trace {}` is an ordinary
-        // interface method taking a Function0, so [traceDone]'s message really is an object however
-        // inline the rest of it is - and a lambda capturing a mutable var cannot copy its value,
-        // since the var keeps moving. Kotlin's answer is to relocate the var into a Ref.LongRef on
-        // the heap, allocated *where the var is declared* - which is above the level check, not
-        // below it. Guarding the lambda therefore guards nothing: 24 bytes per statement had
-        // already been spent by the time anything asked whether tracing was on. A val is captured
-        // by value instead, so the only allocation left is the lambda, which the guard does cover.
+        // A val: the trace lambda capturing the var would box it on every statement, tracing or not.
         val affected = rowsAffected
         traceDone(startedAt) { "$affected rows affected" }
         return rowsAffected
     }
 
-    /**
-     * Uses Extended Query Protocol.
-     * Intended for DQL (SELECT).
-     * Returns a parsed list of rows (Row) immediately.
-     */
+    /** Runs a query and returns its rows. */
     fun query(
         sql: String,
         params: Array<out Any?> = emptyArray(),
@@ -413,11 +295,7 @@ internal class QueryExecutor(
         maxRows: Int = 0
     ): List<Row> = query(sql, params, parameterSerializer, mapper, maxRows) { it }
 
-    /**
-     * Uses Extended Query Protocol.
-     * Intended for DQL (SELECT).
-     * Returns a parsed list of elements using the provided transform function immediately.
-     */
+    /** Runs a query and returns each row through [transform], at most [maxRows] of them where it is not `0`. */
     fun <R> query(
         sql: String,
         params: Array<out Any?> = emptyArray(),
@@ -484,7 +362,7 @@ internal class QueryExecutor(
                     }
                 }
                 is CommandCompleteMessage -> { /* Ignored in DQL queries */ }
-                // Unguarded for the same reason as in executeUpdate(): one Sync, so at most one error.
+                // One Sync, so at most one error.
                 is ErrorOrNoticeMessage -> errorResponse = msg
                 is ReadyForQueryMessage -> break
                 else -> { /* Ignore */ }
@@ -503,10 +381,8 @@ internal class QueryExecutor(
     }
 
     /**
-     * Uses Extended Query Protocol.
-     * Intended for DQL (SELECT).
-     * Iterates over rows in batches of fetchSize and applies the given transform and block.
-     * A [fetchSize] of `0` is `Execute`'s own "no limit": one batch carrying the whole result.
+     * Runs a query and hands each row through [transform] to [block], fetching [fetchSize] rows at a time, or all
+     * of them under `0`.
      *
      * @throws InvalidOperationException `INVALID_ARGUMENT` if [fetchSize] is negative.
      */
@@ -519,9 +395,7 @@ internal class QueryExecutor(
         transform: (Row) -> R,
         block: (R) -> Unit
     ) {
-        // Checked before the lock rather than inside the exchange: taking it means waiting for
-        // whatever this connection is already running, and an argument that was never going to be
-        // accepted should not spend a long query finding that out.
+        // Before the lock, so a bad argument does not wait for a running query.
         if (fetchSize < 0) throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
             details = "fetchSize cannot be negative, was $fetchSize. State how many rows a batch should pull, " +
@@ -537,8 +411,7 @@ internal class QueryExecutor(
             var rowMetadata: RowMetadata? = null
             var errorResponse: ErrorOrNoticeMessage? = null
             var executionError: OctaviusException? = null
-            // Counted unconditionally rather than behind the trace flag: an increment costs nothing
-            // next to parsing the row it counts, and a branch per row would cost more.
+            // Counted whatever the log level: cheaper than a branch per row.
             var rowCount = 0L
 
             fetchLoop@ while (true) {
@@ -610,10 +483,7 @@ internal class QueryExecutor(
                 if (msg is ReadyForQueryMessage) {
                     break
                 } else if (msg is ErrorOrNoticeMessage) {
-                    // Unguarded for the reason executeUpdate() gives, and nothing is overwritten here
-                    // either: a fetch loop that ended on a server error left only ReadyForQuery
-                    // behind it, so an error reaching this loop is one that arrived after the loop
-                    // had already broken for a reason of its own - a block that threw.
+                    // At most one error here too: one reaching this loop came after a block threw.
                     errorResponse = msg
                 }
             }
@@ -622,7 +492,7 @@ internal class QueryExecutor(
             if (errorResponse != null) throw ExceptionTranslator.translate(errorResponse)
             if (executionError != null) throw executionError
 
-            // A val for the same reason as in executeUpdate(): capturing the counter itself would box it.
+            // A val, as in executeUpdate().
             val streamed = rowCount
             traceDone(startedAt) { "$streamed rows streamed" }
         }

@@ -15,31 +15,21 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
 /**
- * Everything the driver knows about a database's types, as one immutable value.
+ * Everything the driver knows about a database's types, as one immutable value. A registration replaces it whole,
+ * so no reader sees one half-applied, and each execution reads one catalog throughout.
  *
- * The catalog is what a registration produces and what a query reads. It is replaced wholesale rather than
- * edited, and [CatalogHolder] publishes it through a single `@Volatile` field, so one read of that field hands
- * back a set of dictionaries, converters and registrations that were all true at the same moment. That is the
- * point of keeping them in one object: a registration that touches two of them - `registerEnum` writes a
- * parameter converter, a result converter and [registeredEnums] - cannot be observed half-applied, because
- * there is no moment at which half of it is published.
- *
- * A query pins one of these for the whole of an execution. See
- * [Query][io.github.octaviusframework.driver.query.Query].
- *
- * @property dictionary The PostgreSQL types this catalog describes, by OID and by name.
- * @property codecs The codecs that encode and decode those types.
- * @property registeredComposites What every Kotlin class registered as a composite was registered as.
- * @property compositeClassByName The same mapping read the other way, from the PostgreSQL type name.
- * @property registeredEnums What every registered Kotlin enum was registered as.
+ * @property dictionary The types, by OID and by name.
+ * @property codecs The codecs for those types.
+ * @property registeredComposites The composite type each registered class maps onto.
+ * @property compositeClassByName [registeredComposites] the other way round.
+ * @property registeredEnums How each registered enum was registered.
  */
 class TypeCatalog internal constructor(
     val dictionary: TypeDictionary,
     val codecs: CodecDictionary,
     /**
-     * Result converters indexed by `supportedSourceClass` - and, where it is sealed, by every class below it -
-     * most recently registered first within a class. Converters registered under `Any::class` are kept in
-     * [anyResultConverters] instead.
+     * Result converters by `supportedSourceClass`, and by every class below a sealed one, newest first. Those for
+     * `Any::class` are in [anyResultConverters].
      */
     internal val resultConverters: Map<KClass<*>, List<ResultConverter<*, *>>>,
     /** Result converters that named `Any::class`, consulted once every class-specific one has declined. */
@@ -74,16 +64,13 @@ class TypeCatalog internal constructor(
     internal fun <T : Any> withAttachment(type: KClass<T>, value: T) =
         with(attachments = attachments + (type to value))
 
-    /**
-     * The catalog this one becomes when the database has been re-read: the types as they now are, and the
-     * codecs rebuilt against them.
-     */
+    /** This catalog over re-read types, with the codecs rebuilt against them. */
     internal fun withTypes(newTypes: Map<Int, PgType>): TypeCatalog {
         val newDictionary = TypeDictionary.build(newTypes)
         return with(dictionary = newDictionary, codecs = codecs.buildUpdated(newDictionary))
     }
 
-    /** The catalog this one becomes with [codec] registered, resolved against the types this one describes. */
+    /** This catalog with [codec] registered against its types. */
     internal fun withCodec(codec: TypeCodec<*>): TypeCatalog =
         with(codecs = codecs.withRegisteredCodec(codec, dictionary))
 
@@ -103,14 +90,9 @@ class TypeCatalog internal constructor(
         with(parameterConverters = prepend(converter, parameterConverters))
 
     /**
-     * The catalog this one becomes with [kClass] registered as the composite [qualifiedName].
-     *
-     * A name stands for one class and a class goes under one name, so taking either twice is refused: a composite
-     * read as `Any` becomes the class its name is registered for, and a class written where the server has not
-     * said the type goes out as the name it is registered under - with a second registration, whichever came
-     * last. The same class under the same name again is the registration it already is, and changes nothing.
-     * Names are compared as written, so `address` and `provincia.address` are two and can stand for two classes;
-     * [compositeClassFor] says which one a read as `Any` takes.
+     * This catalog with [kClass] registered as the composite [qualifiedName]. A name stands for one class and a
+     * class for one name; the same pair again changes nothing. Names compare as written, so `address` and
+     * `provincia.address` are two.
      *
      * @throws InvalidOperationException `INVALID_ARGUMENT` where the name or the class is taken otherwise.
      */
@@ -140,12 +122,8 @@ class TypeCatalog internal constructor(
     }
 
     /**
-     * The catalog this one becomes with [kClass] registered as [registration], and the two converters built from
-     * it put ahead of the rest.
-     *
-     * Refused on the terms [withComposite] refuses on, and also where the enum is registered under its name with
-     * other conventions: the labels it writes and reads are theirs, so a second pair could only replace the first.
-     * The same registration again changes nothing, converters included - they would be the ones already there.
+     * This catalog with [kClass] registered as [registration] and its two converters put first. Refused as in
+     * [withComposite], and for other conventions; the same registration again changes nothing.
      *
      * @throws InvalidOperationException `INVALID_ARGUMENT` where the name or the enum is taken otherwise, or the
      *   enum is registered with other conventions.
@@ -190,44 +168,20 @@ class TypeCatalog internal constructor(
         return this
     }
 
-    /**
-     * The class a composite of [type] reads as when `Any` is asked for: the one registered under the type's
-     * schema-qualified name, and failing that the one registered under its bare name.
-     */
+    /** The class a composite of [type] reads as under `Any`: registered under its qualified name, else its bare one. */
     internal fun compositeClassFor(type: PgType): KClass<*>? =
         compositeClassByName[QualifiedName(type.schema, type.name)] ?: compositeClassByName[QualifiedName("", type.name)]
 
 
-    /**
-     * The enum a value of [type] reads as when `Any` is asked for: the one registered under the type's
-     * schema-qualified name, and failing that the one registered under its bare name.
-     */
+    /** The enum a value of [type] reads as under `Any`: registered under its qualified name, else its bare one. */
     internal fun enumClassFor(type: PgType): KClass<*>? =
         enumClassByName[QualifiedName(type.schema, type.name)] ?: enumClassByName[QualifiedName("", type.name)]
 
-    /**
-     * What a layer built on the driver keeps about this database under [type], or `null` where it keeps nothing.
-     *
-     * The driver reads none of it. It is here so that it has the scope the driver's own registrations have: one
-     * per database, carried across a reload, dropped by [GlobalCatalogStore.removeCatalog] - and, read through
-     * `context.types.catalog`, pinned for an execution like everything else a converter sees.
-     * [TypeManager.attach] is what puts it here.
-     *
-     * @param type The class the value was attached under.
-     * @return The value, or `null`.
-     */
+    /** The value [TypeManager.attach] kept under [type], or `null`. */
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> attachment(type: KClass<T>): T? = attachments[type] as T?
 
-    /**
-     * Finds the converter that claims a decoded value, in the order a registration establishes.
-     *
-     * @param sourceClass The class of the decoded value.
-     * @param expectedType The Kotlin type wanted.
-     * @param sourceType The PostgreSQL type of the value.
-     * @param context Passed on to each candidate's `canConvert`.
-     * @return The first converter to claim the value, or `null` if none does.
-     */
+    /** The first converter to claim a decoded value of [sourceClass] as [expectedType], or `null`. */
     @Suppress("UNCHECKED_CAST")
     internal fun findResultConverter(
         sourceClass: KClass<*>,
@@ -249,14 +203,7 @@ class TypeCatalog internal constructor(
         return null
     }
 
-    /**
-     * Finds the converter that claims a value being sent.
-     *
-     * @param sourceClass The class of the value.
-     * @param expectedOid The OID the server expects, or `0` when it is not known.
-     * @param context Passed on to each candidate's `canConvert`.
-     * @return The first converter to claim the value, or `null` if none does.
-     */
+    /** The first converter to claim a value of [sourceClass] going out as [expectedOid] (`0` if unknown), or `null`. */
     @Suppress("UNCHECKED_CAST")
     internal fun findParameterConverter(
         sourceClass: KClass<*>,
@@ -284,12 +231,11 @@ class TypeCatalog internal constructor(
 private val KClass<*>.displayName: String get() = qualifiedName ?: simpleName ?: toString()
 
 /**
- * What an enum was registered as: the type it stands for, and the two conventions that map one side's names
- * onto the other's.
+ * How an enum was registered.
  *
- * @property qualifiedName The PostgreSQL enum type this class stands for.
- * @property pgConvention How the labels are written in PostgreSQL.
- * @property kotlinConvention How the constants are written in Kotlin.
+ * @property qualifiedName The PostgreSQL enum type.
+ * @property pgConvention How the labels are written.
+ * @property kotlinConvention How the constants are written.
  */
 data class PgEnumRegistration(
     val qualifiedName: QualifiedName,

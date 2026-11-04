@@ -7,8 +7,8 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
 private const val MAX_ARRAY_SIZE = Int.MAX_VALUE - 8
 
 /**
- * Optimized buffer for building binary packets for the database.
- * Allows reserving space for size and filling it later without memory copying.
+ * The growable buffer a codec writes its binary value into, big-endian, with room reserved for a length filled in
+ * afterwards.
  */
 class PgByteWriter(
     private val initialCapacity: Int = 1024,
@@ -19,9 +19,7 @@ class PgByteWriter(
     var position = 0
         private set
 
-    /**
-     * Grows the buffer so that [needed] more bytes fit.
-     */
+    /** Grows the buffer so that [needed] more bytes fit. */
     private fun ensureCapacity(needed: Int) {
         if (needed <= data.size - position) return
 
@@ -36,21 +34,13 @@ class PgByteWriter(
         data = data.copyOf(newCapacity.toInt())
     }
 
-    /**
-     * Appends one byte.
-     *
-     * @param b The byte to append.
-     */
+    /** Appends [b]. */
     fun writeByte(b: Byte) {
         ensureCapacity(1)
         data[position++] = b
     }
 
-    /**
-     * Appends a 32-bit integer, most significant byte first.
-     *
-     * @param i The value to append.
-     */
+    /** Appends [i], big-endian. */
     fun writeInt(i: Int) {
         ensureCapacity(4)
         data[position++] = (i shr 24).toByte()
@@ -59,11 +49,7 @@ class PgByteWriter(
         data[position++] = i.toByte()
     }
 
-    /**
-     * Appends a 16-bit integer, most significant byte first.
-     *
-     * @param s The value to append.
-     */
+    /** Appends [s], big-endian. */
     fun writeShort(s: Short) {
         ensureCapacity(2)
         val i = s.toInt()
@@ -71,11 +57,7 @@ class PgByteWriter(
         data[position++] = i.toByte()
     }
 
-    /**
-     * Appends a 64-bit integer, most significant byte first.
-     *
-     * @param l The value to append.
-     */
+    /** Appends [l], big-endian. */
     fun writeLong(l: Long) {
         ensureCapacity(8)
         data[position++] = (l shr 56).toByte()
@@ -88,50 +70,31 @@ class PgByteWriter(
         data[position++] = l.toByte()
     }
 
-    /**
-     * Appends a `float4` as its IEEE 754 bit pattern, which is the form PostgreSQL's binary format wants.
-     *
-     * @param f The value to append.
-     */
+    /** Appends [f] as its IEEE 754 bits. */
     fun writeFloat(f: Float) {
         writeInt(f.toRawBits())
     }
 
-    /**
-     * Appends a `float8` as its IEEE 754 bit pattern.
-     *
-     * @param d The value to append.
-     */
+    /** Appends [d] as its IEEE 754 bits. */
     fun writeDouble(d: Double) {
         writeLong(d.toRawBits())
     }
 
-    /**
-     * Appends [bytes] whole, with no length prefix — pair it with [reserveLengthInt] where the protocol
-     * wants one.
-     *
-     * @param bytes The bytes to append.
-     */
+    /** Appends [bytes]. */
     fun writeBytes(bytes: ByteArray) {
         ensureCapacity(bytes.size)
         bytes.copyInto(data, position)
         position += bytes.size
     }
 
-    /**
-     * Leaves 4 bytes of space for a number (e.g. packet size) and returns the index
-     * where this size should be written later.
-     */
+    /** Reserves 4 bytes for a length and returns where they are, for [fillLengthInt]. */
     fun reserveLengthInt(): Int {
         val marker = position
         writeInt(0) // placeholder
         return marker
     }
 
-    /**
-     * Calculates the number of bytes added since reserveLengthInt was called and writes this value at the marker.
-     * Does not include the 4 bytes of the marker itself (in accordance with many PG structures).
-     */
+    /** Writes at [markerIndex] how many bytes followed the 4 [reserveLengthInt] reserved. */
     fun fillLengthInt(markerIndex: Int) {
         val length = position - markerIndex - 4
         data[markerIndex] = (length shr 24).toByte()
@@ -140,37 +103,17 @@ class PgByteWriter(
         data[markerIndex + 3] = length.toByte()
     }
 
-    /**
-     * A copy of what has been written so far.
-     *
-     * A copy rather than [data] itself, which is the backing array and is both longer than the content and
-     * reused by the next packet.
-     *
-     * @return The bytes written, up to [position].
-     */
+    /** A copy of the bytes written so far; [data] is longer and reused. */
     fun toByteArray(): ByteArray {
         return data.copyOfRange(0, position)
     }
 
-    /**
-     * Moves the write cursor, for the caller that has to go back and rewrite something it already emitted.
-     *
-     * Nothing is cleared, so moving backwards leaves the bytes beyond [newPosition] in the buffer to be
-     * overwritten or abandoned.
-     *
-     * @param newPosition The offset to continue writing at.
-     */
+    /** Moves the write cursor to [newPosition], clearing nothing. */
     fun updatePosition(newPosition: Int) {
         position = newPosition
     }
 
-    /**
-     * Empties the buffer for the next packet, releasing the backing array if this one grew past
-     * `maxCapacity`.
-     *
-     * That release is the whole reason a cap exists: one oversized parameter would otherwise leave every
-     * later packet holding on to a buffer sized for it.
-     */
+    /** Empties the buffer, releasing a backing array that grew past `maxCapacity`. */
     fun clear() {
         position = 0
         if (data.size > maxCapacity) {
