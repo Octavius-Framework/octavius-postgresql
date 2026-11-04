@@ -1,4 +1,4 @@
-## Version 2.8.0 (v2.8.0)
+## Version 2.8.0 (v2.8.0) (2026-10-29)
 
 ### Driver
 
@@ -13,7 +13,7 @@
 - **[BREAKING]** `update()` on every builder and `rawQuery`, and after `asResult()` and `asStep()`, is now
   `executeUpdate()`. `db.update(table)`, which starts an `UPDATE`, keeps its name.
 
-## Version 2.7.0 (v2.7.0)
+## Version 2.7.0 (v2.7.0) (2026-10-28)
 
 ### Driver
 
@@ -74,7 +74,7 @@
 - A `.sql` migration that defines a function or procedure with a `BEGIN ATOMIC` body runs, where the scan took the
   body's closing `END` for a `COMMIT` and refused the file.
 
-## Version 2.6.0 (v2.6.0)
+## Version 2.6.0 (v2.6.0) (2026-10-21)
 
 ### Driver
 
@@ -182,7 +182,7 @@
 - **[BREAKING]** A login the server refuses is thrown under `dbResult`, `transactionResult` and `asResult`, as every
   session that could not be obtained is. A `Failure` branch that handled `53300` or `57P03` no longer sees them.
 
-## Version 2.5.0 (v2.5.0)
+## Version 2.5.0 (v2.5.0) (2026-10-11)
 
 ### Driver
 
@@ -234,7 +234,7 @@
 - **[BREAKING]** `SelectQuery.forUpdate(of, mode)` and `LockWaitMode` are gone, replaced by `locking(clause)`, which
   takes the locking clause as SQL.
 
-## Version 2.4.0 (v2.4.0)
+## Version 2.4.0 (v2.4.0) (2026-10-01)
 
 ### Driver
 
@@ -287,7 +287,7 @@
 - An array element whose converter fails is named by its index whatever the converter threw, not only on a
   `MappingException`.
 
-## Version 2.3.0 (v2.3.0)
+## Version 2.3.0 (v2.3.0) (2026-09-26)
 
 ### Driver
 
@@ -320,7 +320,7 @@
 
 - Ragged nesting is refused on the way out. `[[1,2],[3,4,5],[6]]` went out as `{{1,2},{3,4},{5,6}}`.
 
-## Version 2.2.0 (v2.2.0)
+## Version 2.2.0 (v2.2.0) (2026-09-25)
 
 ### Project
 
@@ -353,7 +353,7 @@
 
 - Reading a `dynamic_dto` as `DynamicDto` no longer needs its name registered.
 
-## Version 2.1.2 (v2.1.2)
+## Version 2.1.2 (v2.1.2) (2026-09-24)
 
 ### Driver
 
@@ -364,7 +364,7 @@
   had none of its own. Each terminal copies the query's converters now, so the rows answer as they did
   when they came back, and the next terminal is the one that sees the new converter.
 
-## Version 2.1.1 (v2.1.1)
+## Version 2.1.1 (v2.1.1) (2026-09-19)
 
 ### Driver
 
@@ -375,7 +375,7 @@
   `sqlState` still tells them apart: `23001` for `RESTRICT`, `23503` for `NO ACTION`. Code naming `RESTRICT_VIOLATION`
   no longer compiles; `FOREIGN_KEY_VIOLATION` replaces it.
 
-## Version 2.1.0 (v2.1.0)
+## Version 2.1.0 (v2.1.0) (2026-09-19)
 
 ### Driver
 
@@ -386,7 +386,7 @@
   `FOREIGN_KEY_VIOLATION`. This adds a constant to a public enum: an exhaustive `when` over
   `ConstraintViolationExceptionReason` with no `else` needs a branch for it.
 
-## Version 2.0.0 (v2.0.0) - Tabularium
+## Version 2.0.0 (v2.0.0) (2026-09-16) - Tabularium
 
 ### Driver
 
@@ -444,7 +444,7 @@
   `ParameterConverter`, `DeserializationContext`, `SerializationContext` - are unchanged and remain the way into the
   conversion chain.
 
-## Version 1.1.0 (v1.1.0)
+## Version 1.1.0 (v1.1.0) (2026-09-13)
 
 ### Driver
 
@@ -539,7 +539,7 @@
   `V2 add indexes` as the example where the code renders `2 add indexes`, the prefix being a marker in the
   file name rather than part of the version.
 
-## Version 1.0.0 (v1.0.0) - Renovatio Imperii
+## Version 1.0.0 (v1.0.0) (2026-09-03) - Renovatio Imperii
 
 ### Project
 
@@ -685,7 +685,7 @@
   `migrate()` that reaches it. Same `MIGRATION_EXCEPTION:CONFIGURATION`; only the frame it is raised from
   moves. Both stay `String` — where you hold a `MigrationVersion`, pass `canonical`.
 
-## Version 0.9.9 (v0.9.9)
+## Version 0.9.9 (v0.9.9) (2026-08-29)
 
 ### Project
 
@@ -834,7 +834,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
   was already at, and a release that ships migrations ahead of the code needing them.
 - Documented in [docs/migrations](docs/migrations/README.md).
 
-## Version 0.9.8 (v0.9.8)
+## Version 0.9.8 (v0.9.8) (2026-08-27)
 
 ### Driver and annotations
 
@@ -1000,7 +1000,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
   such a module would contain.
   See [`SessionProvider`](docs/client/transactions-failures.md#sessionprovider)
 
-## Version 0.9.7 (v0.9.7)
+## Version 0.9.7 (v0.9.7) (2026-08-21)
 
 #### Added
 
@@ -1130,7 +1130,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
   about a commit that did not happen being a claim about durability that is not true, while a rollback stays quiet, the
   server having discarded the transaction along with the connection
 
-## Version 0.9.6 (v0.9.6)
+## Version 0.9.6 (v0.9.6) (2026-08-17)
 
 #### Added
 
@@ -1167,7 +1167,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - A JDBC URL now overrides the `Properties` it is parsed against, consistently - the host and port were read from the URL's authority only if `info` had left them unset, so `getConnection("jdbc:octavius://prod:5432/db", info)` silently connected to whatever host `info` carried, while the database name had the opposite fault and replaced the one `info` supplied even when the URL named none. The URL now wins where it states something and leaves `info` alone where it does not. Parsing no longer fills in defaults either - an unstated host, port or database stays `null` until the connection factory resolves it
 - KDoc that described something the code no longer does
 
-## Version 0.9.5 (v0.9.5)
+## Version 0.9.5 (v0.9.5) (2026-08-15)
 
 #### Added
 
@@ -1210,7 +1210,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `PgSslUpgrader`
 - Naming conventions from `ReflectionCache`
 
-## Version 0.9.4 (v0.9.4)
+## Version 0.9.4 (v0.9.4) (2026-08-12)
 
 #### Added
 
@@ -1240,7 +1240,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `transactionStepIndex` and `withTransactionStep` from `QueryContext`
 - `docs/properties.md` - merged into `initialization.md`
 
-## Version 0.9.3 (v0.9.3)
+## Version 0.9.3 (v0.9.3) (2026-08-10)
 
 #### Added
 
@@ -1272,7 +1272,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `typeRegistry` from `PgComposite` and `PgRange`, along with `PgComposite.getAttributeType`
 - `typeRegistry` from `OctaviusQuery`
 
-## Version 0.9.2 (v0.9.2)
+## Version 0.9.2 (v0.9.2) (2026-08-08)
 
 #### Added
 
@@ -1285,7 +1285,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - The connection socket sets `tcpNoDelay` - no Nagle delay on small protocol messages
 - README wording
 
-## Version 0.9.1 (v0.9.1)
+## Version 0.9.1 (v0.9.1) (2026-08-08)
 
 #### Added
 
@@ -1319,7 +1319,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 - `OctaviusInternalException` - unreachable paths use `error()` now
 
-## Version 0.8.9 (v0.8.9)
+## Version 0.8.9 (v0.8.9) (2026-08-05)
 
 #### Added
 
@@ -1363,7 +1363,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - Container factory methods from `TypeManager`
 - `set` operator on `PgArray`
 
-## Version 0.8.1 (v0.8.1)
+## Version 0.8.1 (v0.8.1) (2026-08-01)
 
 #### Added
 
@@ -1382,7 +1382,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `fetchObject` returns `T?` and no longer throws on an empty result - `fetchObjectStrict` covers the old behaviour
 - Result-size exception messages unified across all terminal methods
 
-## Version 0.8.0 (v0.8.0)
+## Version 0.8.0 (v0.8.0) (2026-08-01)
 
 #### Added
 
@@ -1417,7 +1417,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 - `Exceptions.kt` monolith, `AuthException` and `UnsupportedFeatureException`
 
-## Version 0.7.0 (v0.7.0)
+## Version 0.7.0 (v0.7.0) (2026-07-31)
 
 #### Added
 
@@ -1445,7 +1445,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 - A blank identifier is quoted like any other name instead of being turned into an empty string
 
-## Version 0.6.2 (v0.6.2)
+## Version 0.6.2 (v0.6.2) (2026-07-26)
 
 #### Added
 
@@ -1456,7 +1456,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `DataRow` deserialization reuses per-connection buffers for the row bytes and the column offset/length arrays instead of allocating three arrays per row - the arrays in `DataRowMessage` are valid only until the next row is read, which is safe because `Row` parses every value eagerly
 - `PgInputStream.readFully` takes an optional length, so it can fill part of a larger buffer
 
-## Version 0.6.1 (v0.6.1)
+## Version 0.6.1 (v0.6.1) (2026-07-26)
 
 #### Added
 
@@ -1483,7 +1483,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 - Unused `toByteArrayBE` helpers and `setShortBE` from `ByteExtensions`
 
-## Version 0.6.0 (v0.6.0)
+## Version 0.6.0 (v0.6.0) (2026-07-25)
 
 #### Added
 
@@ -1506,7 +1506,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `isClosedFlag` on the connection is `@Volatile`
 - Version catalogs split - `gradle/spring.versions.toml` and `gradle/hikari.versions.toml` alongside `libs.versions.toml`, and the Hikari tests moved into the `hikari` module
 
-## Version 0.5.2 (v0.5.2)
+## Version 0.5.2 (v0.5.2) (2026-07-15)
 
 #### Added
 
@@ -1533,7 +1533,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `NumericCodec` reads `sign` and `dscale` as unsigned shorts, and `NaN` throws `OctaviusTypeException(VALUE_OUT_OF_RANGE)` instead of a bare `error()`
 - The SSL private key is decoded by dropping every PEM header line, so keys with headers other than `PRIVATE KEY`/`RSA PRIVATE KEY` load correctly
 
-## Version 0.5.1 (v0.5.1)
+## Version 0.5.1 (v0.5.1) (2026-07-13)
 
 #### Added
 
@@ -1564,7 +1564,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 
 - A socket timeout while polling for notifications no longer marks the connection as broken - only a timeout in the middle of a message does
 
-## Version 0.5.0 (v0.5.0)
+## Version 0.5.0 (v0.5.0) (2026-07-11)
 
 #### Added
 
@@ -1598,7 +1598,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - The enum converter resolves the type OID through the registry and checks the expected Kotlin class, instead of matching on the type name alone
 - The enum parameter converter accepts subclasses of an enum class (enum constants with bodies)
 
-## Version 0.4.1 (v0.4.1)
+## Version 0.4.1 (v0.4.1) (2026-07-06)
 
 #### Added
 
@@ -1632,7 +1632,7 @@ See [Transaction Plans](docs/client/plans.md) for the whole of it.
 - `ContainerField`
 
 
-## Version 0.4.0 (v0.4.0)
+## Version 0.4.0 (v0.4.0) (2026-07-02)
 
 First tagged release.
 
