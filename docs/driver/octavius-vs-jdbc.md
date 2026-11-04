@@ -10,11 +10,11 @@ It technically implements `java.sql.Driver` and `java.sql.Connection` — but it
 The reasoning: JDBC's core contracts (`ResultSet`, `Statement`) were designed for a different era of Java. They push developers toward stateful, mutable objects, manual index-based binding, and a constant risk of resource leaks if something isn't closed. 
 Octavius replaces all of that with a functional, Kotlin-first API — and even the driver's own name nods to reinvention: Gaius Octavius was the birth name of the man Rome came to know as Augustus.
 
-## The "Trojan Horse" Strategy (Connection Pools)
+## The Restored Republic (Connection Pools)
 
-Fittingly for a driver named after Augustus — who traced his lineage back to Aeneas, the Trojan refugee of legend — Octavius's JDBC compatibility layer borrows a trick from the same story. If the driver throws away most of JDBC, why implement `java.sql.Connection` at all?
+Augustus got his name from exactly this arrangement: in 27 BC he announced that he was handing the Republic back to the Senate and people of Rome, and the Senate voted him the name in return. He kept the forms because they were what the rest of Rome knew how to deal with. If the driver throws away most of JDBC, why implement `java.sql.Connection` at all?
 
-The answer is connection pooling. Production JVM applications lean on mature pools like **HikariCP**, and those pools — and [Spring's transaction management](spring-integration.md) on top of them — need standard JDBC surfaces to manage, validate, and recycle connections. So Octavius implements just enough JDBC — a gift left outside the gates — to get waved through:
+The answer is connection pooling. Production JVM applications lean on mature pools like **HikariCP**, and those pools — and [Spring's transaction management](spring-integration.md) on top of them — need standard JDBC surfaces to manage, validate, and recycle connections. So Octavius keeps just enough of JDBC for them to recognise:
 - Connection lifecycle (`close()`, `isClosed()`, `isValid()`)
 - Transaction control (`commit()`, `rollback()`, `setAutoCommit()`, isolation level, read-only mode, savepoints)
 - Network timeout handling

@@ -17,7 +17,7 @@ plugins {
 
 allprojects {
     group = "io.github.octavius-framework"
-    version = "2.8.0"
+    version = "2.9.0"
 
     repositories {
         mavenCentral()
@@ -105,9 +105,9 @@ subprojects {
                 }
                 developers {
                     developer {
-                        id.set("PolskiAnonim")
-                        name.set("PolskiAnonim")
-                        email.set("115878440+PolskiAnonim@users.noreply.github.com")
+                        id.set("CaesarAugustus27")
+                        name.set("CaesarAugustus27")
+                        email.set("115878440+CaesarAugustus27@users.noreply.github.com")
                         organization.set("Octavius Framework")
                         organizationUrl.set("https://github.com/Octavius-Framework")
                     }

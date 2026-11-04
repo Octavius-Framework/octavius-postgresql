@@ -32,7 +32,7 @@ internal class OctaviusDriver : Driver {
     }
 
     override fun getMajorVersion(): Int = 2
-    override fun getMinorVersion(): Int = 8
+    override fun getMinorVersion(): Int = 9
     override fun jdbcCompliant(): Boolean = false
     override fun getParentLogger(): Logger = throw InvalidOperationException(InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED)
 }
