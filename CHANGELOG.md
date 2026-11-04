@@ -1,59 +1,45 @@
-## Version 2.9.0 (v2.9.0)
+## Version 2.9.0 (v2.9.0) (2026-11-04)
 
 ### Driver
 
 #### Changed
 
-- **[BREAKING]** `noticeHandler` on `OctaviusProperties` and `OctaviusDataSource` takes a `NoticeHandler` already
-  built, shared by every connection opened with it, so a handler gets what it needs through its constructor instead
-  of from a global. The class name it took before is `noticeHandlerClassName`, there and in the URL, which cannot
-  carry an instance.
+- **[BREAKING]** `noticeHandler` on `OctaviusProperties` and `OctaviusDataSource` takes a `NoticeHandler` instance,
+  shared by every connection opened with it. The class name it took is now `noticeHandlerClassName`, there and in
+  the URL.
 
-- **[BREAKING]** A session used after `close()` raises `InvalidOperationException(RESOURCE_CLOSED)`, as a closed
-  statement, large object or `COPY` handle does, instead of `NetworkException(CONNECTION_CLOSED)`. Nothing happened to
-  the connection, which by then may be the next borrower's, and a `catch` meant for lost connections took a bug in the
-  calling code for a network failure. A session used after `abort()` still raises
-  `NetworkException(CONNECTION_CLOSED)`, because its connection is gone.
+- **[BREAKING]** A session used after `close()` raises `InvalidOperationException(RESOURCE_CLOSED)`, where it raised
+  `NetworkException(CONNECTION_CLOSED)`. After `abort()` it still raises that one.
 
-- **[BREAKING]** A session whose connection went back first, with `connection.close()` under a session still open,
-  refuses everything with `InvalidOperationException(RESOURCE_CLOSED)`, where only what goes through the pool's proxy
-  raised and `createNativeQuery` ran on the connection of whoever borrowed it next. Its `close()` leaves the
-  connection alone and logs a `warn`, where it rolled back that borrower's transaction.
-
-- A statement encodes its text once instead of twice, and the empty name of the unnamed statement and portal goes
-  out as the zero byte it is instead of being encoded to a new empty array each of the ten times a statement writes
-  it.
+- A statement allocates less, encoding its text once instead of twice.
 
 #### Fixed
 
-- A transaction that catches the exception of a `Propagation.NESTED` method and carries on raises
-  `NetworkException(CONNECTION_ABORTED)` at its commit when the connection is gone, also where a method that
-  joined inside the savepoint had failed and marked the transaction rollback-only. Rolling back to the savepoint on
-  a connection that is gone left that mark in place, and the commit raised Spring's `UnexpectedRollbackException`
-  ("marked as rollback-only") instead of saying the connection had gone. It now clears the mark as it does on a
-  connection that is still there.
+- A transaction that carries on past a failed `Propagation.NESTED` method raises
+  `NetworkException(CONNECTION_ABORTED)` at its commit when the connection is gone, where it could raise Spring's
+  `UnexpectedRollbackException`.
 
-- A notice handler class named by `noticeHandlerClassName` is looked up through the driver's own class loader on a
-  thread that has no context class loader, as it already was where the context class loader could not find it. On such a thread the connection failed
-  with an `InitializationException` caused by a `NullPointerException`.
+- A class named by `noticeHandlerClassName` is found on a thread with no context class loader, where the connection
+  failed with an `InitializationException` caused by a `NullPointerException`.
 
-- A server certificate that `VERIFY_CA` or `VERIFY_FULL` refuses - an issuer the trust store does not know, a host
-  name it does not carry - is `InitializationException(SSL_ERROR)`, as `exceptions.md` describes. The TLS library's
+- A server certificate that `VERIFY_CA` or `VERIFY_FULL` refuses is `InitializationException(SSL_ERROR)`, where
   `SSLHandshakeException` left the connection attempt as it was.
 
-- An unchecked exception a `DataSource` raises with nothing of the driver's in it leaves
-  `DataSource.getOctaviusSession()` as `InitializationException(CONNECTION_ERROR)` over it, as `exceptions.md` describes
-  and as it already left `OctaviusTemplate` and `OctaviusJdbcTransactionManager`. HikariCP's `IllegalArgumentException`
-  for a pool with no URL and Spring's `IllegalStateException` from an `AbstractRoutingDataSource` with no target for its
-  key came through as they were.
+- An unchecked exception from a `DataSource` leaves `DataSource.getOctaviusSession()` as
+  `InitializationException(CONNECTION_ERROR)`, as it leaves `OctaviusTemplate` and `OctaviusJdbcTransactionManager`,
+  where it came through as it was.
+
+- A session whose connection went back before it closed refuses everything with
+  `InvalidOperationException(RESOURCE_CLOSED)`, where `createNativeQuery` ran on the next borrower's connection.
+  Its `close()` leaves the connection alone and logs a `warn`, where it rolled back that borrower's transaction.
+
 
 ### Client
 
 #### Added
 
 - `toCountQuery()` on a `select` returns a query counting the rows it matches across every page, the total a paged
-  list shows beside the page. The query is counted whole as a subquery, so a grouped one counts its groups, and
-  `ORDER BY`, `LIMIT`, `OFFSET` and the locking clause are left out of it.
+  list shows beside the page.
 
 ## Version 2.8.0 (v2.8.0) (2026-10-29)
 
