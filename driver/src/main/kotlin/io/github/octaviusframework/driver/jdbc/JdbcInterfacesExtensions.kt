@@ -93,7 +93,8 @@ fun DataSource.getOctaviusSession(username: String, password: String): OctaviusS
 // Connection
 /**
  * Opens a session over this connection, which has to unwrap to an [OctaviusConnection]; one a pool already took
- * back is refused.
+ * back is refused. Close the session before the connection goes back: a session left behind refuses everything, and
+ * its close leaves the connection alone.
  *
  * @param ownsConnection Whether closing the session closes the connection. Pass `false` where something else
  * gives it back, such as Spring's `DataSourceUtils`: closing then only undoes the session's state, and a

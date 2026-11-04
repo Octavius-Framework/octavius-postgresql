@@ -91,8 +91,8 @@ interface OctaviusSession : OctaviusSessionOperations, AutoCloseable {
     /**
      * Undoes the session's state on its connection and gives the connection up, back to its pool or closed.
      * Anything asked of the session afterwards raises
-     * [NetworkException][io.github.octaviusframework.driver.exception.NetworkException]; a second close does
-     * nothing.
+     * [InvalidOperationException][io.github.octaviusframework.driver.exception.InvalidOperationException]
+     * `RESOURCE_CLOSED`; a second close does nothing.
      */
     override fun close()
 

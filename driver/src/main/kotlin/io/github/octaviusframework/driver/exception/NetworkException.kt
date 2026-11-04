@@ -9,7 +9,7 @@ enum class NetworkExceptionReason {
     CONNECTION_ERROR,
     /** A read or a connect timed out. */
     CONNECTION_TIMEOUT,
-    /** The connection or session was already closed here. */
+    /** The connection was already closed here, or the session aborted. */
     CONNECTION_CLOSED,
     /** The server closed the connection. */
     CONNECTION_CLOSED_BY_PEER,

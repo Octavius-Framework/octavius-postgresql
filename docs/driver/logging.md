@@ -242,6 +242,7 @@ caught, or a call it made for you - because there it reaches nobody at all. Thos
 | A session was closed with a `COPY` still in flight                 | `warn`  |
 | Auto-commit could not be restored after a successful commit        | `warn`  |
 | A listed server belongs to another cluster than the type catalog   | `warn`  |
+| A session was closed after its connection had gone back            | `warn`  |
 | A `NoticeHandler` you configured threw                             | `error` |
 | A listed server was passed over — with why                         | `debug` |
 | `isValid()` answered `false` — with the reason it did              | `debug` |
@@ -250,14 +251,15 @@ caught, or a call it made for you - because there it reaches nobody at all. Thos
 | A network timeout could not be restored after a probe or poll loop | `debug` |
 | A socket refused to close, or `Terminate` could not be sent        | `trace` |
 
-The first five are at their levels because somebody has to see them. The first three `warn` lines are a connection on
+The first six are at their levels because somebody has to see them. The first three `warn` lines are a connection on
 its way out with the reason held nowhere else: a pool evicting one reports that it went away and nothing more -
 whether the session could not reset it or was closed with a transfer still open - and a scope whose commit landed
 before the connection dropped tells the caller nothing at all - deliberately, since the work is in the database and
 raising there would read as a transaction that failed. The fourth is a server
 [passed over](initialization.md#one-catalog-for-the-list) every time it is reached: while another in the list answers
-nothing fails, so nothing else would ever say that one of them is never used. The `error` is your own code, and
-nothing else in the process will mention it.
+nothing fails, so nothing else would ever say that one of them is never used. The fifth is a session closed after its
+connection went back: what the session left on the connection stays there, and `close()` does not raise. The `error`
+is your own code, and nothing else in the process will mention it.
 
 ## What never reaches the log
 

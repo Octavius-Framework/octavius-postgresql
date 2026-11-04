@@ -42,6 +42,17 @@ class SessionLifecycleIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `should say the stream broke on the call after it broke`() {
+        openSession { socketTimeout = 1 }.use { session ->
+            assertFailsWith<NetworkException> { session.createNativeQuery("SELECT pg_sleep(2)").fetchRows() }
+
+            val next = assertFailsWith<NetworkException> { session.createNativeQuery("SELECT 1") }
+
+            assertEquals(NetworkExceptionReason.CONNECTION_ERROR, next.reason)
+        }
+    }
+
+    @Test
     fun `should abort session`() {
         val session = openSession()
 

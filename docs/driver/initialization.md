@@ -205,7 +205,7 @@ val pool = HikariDataSource(HikariConfig().apply {
 
 Nothing is set by name and nothing is coerced, so every accessor is usable at its real type and the caveats above do not apply — `sslMode` included. The compiler checks the configuration, which the string forms cannot. In Kotlin this is the route worth reaching for first; `dataSourceClassName` earns its place where the configuration has to come from a properties file or from Spring's `spring.datasource.hikari.data-source-properties`.
 
-Closing a session obtained from a pool returns its connection to the pool rather than shutting it down.
+Closing a session obtained from a pool returns its connection to the pool rather than shutting it down. Anything asked of the session afterwards is refused with `InvalidOperationException(RESOURCE_CLOSED)`, and so it is if the connection went back first, with `connection.close()` under a session still open. The session's own `close()` then leaves the connection alone, because it may be the next borrower's by now, so whatever the session left on it stays there: close the session first.
 
 There is no reason to change the pool's own auto-commit setting from its default (`true`): switching auto-commit costs this driver no round trip, so a pool that turns it off saves nothing. It only means every session borrowed from it is inside a transaction, and one closed without committing has its work rolled back — see [Transactions](transactions.md#manual-control).
 

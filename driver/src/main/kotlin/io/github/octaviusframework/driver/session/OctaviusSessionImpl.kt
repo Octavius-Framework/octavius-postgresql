@@ -2,6 +2,8 @@ package io.github.octaviusframework.driver.session
 
 import io.github.octaviusframework.driver.concurrent.OctaviusDispatchers
 import io.github.octaviusframework.driver.copy.CopyManager
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
 import io.github.octaviusframework.driver.exception.SQLExceptionWrapper
@@ -43,11 +45,15 @@ internal class OctaviusSessionImpl(
         !ownsConnection && octaviusConnection.transactionState != TransactionState.IDLE
 
     /**
-     * Whether [close] or [abort] has run. [octaviusConnection] may already be the next borrower's, and only this
-     * keeps a stale session off it.
+     * Whether [close] or [abort] has run. [octaviusConnection] may already be the next borrower's, and this keeps a
+     * stale session off it.
      */
     @Volatile
     private var sessionClosed: Boolean = false
+
+    /** Whether [abort] was called. The connection is gone then, where after [close] it may well be fine. */
+    @Volatile
+    private var aborted: Boolean = false
 
     override val typeManager: TypeManager = TypeManager(octaviusConnection.catalogHolder) { octaviusConnection.getTypeLookupOrder() }
         get() { checkOpen(); return field }
@@ -70,13 +76,40 @@ internal class OctaviusSessionImpl(
             return octaviusConnection.transactionState
         }
 
-    /** Refuses anything asked of a session already given up, as a closed connection. */
+    /**
+     * Refuses anything asked of a session already given up. After [abort] that is a connection that is gone, and
+     * otherwise a closed handle, over a connection that may be fine and already the next borrower's.
+     */
     private fun checkOpen() {
-        if (sessionClosed) throw NetworkException(
+        if (aborted) throw NetworkException(
             NetworkExceptionReason.CONNECTION_CLOSED,
-            details = "This session has been closed; its connection has gone back to the pool or been discarded",
+            details = "This session was aborted and its connection discarded",
             sqlState = "08003"
         )
+        if (sessionClosed) throw InvalidOperationException(
+            InvalidOperationExceptionReason.RESOURCE_CLOSED,
+            "This session has been closed; its connection has gone back to the pool or been discarded"
+        )
+        if (connectionTakenBack()) throw InvalidOperationException(
+            InvalidOperationExceptionReason.RESOURCE_CLOSED,
+            "The connection under this session went back before the session was closed, and may be the next borrower's by now"
+        )
+    }
+
+    /**
+     * Whether the [rawConnection] a pool handed out was closed while the [octaviusConnection] behind it stayed open:
+     * given back, with this session still holding on to it.
+     */
+    private fun connectionTakenBack(): Boolean {
+        // Asked only of one still alive: isClosed latches a broken connection, and what is asked next would no
+        // longer say what broke it.
+        if (octaviusConnection.isClosedFlag || octaviusConnection.stream.isBroken) return false
+        return try {
+            rawConnection.isClosed
+        } catch (_: SQLException) {
+            // One that will not say whether it is closed is not one to run on.
+            true
+        }
     }
 
     /** The backend process id every log line carries. */
@@ -118,7 +151,7 @@ internal class OctaviusSessionImpl(
 
     /**
      * Runs [block] on the JDBC connection and raises a `SQLException` as the driver's exception in its chain, or as
-     * a [NetworkException] where it has none, such as a pool proxy's over a connection it took back.
+     * a [NetworkException] where it has none, such as a pool proxy's over a connection it evicted.
      */
     private inline fun <T> unwrapSqlException(block: () -> T): T {
         checkOpen()
@@ -207,6 +240,12 @@ internal class OctaviusSessionImpl(
     }
 
     override fun abort() {
+        aborted = true
+        discardConnection()
+    }
+
+    /** Gives up the session and aborts its connection, so a pool evicts it. */
+    private fun discardConnection() {
         // Before the abort, which may raise.
         sessionClosed = true
         try {
@@ -222,20 +261,23 @@ internal class OctaviusSessionImpl(
     override fun close() {
         if (sessionClosed) return
         try {
-            if (octaviusConnection.isClosed || octaviusConnection.stream.isBroken) {
+            if (connectionTakenBack()) {
+                // Not this session's to touch any more: what is on the connection may be the next borrower's.
+                logger.warn { "$pid Session closed after its connection had gone back; what it left on the connection stays there" }
+            } else if (octaviusConnection.isClosed || octaviusConnection.stream.isBroken) {
                 // Broken underneath, so the pool has to evict it.
-                abort()
+                discardConnection()
             } else if (octaviusConnection.stream.copyInProgress) {
                 // Evicted rather than cancelled: cancelling a COPY OUT reads the rest of the export on this thread.
                 logger.warn { "$pid Session closed with a COPY still in progress; the connection is aborted rather than reset" }
-                abort()
+                discardConnection()
             } else {
                 try {
                     resetConnectionState()
                 } catch (e: Exception) {
                     // Evicted rather than given back with the leftovers; this line says why.
                     logger.warn(e) { "$pid Could not reset connection state on close; aborting the connection instead" }
-                    abort()
+                    discardConnection()
                     return
                 }
                 // A connection someone else owns is theirs to give back.

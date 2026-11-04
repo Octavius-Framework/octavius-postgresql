@@ -9,6 +9,17 @@
   of from a global. The class name it took before is `noticeHandlerClassName`, there and in the URL, which cannot
   carry an instance.
 
+- **[BREAKING]** A session used after `close()` raises `InvalidOperationException(RESOURCE_CLOSED)`, as a closed
+  statement, large object or `COPY` handle does, instead of `NetworkException(CONNECTION_CLOSED)`. Nothing happened to
+  the connection, which by then may be the next borrower's, and a `catch` meant for lost connections took a bug in the
+  calling code for a network failure. A session used after `abort()` still raises
+  `NetworkException(CONNECTION_CLOSED)`, because its connection is gone.
+
+- **[BREAKING]** A session whose connection went back first, with `connection.close()` under a session still open,
+  refuses everything with `InvalidOperationException(RESOURCE_CLOSED)`, where only what goes through the pool's proxy
+  raised and `createNativeQuery` ran on the connection of whoever borrowed it next. Its `close()` leaves the
+  connection alone and logs a `warn`, where it rolled back that borrower's transaction.
+
 - A statement encodes its text once instead of twice, and the empty name of the unnamed statement and portal goes
   out as the zero byte it is instead of being encoded to a new empty array each of the ten times a statement writes
   it.
