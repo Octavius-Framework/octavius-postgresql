@@ -25,13 +25,14 @@ internal class ResultMapper(
     /**
      * Converts [source] to [expectedType]. A value no converter claims passes only if it already is one.
      *
+     * @param pathSegment Added to the path of a failure: the column being read.
      * @throws MappingException
      *   `REQUIRED_ATTRIBUTE_MISSING` if [source] is `null` and [expectedType] is not nullable,
      *   `NO_CONVERTER_FOUND` if nothing can produce [expectedType],
      *   `CONVERSION_ERROR` if a converter failed or returned the wrong type.
      */
-    fun <T> deserialize(source: Any?, expectedType: KType, sourceType: PgType): T {
-        return context.convert(source, expectedType, sourceType)
+    fun <T> deserialize(source: Any?, expectedType: KType, sourceType: PgType, pathSegment: String? = null): T {
+        return context.convert(source, expectedType, sourceType, pathSegment)
     }
 }
 

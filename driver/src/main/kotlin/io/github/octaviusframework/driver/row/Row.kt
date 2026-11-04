@@ -51,16 +51,10 @@ class Row internal constructor(
      *
      * @throws MappingException if the column cannot be mapped to [targetType].
      */
-    @Suppress("UNCHECKED_CAST")
     fun <T> get(index: Int, targetType: KType): T {
         val raw = getRaw(index)
         val column = metadata.getColumn(index)
-        try {
-            return resultMapper.deserialize(raw, targetType, sourceType = column.type) as T
-        } catch (e: OctaviusException) {
-            e.path.add(column.name)
-            throw e
-        }
+        return resultMapper.deserialize(raw, targetType, column.type, column.name)
     }
 
     /**
