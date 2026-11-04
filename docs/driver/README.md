@@ -36,7 +36,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Add the Dependency](quickstart.md#1-add-the-dependency) — Gradle coordinates for the driver and Hikari
 - [Establish a Connection](quickstart.md#2-establish-a-connection) — First session, with and without a pool
 - [Execute a Query](quickstart.md#3-execute-a-query) — Rows, objects, and a first transaction
-- [The "Trojan Horse" Strategy](octavius-vs-jdbc.md#the-trojan-horse-strategy-connection-pools) — Why `java.sql.Connection` is implemented at all
+- [The Restored Republic](octavius-vs-jdbc.md#the-restored-republic-connection-pools) — Why `java.sql.Connection` is implemented at all
 - [What Is Explicitly Unsupported](octavius-vs-jdbc.md#what-is-explicitly-unsupported) — `PreparedStatement`, `ResultSet`, batching, LOBs, metadata
 - [What Answers Quietly Instead of Throwing](octavius-vs-jdbc.md#what-answers-quietly-instead-of-throwing) — Calls a pool makes that must not fail
 - [Migration Map](octavius-vs-jdbc.md#migration-map) — JDBC idiom on the left, Octavius on the right
