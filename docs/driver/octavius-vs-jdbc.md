@@ -130,7 +130,7 @@ One row in that map has no counterpart at all, and it is worth a paragraph of it
 
 What you give up is plan reuse. Parsing and planning happen on every execution, which is real work for a trivial statement in a tight loop — and where that loop is the problem, fewer round trips through [`UNNEST`](bulk-writes.md) or [`COPY`](copy.md) buy more than a cached plan would.
 
-How much work is [measured rather than argued](performance.md#what-not-preparing-costs): **19.6 µs a statement**, taken with pgjdbc against itself, its own server-side prepare switched on and then off, on a primary-key lookup chosen so the figure would come out as large as it can. Octavius lands on pgjdbc's unprepared figure, inside its interval, so the 19 µs it is behind the prepared one are the feature.
+How much work is [measured rather than argued](performance.md#what-not-preparing-costs): **19.6 µs a statement**, taken with pgjdbc against itself, its own server-side prepare switched on and then off, on a primary-key lookup chosen so that planning would take a large share of the query. Octavius lands on pgjdbc's unprepared figure, inside its interval, so the 19 µs it is behind the prepared one are the feature.
 
 What a cache brings with it is the other half of the trade:
 

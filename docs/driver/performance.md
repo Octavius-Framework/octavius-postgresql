@@ -71,7 +71,7 @@ The two pgjdbc rows are the controlled half of it: one driver, one table, one me
 
 Octavius lands on the unprepared row: nominally 0.3 µs below it, inside each other's intervals. The same lookup through the same driver, in [the client's `ClientOverheadBenchmark`](../client/performance.md#what-the-client-costs), came in at 47.7 ± 0.6 in the same run — overlapping it too, while also parsing named parameters on every call. So of the 19 µs between Octavius and the prepared row, the feature is all this run can see.
 
-**It is a ceiling rather than a typical case.** A primary-key lookup against a warm 10 000-row table is close to the cheapest statement PostgreSQL can be asked to run, so parsing and planning take the largest share of it they are ever going to take. What the feature saves is a fixed cost per statement, not a proportion of one: against a query doing 2 ms of real work it is about 1%, and against a database one network hop away — half a millisecond gone before the server has read anything — under 4%. What moves it back up is planning that is expensive in itself, many joins or a heavily partitioned table, where the planner's work grows and the executor's need not.
+**It is a high case rather than a typical one.** A primary-key lookup against a warm 10 000-row table is close to the cheapest statement PostgreSQL can be asked to run, so parsing and planning take a share of it they rarely reach outside a query with many joins. What the feature saves is a fixed cost per statement, not a proportion of one: against a query doing 2 ms of real work it is about 1%, and against a database one network hop away — half a millisecond gone before the server has read anything — under 4%. What moves it up is planning that is expensive in itself, many joins or a heavily partitioned table, where the planner's work grows and the executor's need not.
 
 Reproduce with `./gradlew :benchmarks:jmh -Pjmh="PointLookupBenchmark"`. The same pair, measured through a whole
 data-access stack rather than through the drivers alone, comes out at
@@ -187,8 +187,8 @@ Single-row inserts allocate 2.4× more — 6.33 MB against 2.59 MB — a wider g
 
 * **Object mapping ties with `pgjdbc`** — the path most applications spend their time on.
 * **Not preparing statements costs ~20 µs a statement** — measured with pgjdbc against itself, server-side prepare
-  switched on and off, on a primary-key lookup chosen so that the figure would be the largest share of a query it can
-  be. About 1% of a statement that does 2 ms of work.
+  switched on and off, on a primary-key lookup chosen so that planning would take a large share of the query. About 1%
+  of a statement that does 2 ms of work.
 * **`UNNEST` bulk writes are 3.6× faster than classic JDBC batching** and tie with pgjdbc's rewrite optimization, while
   remaining usable for `UPDATE` and `DELETE`, where that optimization does not apply.
 * **Array decoding costs ~18% for being general** — every element goes through the machinery that also maps composites

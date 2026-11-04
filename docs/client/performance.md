@@ -115,7 +115,7 @@ has no mode in which it would. Nothing else — not the mapper, not the client l
 once that one property is held still.
 
 [`PointLookupBenchmark`](../driver/performance.md#what-not-preparing-costs) measures the same feature between the
-two drivers alone in this run, at a factor of 1.70. It is also a ceiling rather than a typical case, for the
+two drivers alone in this run, at a factor of 1.70. It is also a high case rather than a typical one, for the
 reason given there: what a prepared statement saves is a fixed cost per statement, and this is the cheapest
 statement there is.
 
