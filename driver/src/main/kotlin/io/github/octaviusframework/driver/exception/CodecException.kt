@@ -3,21 +3,13 @@ package io.github.octaviusframework.driver.exception
 import io.github.octaviusframework.driver.util.formatDiagnosticValue
 import kotlin.reflect.KClass
 
-/**
- * Represents the action (encoding or decoding) during which a codec error occurred.
- */
+/** Whether a codec was encoding or decoding. */
 enum class CodecAction { ENCODING, DECODING }
 
 /**
- * Exception thrown when encoding or decoding a value to/from a PostgreSQL representation fails.
+ * A codec failed to encode or decode a value; the codec's own failure is the `cause`.
  *
- * @property action Indicates whether the failure happened during encoding or decoding.
- * @property value The value that failed to process.
- * @property name The PostgreSQL type name associated with the operation, if known.
- * @property schema The PostgreSQL type schema associated with the operation, if known.
- * @property oid The PostgreSQL OID associated with the operation, if known.
- * @property kotlinClass The Kotlin class associated with the operation, if known.
- * @param cause The underlying exception that caused this failure.
+ * @property name The PostgreSQL type's name.
  */
 class CodecException(
     val action: CodecAction,

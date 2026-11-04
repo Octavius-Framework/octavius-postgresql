@@ -5,10 +5,9 @@ import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.type.PgType
 
 /**
- * Represents a composite structure (e.g., row of a specific type) loaded from the database.
+ * A value of a composite type, its attributes as their codecs read them.
  *
- * @property type The composite type definition.
- * @property fields Array containing the values of the fields in this composite structure.
+ * @property fields The attribute values, in declaration order.
  */
 class PgComposite internal constructor(
     val type: PgType.Composite,
@@ -21,14 +20,9 @@ class PgComposite internal constructor(
         get() = type.attributeNames
 
     /**
-     * Returns the attribute at [index], cast to [T].
+     * Returns the attribute at zero-based [index], cast to [T]. In `val id: Int = composite[0]` the expected type
+     * fixes [T].
      *
-     * Also written `composite[0]`, where the expected type is what fixes [T] - `val id: Int = composite[0]`.
-     * The counterpart of `set`.
-     *
-     * @param T The expected attribute type. Declare it nullable to accept a SQL `NULL`.
-     * @param index Zero-based index in declaration order.
-     * @return The attribute value.
      * @throws MappingException `COLUMN_NOT_FOUND` if [index] is outside this composite's attributes,
      *   `CONVERSION_ERROR` if the value is `null` under a non-nullable [T], or is not a [T].
      */
@@ -58,10 +52,8 @@ class PgComposite internal constructor(
     }
 
     /**
-     * Resolves an attribute name to its zero-based index.
+     * The zero-based index of the attribute [columnName].
      *
-     * @param columnName The attribute name, as declared in the database.
-     * @return The zero-based index.
      * @throws MappingException `COLUMN_NOT_FOUND` if this composite has no such attribute.
      */
     fun getColumnIndex(columnName: String): Int {
@@ -74,11 +66,8 @@ class PgComposite internal constructor(
     }
 
     /**
-     * Sets the attribute at [index]. The value is converted when the composite is sent, not here, so
-     * nothing is checked against the attribute's type at this point.
+     * Sets the attribute at [index]. Its type is checked only when the composite is sent.
      *
-     * @param index Zero-based index in declaration order.
-     * @param newValue The value to store.
      * @throws MappingException `COLUMN_NOT_FOUND` if [index] is outside this composite's attributes.
      */
     operator fun set(index: Int, newValue: Any?) {
@@ -92,8 +81,6 @@ class PgComposite internal constructor(
     /**
      * Sets the attribute named [columnName].
      *
-     * @param columnName The attribute name, as declared in the database.
-     * @param newValue The value to store.
      * @throws MappingException `COLUMN_NOT_FOUND` if this composite has no such attribute.
      */
     operator fun set(columnName: String, newValue: Any?) {
@@ -101,15 +88,9 @@ class PgComposite internal constructor(
     }
 
     /**
-     * Returns the attribute named [name], cast to [T].
+     * Returns the attribute named [name], cast to [T]. In `val name: String = composite["cognomen"]` the expected
+     * type fixes [T].
      *
-     * Also written `composite["cognomen"]`, where the expected type is what fixes [T] - and its
-     * nullability with it, as on [Row][io.github.octaviusframework.driver.row.Row]:
-     * `val name: String = composite["cognomen"]` refuses a `NULL`. The counterpart of `set`.
-     *
-     * @param T The expected attribute type. Declare it nullable to accept a SQL `NULL`.
-     * @param name The attribute name, as declared in the database.
-     * @return The attribute value.
      * @throws MappingException `COLUMN_NOT_FOUND` if there is no such attribute, `CONVERSION_ERROR` if
      *   the value is `null` under a non-nullable [T], or is not a [T].
      */
@@ -123,10 +104,8 @@ class PgComposite internal constructor(
     }
 
     /**
-     * Returns the PostgreSQL OID of the attribute at [index].
+     * The type OID of the attribute at [index].
      *
-     * @param index Zero-based index in declaration order.
-     * @return The attribute's type OID.
      * @throws MappingException `COLUMN_NOT_FOUND` if [index] is outside this composite's attributes.
      */
     fun getAttributeOid(index: Int): Int {
@@ -139,10 +118,8 @@ class PgComposite internal constructor(
     }
 
     /**
-     * Returns the PostgreSQL OID of the attribute named [name].
+     * The type OID of the attribute named [name].
      *
-     * @param name The attribute name, as declared in the database.
-     * @return The attribute's type OID.
      * @throws MappingException `COLUMN_NOT_FOUND` if this composite has no such attribute.
      */
     fun getAttributeOid(name: String): Int {

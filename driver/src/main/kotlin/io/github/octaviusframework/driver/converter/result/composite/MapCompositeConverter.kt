@@ -24,18 +24,7 @@ internal object MapCompositeConverter : ResultConverter<PgComposite, Map<String,
     }
 }
 
-/**
- * Every attribute of this composite, keyed by name, each one converted to [valueType].
- *
- * The loop both map-producing composite converters run. Nested values go through
- * [DeserializationContext.convert] rather than being read out by hand, which is what puts the attribute's
- * name on the `path` of anything raised below it - and what makes the recursion in [compositesAsMaps] fall
- * out of the value type rather than having to be written.
- *
- * @param valueType The Kotlin type each attribute is converted to.
- * @param context The context to convert nested values through.
- * @return The attributes, in the order the type declares them.
- */
+/** Every attribute by name, in declaration order, each converted to [valueType] through [context]. */
 internal fun PgComposite.attributesAsMap(valueType: KType, context: DeserializationContext): Map<String, Any?> {
     val result = mutableMapOf<String, Any?>()
     for ((index, attributeName) in attributeNames.withIndex()) {

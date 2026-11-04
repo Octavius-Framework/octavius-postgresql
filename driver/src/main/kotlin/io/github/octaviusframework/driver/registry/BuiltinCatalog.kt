@@ -19,15 +19,8 @@ import io.github.octaviusframework.driver.converter.result.row.ReflectionRowConv
 import io.github.octaviusframework.driver.converter.result.standard.JsonElementConverter
 
 /**
- * The catalog the driver starts out with, before a database has said anything: the codecs it ships, the types
- * those codecs name, and the converters that map them.
- *
- * The dictionary is derived from the codecs rather than read, because the query that reads the catalog is itself
- * a result whose columns have to be described, and until it returns these are the only types there are to
- * describe them with. Every entry is replaced the moment the real catalog arrives.
- *
- * This is the whole of what "built in" means, in one list, kept away from [CatalogHolder] - which has no
- * business knowing that a converter exists.
+ * The catalog before a database has been read: the codecs the driver ships, their types, and the built-in converters.
+ * The types describe the query that reads the real ones.
  */
 internal fun builtinCatalog(): TypeCatalog {
     val codecs = CodecDictionary.createWithBuiltins()

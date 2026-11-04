@@ -8,38 +8,21 @@ import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import javax.sql.DataSource
 
 /**
- * The [SessionProvider] for an application that runs its own transactions, binding the session to the thread
- * for as long as the outermost operation on it lasts.
+ * The [SessionProvider] for an application that runs its own transactions: the outermost operation on a thread
+ * borrows a session from [dataSource], binds it to the thread, and gives it back when it returns.
  *
- * A top-level operation borrows a session from [dataSource] and gives it back when it returns. That is as
- * cheap as it sounds: the session is a handful of allocations over the connection, and giving it back costs
- * no round trip unless it registered a `LISTEN` or left a transaction open.
+ * Operations made from inside one another share that session, in a transaction or not, so nesting holds one
+ * connection. A level that begins while the one above is still reading a result - in a `forEach*` block or a
+ * `ResultConverter` - is refused by the driver with `CONNECTION_BUSY`; a second connection there is taken from
+ * the `DataSource` by hand.
  *
- * **Operations made from inside one another share that session**, transaction or no transaction. Composing
- * functions that each do a query is the ordinary way to use this client, and a provider that borrowed again
- * per level would hold one connection per level of nesting - two connections for work that needs one, and a
- * pool of `N` serving `N / D` callers at depth `D`. Sharing costs nothing, because a connection can only
- * carry one exchange at a time anyway: the levels are sequential whether they share or not.
+ * Where a framework owns the transactions, use a provider that finds its session instead.
  *
- * The one thing sharing does not survive is a level that begins **while the one above it is still reading a
- * result** - a `forEach*` block, or a `ResultConverter`. That connection is busy, and the driver says so with
- * `InvalidOperationException(CONNECTION_BUSY)` rather than quietly finding a second one. Code that genuinely
- * needs a second connection in that position should take it deliberately, out of the `DataSource`.
- *
- * Where something else owns the transaction - Spring, most obviously - this is the wrong provider; that one
- * finds the session where the framework put it rather than on a `ThreadLocal` of its own.
- *
- * @param dataSource Where connections come from. Not closed by [close]; whoever built the pool owns it.
+ * @param dataSource Where connections come from. Not closed by [close].
  */
 class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvider {
 
-    /**
-     * The session this thread is working on, and whether a transaction has been opened on it.
-     *
-     * Both halves are needed because [execute] binds too: a session can be bound without being in a
-     * transaction, and [transaction] has to know which, since that decides whether a scope joins what is
-     * already running or is the one that opens it.
-     */
+    /** The session bound to this thread, and whether a transaction is open on it: [execute] binds without one. */
     private class Binding(val session: OctaviusSession, val inTransaction: Boolean)
 
     private val bound = ThreadLocal<Binding?>()
@@ -51,17 +34,15 @@ class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvid
     }
 
     override fun <T> transaction(definition: TransactionDefinition, block: () -> T): T {
-        // A session of its own, whether or not one was bound. `inNewSession` rebinds for the duration and
-        // puts the outer one back afterwards, so the suspension needs nothing else.
+        // A session of its own; inNewSession puts the outer binding back afterwards.
         if (definition.propagation == TransactionPropagation.REQUIRES_NEW) {
             return newTransaction(definition, block)
         }
 
         val active = bound.get() ?: return newTransaction(definition, block)
 
-        // Bound by `execute` rather than by a transaction, so there is nothing here to join yet and this
-        // scope is the one that opens it - which is what both remaining propagations mean where there is no
-        // surrounding transaction. `NESTED` in particular cannot take a savepoint without one.
+        // Bound by execute, with no transaction to join, so this scope opens one, as both remaining
+        // propagations do where none is running.
         if (!active.inTransaction) {
             return withBinding(Binding(active.session, inTransaction = true)) {
                 open(active.session, definition, block)
@@ -69,10 +50,8 @@ class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvid
         }
 
         return if (definition.propagation == TransactionPropagation.REQUIRED) {
-            // Joining, so this does not commit: `required` runs the block as it stands while the session is
-            // already in a transaction, and the outermost scope is what decides. The definition is handed
-            // over all the same, so that the driver stays the one place that decides which of these terms a
-            // joined transaction can honour, and warns about the rest.
+            // Joining, so this does not commit. The terms go to the driver anyway, which decides what a joined
+            // transaction can honour and warns about the rest.
             active.session.transaction.required(
                 definition.isolation,
                 definition.readOnly,
@@ -94,12 +73,8 @@ class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvid
         inNewSession(inTransaction = true) { session -> open(session, definition, block) }
 
     /**
-     * Opens a transaction on [session] and runs [block] inside it.
-     *
-     * Every term of the definition goes to `required`, which sends the whole lot as one statement in the
-     * `BEGIN`'s own message - `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for
-     * the timeouts. All four end with the transaction, so a pooled connection goes back carrying none of them
-     * and there is nothing here to undo.
+     * Opens a transaction on [session] and runs [block] inside it. Every term goes out with the `BEGIN` and ends
+     * with the transaction, so none follows the connection back to the pool.
      */
     private fun <T> open(session: OctaviusSession, definition: TransactionDefinition, block: () -> T): T =
         session.transaction.required(
@@ -119,12 +94,7 @@ class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvid
         }
     }
 
-    /**
-     * Runs [body] with [binding] in force.
-     *
-     * The previous binding is restored rather than cleared, which is what makes `REQUIRES_NEW` inside an
-     * existing transaction come back to the outer session instead of to no session at all.
-     */
+    /** Runs [body] with [binding], then puts the previous one back, so `REQUIRES_NEW` returns to the outer session. */
     private fun <T> withBinding(binding: Binding, body: () -> T): T {
         val previous = bound.get()
         bound.set(binding)

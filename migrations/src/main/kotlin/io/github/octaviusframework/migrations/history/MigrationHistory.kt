@@ -8,7 +8,6 @@ import kotlin.time.Instant
 
 /**
  * The table recording what has run, and the only place this module writes anything of its own.
- *
  */
 internal class MigrationHistory(private val schema: String, private val table: String) {
 
@@ -21,8 +20,7 @@ internal class MigrationHistory(private val schema: String, private val table: S
      * is nullable or has a default**, **an existing column never changes meaning**, and **the set of `state`
      * values only ever grows**. Break one of those and an older migrator reading this table starts guessing.
      *
-     * The schema is created too - the table has to exist before the first migration runs, so a schema a
-     * migration would have created is one the history could not be kept in.
+     * The schema is created too, for the reason given on `MigratorConfig.historySchema`.
      */
     fun bootstrap(session: OctaviusSessionOperations) {
         session.createNativeQuery(
@@ -137,10 +135,8 @@ internal class MigrationHistory(private val schema: String, private val table: S
     )
 
     /**
-     * A repeatable migration is updated in place rather than added again.
-     *
-     * Its identity is its script, and a migration whose whole point is running more than once has no history
-     * worth keeping - one row saying where it got to last time is the entire useful record of it.
+     * A repeatable migration is updated in place, by its script, rather than added again: one row saying where
+     * it got to last time is all of its history worth keeping.
      */
     private fun recordRepeatable(
         session: OctaviusSessionOperations,

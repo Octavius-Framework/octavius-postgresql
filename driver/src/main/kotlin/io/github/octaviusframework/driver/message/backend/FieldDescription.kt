@@ -1,18 +1,11 @@
 package io.github.octaviusframework.driver.message.backend
 
 /**
- * The description of a single field (column) as it arrives inside a `RowDescription` message.
+ * One column of a `RowDescription`, resolved into a
+ * [ColumnMetadata][io.github.octaviusframework.driver.row.ColumnMetadata] once per result.
  *
- * This is the wire form, where every reference is an OID and every modifier is raw. It is resolved into
- * [io.github.octaviusframework.driver.row.ColumnMetadata] once per result, and never reaches a caller as it is.
- *
- * @property name The name of the field - the alias, where the query gave the column one.
- * @property tableOid The OID of the relation the column was written against, or 0 if it is not a plain column reference.
- * @property columnAttrNumber The attribute number of the column within that relation, or 0 if it is not a plain column reference.
- * @property dataTypeOid The object ID of the field's data type.
- * @property dataTypeSize The data type size (in bytes). A negative value denotes a variable-width type.
- * @property typeModifier The type modifier of the data type.
- * @property formatCode The format code indicating how the field is represented (0 for text, 1 for binary).
+ * @property tableOid The relation the column reads, or `0` for anything but a plain column.
+ * @property columnAttrNumber The column's number in that relation, or `0` for anything but a plain column.
  */
 internal class FieldDescription(
     val name: String,

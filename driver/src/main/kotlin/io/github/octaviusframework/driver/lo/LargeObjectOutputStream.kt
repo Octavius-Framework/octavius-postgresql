@@ -2,10 +2,7 @@ package io.github.octaviusframework.driver.lo
 
 import java.io.OutputStream
 
-/**
- * An [OutputStream] that writes data to a PostgreSQL [LargeObject].
- * Closing this stream also closes the underlying LargeObject.
- */
+/** Writes a [LargeObject]; closing it closes the object. */
 class LargeObjectOutputStream(private val obj: LargeObject) : OutputStream() {
 
     override fun write(b: Int) {

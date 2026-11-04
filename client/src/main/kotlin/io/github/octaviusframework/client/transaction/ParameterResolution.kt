@@ -7,17 +7,10 @@ import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.OctaviusException
 
 /**
- * Replaces the unresolved values in a step's parameters with what the earlier steps produced.
+ * Replaces the unresolved values in a step's parameters with what the earlier steps produced. A
+ * [SpreadParameters] contributes its entries under their own names, so the result can be longer than [raw].
+ * Every failure names the step, since a plan built in a loop has the same SQL and parameters in every step.
  *
- * A [SpreadParameters] contributes its entries under their own names instead of taking the name it was filed
- * under, so the parameter map that comes out can be longer than the one that went in.
- *
- * Everything that can fail here says which step it was resolving. A plan built in a loop has the same SQL and
- * the same parameter names in every one of its steps, so the parameter alone does not identify anything and
- * the query context on the exception cannot separate the third iteration from the seventeenth.
- *
- * @param raw The step's parameters as they were written.
- * @param results What the steps before this one produced.
  * @param stepIndex Where this step sits in the plan being run.
  * @param stepIndices Where every step sits, for naming the step a value was taken from.
  */
@@ -55,20 +48,13 @@ private fun resolveOne(
         val input = resolveOne(value.source, results, paramName, stepIndex, stepIndices)
         @Suppress("UNCHECKED_CAST")
         val transform = value.transform as (Any?) -> Any?
-        // The one place a plan runs code the caller wrote, and so the only one that can raise something from
-        // outside the driver's hierarchy. Left alone, an IndexOutOfBoundsException out of `map { xs[it] }`
-        // would travel as itself - past dbResult and transactionResult, which catch OctaviusException and
-        // nothing else, so the result style would not see it at all.
+        // The caller's own code: anything from outside the driver's hierarchy is wrapped, or the result style
+        // would not see it.
         try {
             transform(input)
         } catch (e: OctaviusException) {
-            // Already in the hierarchy and already more specific than anything this could say about it, but
-            // carrying a path every layer writes to as it unwinds - the one thing that can be added without
-            // replacing the exception. Replacing it would cost the type the caller catches on, so a failure
-            // from a query run inside the lambda would stop being the one a retry matches. `row.get` for a
-            // column that is not there therefore reports the parameter it was reached from as well as the
-            // column, and the exception is still the one that was thrown. The step is added by the executor,
-            // which puts it on everything a step raises rather than on this alone.
+            // Rethrown as itself, so a retry still matches its type, with the map and the parameter on its path.
+            // The executor adds the step.
             e.path.add("map #${value.position}")
             e.path.add("parameter '$paramName'")
             throw e

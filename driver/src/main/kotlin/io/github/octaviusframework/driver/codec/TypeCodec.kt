@@ -3,28 +3,23 @@ package io.github.octaviusframework.driver.codec
 import io.github.octaviusframework.driver.io.PgByteWriter
 import kotlin.reflect.KClass
 
-/**
- * Interface representing a codec that handles serialization and deserialization
- * between a Kotlin type and a PostgreSQL binary format.
- *
- * @param T The Kotlin type this codec handles.
- */
+/** Reads and writes one PostgreSQL type's binary form as the Kotlin type [T]. */
 interface TypeCodec<T : Any> {
     /** PostgreSQL type name. */
     val pgTypeName: String
-    /** PostgreSQL schema name */
+    /** The type's schema. Left empty, the codec binds to every type of [pgTypeName], in any schema. */
     val pgSchema: String get() = ""
 
-    /** Optional OID of the PostgreSQL type. */
+    /** The OID to bind to, in place of the name. */
     val oid: Int? get() = null
     /** The Kotlin class this codec handles. */
     val kotlinClass: KClass<T>
     /** Whether this codec is the default for its Kotlin type. */
     val isDefaultForKotlinType: Boolean get() = false
 
-    /** Function to deserialize a value from a PostgreSQL binary format. */
+    /** Reads a value from the bytes, at an offset and for a length. */
     val fromBinary: (ByteArray, Int, Int) -> T
-    /** Function to serialize a value to a PostgreSQL binary format. */
+    /** Writes a value. */
     val toBinary: (T, PgByteWriter) -> Unit
 }
 

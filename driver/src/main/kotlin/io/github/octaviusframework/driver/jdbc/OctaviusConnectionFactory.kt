@@ -38,13 +38,8 @@ private const val DEFAULT_APPLICATION_NAME = "Octavius Driver"
 private const val CANNOT_CONNECT_NOW = "57P03"
 
 /**
- * Factory object responsible for establishing physical connections to a PostgreSQL database.
- *
- * It handles URL parsing, socket creation, SSL negotiation, and the PostgreSQL startup
- * and authentication sequences. It ensures that the connected server meets the minimum
- * version requirement (PostgreSQL 18+) and reports the `search_path` that requirement is for.
- *
- * Where several servers are listed it also chooses among them, the way `libpq` does - see [createConnection].
+ * Opens connections: picks a server among those listed, negotiates TLS, logs in, and refuses a server below
+ * PostgreSQL 18 or one that does not report `search_path`.
  */
 internal object OctaviusConnectionFactory {
 
@@ -63,12 +58,9 @@ internal object OctaviusConnectionFactory {
     }
 
     /**
-     * Creates a new database connection using the provided JDBC URL and optional properties.
+     * Opens a connection to [url], with [info] beneath what the URL states.
      *
-     * @param url The JDBC URL (e.g., `jdbc:octavius://localhost:5432/db`).
-     * @param info Additional connection properties.
-     * @return A newly established [Connection] (specifically, an [OctaviusConnection]).
-     * @throws InitializationException if the connection cannot be established or the server version is unsupported.
+     * @throws InitializationException if no connection could be opened.
      */
     fun createConnection(url: String, info: Properties? = null): Connection {
         val properties = OctaviusProperties.parse(url, info)
@@ -76,25 +68,14 @@ internal object OctaviusConnectionFactory {
     }
 
     /**
-     * Creates a new database connection using the pre-parsed [OctaviusProperties].
+     * Opens a connection configured by [properties], trying each listed server and each of its addresses in turn,
+     * as `libpq` does. An address that does not answer in time moves on to the next address; a server that takes
+     * no connections now (`57P03`), is not the kind `target_session_attrs` asks for, or is of another cluster moves
+     * on to the next server; anything else ends the search. `prefer-standby` searches for a standby first, then for
+     * any server.
      *
-     * Every server listed is tried in turn - in the order given, or shuffled under `load_balance_hosts=random` - and
-     * so is every address its name resolves to, until one becomes a connection. What moves the search on follows
-     * `libpq`:
-     *
-     * - nothing answering at an address, or not within `loginTimeout`, moves on to the next address;
-     * - a server that takes no connections now (`57P03`), is not the kind `target_session_attrs` asks for, or is not
-     *   of the cluster the type catalog belongs to moves on to the next server;
-     * - anything else - a rejected password, a failed TLS handshake, a database that does not exist - would be the
-     *   same on every server, so it ends the search and is thrown as it is, with what was tried before it suppressed.
-     *
-     * `prefer-standby` searches twice: for a standby, and where the list has none, for any server.
-     *
-     * @param properties The parsed configuration properties.
-     * @return A newly established [Connection].
-     * @throws InitializationException if the connection cannot be established or the server version is unsupported.
-     *   Where several addresses were tried and none became a connection, `CONNECTION_ERROR` listing each, unless
-     *   one of them ended the search.
+     * @throws InitializationException if no connection could be opened: the failure that ended the search, or
+     *   `CONNECTION_ERROR` listing every address tried.
      */
     fun createConnection(properties: OctaviusProperties): Connection {
         val servers = properties.servers()
@@ -103,8 +84,8 @@ internal object OctaviusConnectionFactory {
         val shuffled = properties.loadBalanceHosts == LoadBalanceHosts.RANDOM
 
         val sslConfiguration = SslNegotiator.configurationOf(properties)
-        val noticeHandler = try {
-            noticeHandlerOf(properties.noticeHandler)
+        val noticeHandler = properties.noticeHandler ?: try {
+            noticeHandlerOf(properties.noticeHandlerClassName)
         } catch (e: Exception) {
             throw InitializationException(InitializationExceptionReason.CONNECTION_ERROR, e.message, e)
         }
@@ -152,9 +133,8 @@ internal object OctaviusConnectionFactory {
     }
 
     /**
-     * Logs into [server] at [address], and makes a connection of it if it is the kind [wanted] asks for.
-     *
-     * [target] is what was asked for, for the messages: under `prefer-standby` the first pass wants a standby.
+     * Logs into [server] at [address] and makes a connection of it if it is the kind [wanted] asks for. [target] is
+     * what the configuration named, for the messages.
      */
     private fun attempt(
         properties: OctaviusProperties,
@@ -185,29 +165,21 @@ internal object OctaviusConnectionFactory {
             return Attempt.Unreachable(Failure(where, InitializationException(InitializationExceptionReason.CONNECTION_ERROR, e.message, e)))
         }
 
-        // Everything past this point runs on an open socket that nothing else holds yet, and none of
-        // it is guaranteed to get there: a refused TLS handshake, a client key that will not load, a
-        // rejected password, a catalog the login cannot read. Whatever fails has to give the socket
-        // back here, or it stays open until the collector reaches it - and a pool retrying a bad
-        // password produces one of those per attempt. Dropped rather than closed, because a Terminate
-        // is for a session that exists, and a login that failed never opened one; dropping a socket
-        // that some path below already closed does nothing.
+        // Whatever fails from here drops the socket, or a pool retrying a bad password leaks one per attempt.
+        // Dropped rather than closed: a failed login has no session to send Terminate for.
         try {
             SslNegotiator.negotiate(stream, server.host, server.port, sslConfiguration)
 
-            // Copied, not used in place: the driver's own startup parameters must not leak back
-            // into the caller's properties object, which may be reused for further connections.
+            // Copied, so the driver's parameters do not leak into the caller's properties.
             val startupParams = HashMap(properties.additionalProperties)
             startupParams["client_encoding"] = "UTF8"
             startupParams["user"] = user
             startupParams["database"] = databaseName
-            // Set after the copy, so the typed property beats an `application_name` put into
-            // additionalProperties by hand. Neither given, the driver names itself rather than leave
-            // the column blank - and putIfAbsent, so a name set either way is not the one replaced.
+            // The typed property beats one in additionalProperties, which beats the driver's own name.
             properties.applicationName?.let { startupParams["application_name"] = it }
             startupParams.putIfAbsent("application_name", DEFAULT_APPLICATION_NAME)
 
-            stream.sendMessage(StartupMessage(startupParams))
+            stream.writeMessage(StartupMessage(startupParams))
             stream.flush()
 
             Authenticator.authenticate(stream, properties.password, properties.channelBinding ?: ChannelBinding.PREFER)
@@ -227,9 +199,7 @@ internal object OctaviusConnectionFactory {
                 }
             }
 
-            // What PostgreSQL 18 is required for. Unqualified type names resolve against the live search path,
-            // which 18 reports at login and again whenever it changes. Without it every such name would resolve
-            // against a path nobody set, so a login that did not bring it is refused rather than guessed at.
+            // Type names resolve against the search path the server reports; without it they would be guessed.
             if (stream.parameters["search_path"] == null) {
                 stream.close()
                 throw InitializationException(
@@ -259,8 +229,7 @@ internal object OctaviusConnectionFactory {
             )
 
             foreignCluster(connection, databaseKey, server)?.let { reason ->
-                // Not used, and not quietly either: a server listed with a database it does not belong to is a
-                // configuration to fix, and one that is skipped while another answers would never be noticed.
+                // Warned about: a server listed for a database it does not hold is a configuration to fix.
                 logger.warn { "$server $reason" }
                 stream.close()
                 return Attempt.Unsuitable(
@@ -284,11 +253,7 @@ internal object OctaviusConnectionFactory {
         }
     }
 
-    /**
-     * Why the server [stream] logged into is not the kind [wanted] asks for, or `null` when it is.
-     *
-     * Decided by what the server reported at login, so it costs no query.
-     */
+    /** Why the server [stream] logged into is not the kind [wanted] asks for, or `null`; read from the login. */
     private fun mismatch(stream: PgStream, wanted: TargetSessionAttrs, target: TargetSessionAttrs): String? {
         if (wanted == TargetSessionAttrs.ANY) return null
         val hotStandby = reported(stream, "in_hot_standby", target)
@@ -308,10 +273,8 @@ internal object OctaviusConnectionFactory {
     }
 
     /**
-     * The `on`/`off` parameter [name] as the server reported it at login.
-     *
-     * PostgreSQL 18 reports both that [mismatch] reads on every connection, so one missing means something in between
-     * did not pass it on - and the server's kind is refused rather than guessed at, as a missing `search_path` is.
+     * The `on`/`off` parameter [name] the server reported at login. Missing, something in between dropped it, and
+     * the server is refused rather than guessed at.
      */
     private fun reported(stream: PgStream, name: String, target: TargetSessionAttrs): Boolean {
         val value = stream.parameters[name]
@@ -328,10 +291,8 @@ internal object OctaviusConnectionFactory {
     }
 
     /**
-     * Why the server [connection] reached is not of the cluster the type catalog of [key] belongs to, or `null` when
-     * it is.
-     *
-     * Each server is asked once, and only where [key] lists several: one server cannot be two clusters.
+     * Why the server [connection] reached is not of the cluster [key]'s type catalog belongs to, or `null`. Asked
+     * once per server, and only where [key] lists several.
      */
     private fun foreignCluster(connection: OctaviusConnection, key: DatabaseKey, server: ServerAddress): String? {
         if (key.servers.size < 2) return null
@@ -351,12 +312,7 @@ internal object OctaviusConnectionFactory {
             "share with its primary, so this server is not used."
     }
 
-    /**
-     * What to throw once every address has been tried and none became a connection.
-     *
-     * A single failure is thrown as it is, so one server at one address fails exactly as it would with nothing to
-     * choose between. Several go under one exception that lists them, each also suppressed on it.
-     */
+    /** What to throw once no address became a connection: one failure as it is, several listed under one. */
     private fun exhausted(failures: List<Failure>, target: TargetSessionAttrs): Throwable {
         failures.singleOrNull()?.let { return it.error }
         val under = if (target == TargetSessionAttrs.ANY) "" else " under target_session_attrs=${target.value}"
@@ -369,14 +325,15 @@ internal object OctaviusConnectionFactory {
         return exception
     }
 
-    /** The configured [NoticeHandler]: a Kotlin `object` as it is, a class instantiated through its no-arg constructor. */
+    /**
+     * The configured [NoticeHandler]: a Kotlin `object` as it is, a class through its no-arg constructor, looked up
+     * through the thread's context class loader and then the driver's.
+     */
     private fun noticeHandlerOf(className: String?): NoticeHandler? {
         if (className == null) return null
-        val clazz = try {
-            Thread.currentThread().contextClassLoader.loadClass(className)
-        } catch (_: ClassNotFoundException) {
-            Class.forName(className)
-        }
+        val clazz = Thread.currentThread().contextClassLoader
+            ?.let { loader -> try { loader.loadClass(className) } catch (_: ClassNotFoundException) { null } }
+            ?: Class.forName(className)
         return clazz.kotlin.objectInstance as? NoticeHandler
             ?: clazz.getDeclaredConstructor().newInstance() as NoticeHandler
     }

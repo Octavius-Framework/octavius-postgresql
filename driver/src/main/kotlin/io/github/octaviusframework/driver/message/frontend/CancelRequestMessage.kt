@@ -2,12 +2,7 @@ package io.github.octaviusframework.driver.message.frontend
 
 import io.github.octaviusframework.driver.io.PgOutputStream
 
-/**
- * Message sent by the frontend to cancel an ongoing request on another connection.
- *
- * @property processId The process ID of the target backend.
- * @property secretKey The secret key of the target backend.
- */
+/** `CancelRequest` for the backend [processId], with its [secretKey]. */
 internal class CancelRequestMessage(private val processId: Int, private val secretKey: ByteArray) : FrontendMessage {
 
     override fun encode(out: PgOutputStream) {

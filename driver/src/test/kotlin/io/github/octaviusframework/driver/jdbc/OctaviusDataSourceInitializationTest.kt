@@ -64,7 +64,7 @@ class OctaviusDataSourceInitializationTest {
         assertEquals(256, ds.notificationBufferCapacity)
         assertEquals(1024, ds.initialParameterWriterCapacity)
         assertEquals(65536, ds.maxParameterWriterCapacity)
-        assertNull(ds.noticeHandler)
+        assertNull(ds.noticeHandlerClassName)
 
         ds.socketTimeout = 30
         ds.cancelSignalTimeout = 3
@@ -72,7 +72,7 @@ class OctaviusDataSourceInitializationTest {
         ds.notificationBufferCapacity = 512
         ds.initialParameterWriterCapacity = 2048
         ds.maxParameterWriterCapacity = 131072
-        ds.noticeHandler = "com.example.MyNoticeHandler"
+        ds.noticeHandlerClassName = "com.example.MyNoticeHandler"
 
         // Set through the accessors, they reach the same place the url would have put them
         val rendered = ds.url
@@ -82,7 +82,7 @@ class OctaviusDataSourceInitializationTest {
         assertTrue(rendered.contains("notificationBufferCapacity=512"), rendered)
         assertTrue(rendered.contains("initialParameterWriterCapacity=2048"), rendered)
         assertTrue(rendered.contains("maxParameterWriterCapacity=131072"), rendered)
-        assertTrue(rendered.contains("noticeHandler=com.example.MyNoticeHandler"), rendered)
+        assertTrue(rendered.contains("noticeHandlerClassName=com.example.MyNoticeHandler"), rendered)
     }
 
     @Test

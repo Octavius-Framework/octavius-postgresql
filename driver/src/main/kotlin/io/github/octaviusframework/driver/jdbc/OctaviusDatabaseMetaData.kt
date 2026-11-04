@@ -6,23 +6,15 @@ import java.lang.reflect.Proxy
 import java.sql.DatabaseMetaData
 
 /**
- * The two answers about the database that the managers in front of the driver ask for, and a refusal for every
- * other question - `InvalidOperationException(FEATURE_NOT_SUPPORTED)`, as `getMetaData()` itself gave before.
- *
- * - [supportsSavepoints]: Spring's transaction manager asks before it takes the savepoint for `Propagation.NESTED`,
- *   and refuses to take one without a yes.
- * - [getDatabaseProductName]: Spring Boot's `db` health indicator labels its report with it before it checks the
- *   connection with `isValid()`, and reports `DOWN` where the label cannot be had.
- *
- * Everything else stays refused: a tool that reads more of this to decide how to talk to the database would go on
- * to run its SQL through `PreparedStatement` and `ResultSet`, which the driver does not implement either.
+ * Answers [supportsSavepoints], which Spring asks before `Propagation.NESTED`, and [getDatabaseProductName], which
+ * Spring Boot's `db` health indicator needs. Everything else raises `FEATURE_NOT_SUPPORTED`.
  */
 internal object OctaviusDatabaseMetaData : DatabaseMetaData by refusal {
     override fun supportsSavepoints(): Boolean = true
 
     override fun getDatabaseProductName(): String = "PostgreSQL"
 
-    // Java default methods, which delegation with `by` leaves answering as the interface has them: refused like the rest
+    // Java default methods, which `by` leaves answering as the interface has them: refused like the rest
     override fun getMaxLogicalLobSize(): Long = refusal.maxLogicalLobSize
 
     override fun supportsRefCursors(): Boolean = refusal.supportsRefCursors()

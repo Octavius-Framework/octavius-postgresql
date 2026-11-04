@@ -1,6 +1,4 @@
 package io.github.octaviusframework.driver.message.backend
 
-/**
- * Base interface for all messages received from the PostgreSQL backend.
- */
+/** A message from the server. */
 internal sealed interface BackendMessage

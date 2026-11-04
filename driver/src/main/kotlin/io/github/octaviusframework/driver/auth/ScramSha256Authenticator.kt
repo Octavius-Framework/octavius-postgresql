@@ -19,12 +19,7 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * Runs the SCRAM-SHA-256 exchange of RFC 7677, with or without the channel binding of RFC 5802.
- *
- * The two mechanisms are one piece of code because they differ in exactly two places: the name
- * sent to the server, and what goes into the `c=` attribute of the client-final-message.
- */
+/** The SCRAM-SHA-256 exchange of RFC 7677, bound to the TLS channel (`-PLUS`) or not. */
 internal object ScramSha256Authenticator {
     private const val HMAC_SHA256 = "HmacSHA256"
 
@@ -36,23 +31,14 @@ internal object ScramSha256Authenticator {
 
     private val logger = KotlinLogging.logger {}
 
-    /**
-     * Holds the results of a SCRAM signature computation.
-     *
-     * @property clientProof The computed client proof (base64 encoded).
-     * @property expectedServerSignature The expected server signature for verification (base64 encoded).
-     */
+    /** The client proof and the server signature to expect, both base64. */
     data class ScramResult(val clientProof: String, val expectedServerSignature: String)
 
     /**
-     * Authenticates over [stream] using whichever of the two mechanisms [mechanisms] and
-     * [channelBinding] between them allow.
+     * Authenticates with the mechanism [mechanisms] and [channelBinding] allow, and returns whether it was bound.
      *
-     * @return true when the exchange was bound to the TLS channel, which is what lets the caller
-     *   enforce [ChannelBinding.REQUIRE] over the whole login rather than over this step alone.
-     * @throws InitializationException if no usable mechanism is on offer, the server's certificate
-     *   is one no binding can be computed for, the server violates the protocol, or its final
-     *   signature does not verify.
+     * @throws InitializationException if no mechanism fits, the certificate cannot be bound to, the server breaks
+     *   the protocol, or its signature does not verify.
      */
     fun authenticate(
         stream: PgStream,
@@ -60,8 +46,7 @@ internal object ScramSha256Authenticator {
         mechanisms: List<String>,
         channelBinding: ChannelBinding
     ): Boolean {
-        // Asking for the certificate is itself the test of whether binding is possible: it comes
-        // back non-null only on an encrypted connection, and only when the caller allows binding.
+        // Non-null only over TLS with binding allowed.
         val certificate = if (channelBinding == ChannelBinding.DISABLE) null else stream.peerCertificate
         val bindingData = if (certificate != null && mechanisms.contains(MECHANISM_PLUS)) {
             TlsServerEndPoint.hash(certificate) ?: throw unbindable(certificate)
@@ -92,10 +77,7 @@ internal object ScramSha256Authenticator {
         val mechanism = if (bindingData != null) MECHANISM_PLUS else MECHANISM
         val gs2Header = when {
             bindingData != null -> "p=$BINDING_TYPE,,"
-            // "I can do channel binding and you did not offer it." PostgreSQL always offers it on
-            // an encrypted connection, so it reads this as the contradiction it is and answers
-            // with "SCRAM channel binding negotiation error" - which is exactly what should happen
-            // when the mechanism list was stripped down in transit to force the weaker exchange.
+            // "I can bind and you did not offer it": the server refuses this, so a downgrade in transit fails.
             certificate != null -> "y,,"
             else -> "n,,"
         }
@@ -105,7 +87,7 @@ internal object ScramSha256Authenticator {
         val clientNonce = generateClientNonce()
         val clientFirstMessageBare = "n=,r=$clientNonce"
 
-        stream.sendMessage(SASLInitialResponse(mechanism, gs2Header + clientFirstMessageBare))
+        stream.writeMessage(SASLInitialResponse(mechanism, gs2Header + clientFirstMessageBare))
         stream.flush()
 
         val serverFirstMessage = String(expect<AuthenticationMessage.SASLContinue>(stream).data, StandardCharsets.UTF_8)
@@ -119,8 +101,7 @@ internal object ScramSha256Authenticator {
                 details = "Iteration count in serverFirstMessage is not a number: ${serverFirst["i"]}"
             )
 
-        // The server nonce must extend the client's own. Without this check a replayed
-        // server-first-message would be accepted as a fresh one.
+        // The server nonce must extend the client's, or a replayed message would pass.
         if (!serverNonce.startsWith(clientNonce)) {
             throw InitializationException(
                 InitializationExceptionReason.PROTOCOL_VIOLATION,
@@ -128,8 +109,7 @@ internal object ScramSha256Authenticator {
             )
         }
 
-        // c= carries the gs2-header the exchange opened with, and - when binding - the certificate
-        // hash behind it. The server recomputes both from its own side of the connection.
+        // c= carries the gs2-header and, when binding, the certificate hash.
         val cbindInput = gs2Header.toByteArray(StandardCharsets.UTF_8) + (bindingData ?: ByteArray(0))
         val clientFinalMessageWithoutProof = "c=${Base64.getEncoder().encodeToString(cbindInput)},r=$serverNonce"
 
@@ -142,7 +122,7 @@ internal object ScramSha256Authenticator {
             clientFinalMessageWithoutProof
         )
 
-        stream.sendMessage(SASLResponse("$clientFinalMessageWithoutProof,p=${scramResult.clientProof}"))
+        stream.writeMessage(SASLResponse("$clientFinalMessageWithoutProof,p=${scramResult.clientProof}"))
         stream.flush()
 
         val serverFinalMessage = String(expect<AuthenticationMessage.SASLFinal>(stream).data, StandardCharsets.UTF_8)
@@ -155,8 +135,7 @@ internal object ScramSha256Authenticator {
             )
         }
 
-        // Verifying this is what makes the exchange mutual: it proves the other end knows the
-        // stored key, so a server that merely collected the proof cannot pass for the real one.
+        // What makes the exchange mutual: the server proves it knows the stored key.
         if (serverFinal.attribute("v", "serverFinalMessage") != scramResult.expectedServerSignature) {
             throw InitializationException(
                 InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS,
@@ -168,14 +147,9 @@ internal object ScramSha256Authenticator {
     }
 
     /**
-     * Refuses a server certificate whose signature was made without a digest - Ed25519, Ed448 -
-     * under [ChannelBinding.PREFER] as much as under [ChannelBinding.REQUIRE].
-     *
-     * Neither end can hash such a certificate, so a bound exchange cannot succeed, and PREFER has no
-     * unbound one to fall back to. The server offers binding on every TLS connection, so the client
-     * could only declare that it does not bind (`n`), which the server accepts from anyone - and an
-     * intermediary presenting a certificate like this of its own would have the login relayed to
-     * the real server unbound.
+     * The refusal of a certificate signed without a digest, such as Ed25519 or Ed448. It applies under
+     * [ChannelBinding.PREFER] as well as [ChannelBinding.REQUIRE], because falling back to unbound would let an
+     * intermediary with such a certificate relay the login.
      */
     private fun unbindable(certificate: X509Certificate) = InitializationException(
         InitializationExceptionReason.UNSUPPORTED_MECHANISM,
@@ -184,12 +158,7 @@ internal object ScramSha256Authenticator {
             "to log in unbound, or give the server a certificate signed with RSA or ECDSA."
     )
 
-    /**
-     * Reads the next message, insisting it be a [T].
-     *
-     * An `ErrorResponse` is the server's ordinary way of saying no at any point in the exchange,
-     * so it is translated rather than reported as a protocol violation.
-     */
+    /** The next message as a [T]; an `ErrorResponse` raises as the server's refusal. */
     private inline fun <reified T : AuthenticationMessage> expect(stream: PgStream): T {
         val message = stream.receiveMessage()
         if (message is ErrorOrNoticeMessage) throw ExceptionTranslator.translateRefusal(message)
@@ -199,10 +168,7 @@ internal object ScramSha256Authenticator {
         )
     }
 
-    /**
-     * Splits a SCRAM message into its single-letter attributes. Anything not in `x=value` shape is
-     * dropped here; whether the attributes that mattered came through is decided by [attribute].
-     */
+    /** A SCRAM message's `x=value` attributes; [attribute] insists on the ones needed. */
     private fun attributesOf(message: String): Map<String, String> =
         message.split(",")
             .filter { it.length >= 2 && it[1] == '=' }
@@ -214,29 +180,14 @@ internal object ScramSha256Authenticator {
             details = "Missing $name in $messageName"
         )
 
-    /**
-     * Generates a random base64-encoded string to be used as a client nonce.
-     * Non-alphanumeric characters are removed.
-     *
-     * @return A random client nonce string.
-     */
+    /** A random alphanumeric client nonce. */
     fun generateClientNonce(): String {
         val bytes = ByteArray(18)
         SecureRandom().nextBytes(bytes)
         return Base64.getEncoder().encodeToString(bytes).replace(Regex("[^a-zA-Z0-9]"), "")
     }
 
-    /**
-     * Computes the client proof and expected server signature for SCRAM authentication.
-     *
-     * @param password The user's plaintext password.
-     * @param salt The salt provided by the server.
-     * @param iterations The iteration count provided by the server.
-     * @param clientFirstMessageBare The bare version of the client-first-message (without gs2-header).
-     * @param serverFirstMessage The server-first-message received from the server.
-     * @param clientFinalMessageWithoutProof The client-final-message up to the "p=" attribute.
-     * @return A [ScramResult] containing the computed `clientProof` and `expectedServerSignature`.
-     */
+    /** The client proof and expected server signature, as RFC 5802 computes them. */
     fun computeSignatures(password: String, salt: ByteArray, iterations: Int, clientFirstMessageBare: String, serverFirstMessage: String, clientFinalMessageWithoutProof: String): ScramResult {
         // 1. SaltedPassword = Hi(Normalize(password), salt, i)
         val saltedPassword = pbkdf2(password, salt, iterations)

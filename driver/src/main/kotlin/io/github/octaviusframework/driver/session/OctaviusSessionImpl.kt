@@ -2,6 +2,8 @@ package io.github.octaviusframework.driver.session
 
 import io.github.octaviusframework.driver.concurrent.OctaviusDispatchers
 import io.github.octaviusframework.driver.copy.CopyManager
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
 import io.github.octaviusframework.driver.exception.SQLExceptionWrapper
@@ -24,13 +26,9 @@ private val logger = KotlinLogging.logger {}
 
 
 /**
- * Internal implementation of the [OctaviusSession] interface.
+ * The [OctaviusSession] over a JDBC [Connection], possibly a pool's proxy, and the [OctaviusConnection] behind it.
  *
- * This class wraps a raw JDBC [Connection] (which could be pooled) and delegates
- * operations to the underlying [OctaviusConnection].
- *
- * @property ownsConnection Whether [close] should close the connection as well as reset it. False
- * where the connection was handed to the session by something that gives it back itself.
+ * @property ownsConnection Whether [close] gives the connection back as well as resetting it.
  */
 internal class OctaviusSessionImpl(
     private val rawConnection: Connection,
@@ -40,33 +38,23 @@ internal class OctaviusSessionImpl(
     internal val octaviusConnection: OctaviusConnection = rawConnection.unwrap()
 
     /**
-     * Whether the connection was already in a transaction when this session was opened over it - begun on the
-     * server, or waiting for its first statement with auto-commit off - on a connection the session does not own.
-     *
-     * That transaction is its owner's, who will end it: the session's statements run inside it, and [close] leaves
-     * it open rather than rolling back work the owner is about to commit. A session that owns its connection has no
-     * owner to leave one to.
+     * Whether a connection the session does not own was already in a transaction, begun or waiting, when the
+     * session opened. That transaction is the owner's, and [close] leaves it open.
      */
     private val inheritedTransaction: Boolean =
         !ownsConnection && octaviusConnection.transactionState != TransactionState.IDLE
 
     /**
-     * Whether this session has been given up, by [close] or by [abort].
-     *
-     * A pooled connection outlives the session borrowed through it: closing the session hands the
-     * connection back, and the next borrower may already be running queries on it. The proxy that
-     * came with it goes dead at that moment, but [octaviusConnection] does not - it is the live
-     * connection, now somebody else's - so nothing below this class would stop a stale session from
-     * reaching it. This is what does.
+     * Whether [close] or [abort] has run. [octaviusConnection] may already be the next borrower's, and this keeps a
+     * stale session off it.
      */
     @Volatile
     private var sessionClosed: Boolean = false
 
-    // Each of these is built once and handed out through a getter that first checks the session is
-    // still the connection's. Two of them reach past every other guard in this class - the copy
-    // manager holds the stream itself, and a listener loop reads messages off it directly - so the
-    // check belongs at the point they are handed out. The rest are gated for one rule rather than a
-    // rule with exceptions.
+    /** Whether [abort] was called. The connection is gone then, where after [close] it may well be fine. */
+    @Volatile
+    private var aborted: Boolean = false
+
     override val typeManager: TypeManager = TypeManager(octaviusConnection.catalogHolder) { octaviusConnection.getTypeLookupOrder() }
         get() { checkOpen(); return field }
 
@@ -89,20 +77,42 @@ internal class OctaviusSessionImpl(
         }
 
     /**
-     * Refuses anything asked of a session that has already been given up.
-     *
-     * Reported as a closed connection rather than as misuse, because from the caller's side that is
-     * what it is: the session it holds no longer has one.
+     * Refuses anything asked of a session already given up. After [abort] that is a connection that is gone, and
+     * otherwise a closed handle, over a connection that may be fine and already the next borrower's.
      */
     private fun checkOpen() {
-        if (sessionClosed) throw NetworkException(
+        if (aborted) throw NetworkException(
             NetworkExceptionReason.CONNECTION_CLOSED,
-            details = "This session has been closed; its connection has gone back to the pool or been discarded",
+            details = "This session was aborted and its connection discarded",
             sqlState = "08003"
+        )
+        if (sessionClosed) throw InvalidOperationException(
+            InvalidOperationExceptionReason.RESOURCE_CLOSED,
+            "This session has been closed; its connection has gone back to the pool or been discarded"
+        )
+        if (connectionTakenBack()) throw InvalidOperationException(
+            InvalidOperationExceptionReason.RESOURCE_CLOSED,
+            "The connection under this session went back before the session was closed, and may be the next borrower's by now"
         )
     }
 
-    /** Ties a log line to the backend behind this session; see the same property on [OctaviusConnection]. */
+    /**
+     * Whether the [rawConnection] a pool handed out was closed while the [octaviusConnection] behind it stayed open:
+     * given back, with this session still holding on to it.
+     */
+    private fun connectionTakenBack(): Boolean {
+        // Asked only of one still alive: isClosed latches a broken connection, and what is asked next would no
+        // longer say what broke it.
+        if (octaviusConnection.isClosedFlag || octaviusConnection.stream.isBroken) return false
+        return try {
+            rawConnection.isClosed
+        } catch (_: SQLException) {
+            // One that will not say whether it is closed is not one to run on.
+            true
+        }
+    }
+
+    /** The backend process id every log line carries. */
     private val pid: String get() = "[PID: ${octaviusConnection.stream.processId}]"
 
     override fun reloadTypes() {
@@ -140,14 +150,8 @@ internal class OctaviusSessionImpl(
     // ------------------------------------------Pool Connection--------------------------------------------------------
 
     /**
-     * Runs an operation that goes through the JDBC connection, in this API's own terms.
-     *
-     * Two kinds of `java.sql.SQLException` arrive here. The driver's own comes wrapped, and is
-     * unwrapped back into the exception it started as. The rest belong to whatever stands between
-     * this session and its connection: a pool's proxy answering for a connection it has taken back
-     * or evicted, and reporting it as a bare `SQLException` with neither SQLState nor cause. Since
-     * that is not a shape this API uses anywhere else, it is restated too - after a look through the
-     * chain, in case the pool was carrying a driver failure it had wrapped on the way.
+     * Runs [block] on the JDBC connection and raises a `SQLException` as the driver's exception in its chain, or as
+     * a [NetworkException] where it has none, such as a pool proxy's over a connection it evicted.
      */
     private inline fun <T> unwrapSqlException(block: () -> T): T {
         checkOpen()
@@ -189,8 +193,7 @@ internal class OctaviusSessionImpl(
             unwrapSqlException { rawConnection.setNetworkTimeout(OctaviusDispatchers.VirtualExecutor, value) }
         }
 
-    // Answers rather than raises on a session already given up, the way JDBC has `isValid` answer
-    // for a closed connection - a health check is the one question a dead session can still settle.
+    // Answers rather than raises on a session already given up, as JDBC's `isValid` does.
     override fun isValid(timeout: Int): Boolean = !sessionClosed && try {
         rawConnection.isValid(timeout)
     } catch (e: SQLExceptionWrapper) {
@@ -219,39 +222,17 @@ internal class OctaviusSessionImpl(
 
     // -------------------------------------------Close/Abort-----------------------------------------------------------
 
-    /**
-     * Undoes the per-session state this session left on its connection, so the next borrower of
-     * a pooled connection finds it as it was: any `LISTEN` registrations, and a transaction
-     * left unfinished.
-     *
-     * Only reachable from [close]. Code that hands the connection back some other way - Spring's
-     * `DataSourceUtils`, for instance - never closes the session and so never runs this.
-     */
+    /** Undoes what the session left on its connection for the next borrower: a transaction and its `LISTEN`s. */
     private fun resetConnectionState() {
-        // The rollback first: an UNLISTEN sent inside a transaction still open would wait for its commit, and one
-        // sent inside a failed transaction would be refused. In a transaction the owner began, the UNLISTEN goes out
-        // inside it and stands or falls with it, as any LISTEN this session made there does.
+        // The rollback first: inside an open transaction an UNLISTEN waits for the commit, inside a failed one it
+        // is refused. In the owner's transaction it stands or falls with it.
         if (!inheritedTransaction) rollbackUnfinishedTransaction()
         notifications.releaseSubscriptions()
     }
 
     /**
-     * Rolls back a transaction the server still has open and the session began: a hand-written
-     * `BEGIN` under auto-commit, or a manual transaction closed without a `commit()` or `rollback()`.
-     * One the connection's owner began is not this session's to end - see [inheritedTransaction].
-     *
-     * Nothing else would. With auto-commit on, neither this driver nor the pool believes a
-     * transaction exists. With it off, a pool is no help either: HikariCP rolls back on return only
-     * work that went through its own statement proxies, and this driver's queries do not. Left
-     * alone, the connection would go back carrying somebody's uncommitted work - which the next
-     * borrower would carry on inside, and commit without ever knowing. The status comes from the
-     * server's own `ReadyForQuery`, so noticing costs nothing; only finding one costs a round trip.
-     *
-     * A transaction whose `BEGIN` is still waiting for its first statement never reached the server,
-     * and needs nothing.
-     *
-     * It is rolled back rather than committed on purpose: the driver has no idea whether that work
-     * was meant to stand, and discarding it is the recoverable mistake.
+     * Rolls back a transaction the session began and left open on the server, which no pool would: HikariCP rolls
+     * back only work that went through its own proxies.
      */
     private fun rollbackUnfinishedTransaction() {
         if (octaviusConnection.serverTransactionState == TransactionState.IDLE) return
@@ -259,22 +240,20 @@ internal class OctaviusSessionImpl(
     }
 
     override fun abort() {
-        // Set before the abort rather than after: from here on the connection is on its way out of
-        // the pool whatever happens below, so nothing more should be asked of this session even if
-        // the abort itself raises.
+        aborted = true
+        discardConnection()
+    }
+
+    /** Gives up the session and aborts its connection, so a pool evicts it. */
+    private fun discardConnection() {
+        // Before the abort, which may raise.
         sessionClosed = true
         try {
             rawConnection.abort(OctaviusDispatchers.VirtualExecutor)
         } catch (_: SQLExceptionWrapper) {
-            // Expected, and not a failure: aborting throws on purpose, that being the signal a
-            // pool needs in order to evict the connection instead of taking it back. The abort
-            // itself is already reported by the connection, so logging here would put a stack
-            // trace under every routine teardown - a cancelled listener loop aborts on its way
-            // out - and say nothing the line above it did not.
+            // Expected: the abort throws so a pool evicts the connection, and the connection logs it.
         } catch (e: Exception) {
-            // Anything that is not the driver's own wrapper did not come from the abort protocol: a
-            // rejected executor, a pool proxy in a state of its own. Then the connection really
-            // was left as it stood, and nothing else records that.
+            // Not the abort's own signal, so the connection may be left as it stood.
             logger.debug(e) { "$pid Aborting the session raised" }
         }
     }
@@ -282,44 +261,32 @@ internal class OctaviusSessionImpl(
     override fun close() {
         if (sessionClosed) return
         try {
-            if (octaviusConnection.isClosed || octaviusConnection.stream.isBroken) {
-                // If the underlying connection is already flagged as closed/broken,
-                // we force an abort on the pool connection to evict it from the pool.
-                abort()
+            if (connectionTakenBack()) {
+                // Not this session's to touch any more: what is on the connection may be the next borrower's.
+                logger.warn { "$pid Session closed after its connection had gone back; what it left on the connection stays there" }
+            } else if (octaviusConnection.isClosed || octaviusConnection.stream.isBroken) {
+                // Broken underneath, so the pool has to evict it.
+                discardConnection()
             } else if (octaviusConnection.stream.copyInProgress) {
-                // A transfer the caller never finished. Ending it here is the wrong trade: a
-                // COPY OUT ends only once the rest of the export has been read and discarded,
-                // and this runs on whoever gave the session back - a `finally`, or a pool
-                // reclaiming its connection - so an export abandoned on its first chunk would
-                // hold that thread for as long as the server needs to produce every remaining
-                // row. Evicting is bounded and loses nothing the cancel would have kept: a COPY
-                // IN that never reached endCopy() commits nothing either way.
+                // Evicted rather than cancelled: cancelling a COPY OUT reads the rest of the export on this thread.
                 logger.warn { "$pid Session closed with a COPY still in progress; the connection is aborted rather than reset" }
-                abort()
+                discardConnection()
             } else {
-                // These outlive the session on a pooled connection, so they are undone here
-                // instead of being left for whoever borrows it next: any LISTEN registrations
-                // this session made, and a transaction it left unfinished.
                 try {
                     resetConnectionState()
                 } catch (e: Exception) {
-                    // The connection cannot go back to the pool carrying this session's leftovers,
-                    // so it is evicted instead - which the pool reports as a connection lost for
-                    // no visible reason unless this line says why.
+                    // Evicted rather than given back with the leftovers; this line says why.
                     logger.warn(e) { "$pid Could not reset connection state on close; aborting the connection instead" }
-                    abort()
+                    discardConnection()
                     return
                 }
-                // Only where the session is what the connection was opened for. Where somebody else
-                // owns it, giving it back here would return a connection its owner still counts as
-                // borrowed - and a pool would then hand the same connection to two callers.
+                // A connection someone else owns is theirs to give back.
                 if (ownsConnection) rawConnection.close()
             }
         } catch (e: Exception) {
             logger.debug(e) { "$pid Closing the session raised" }
         } finally {
-            // Last, not first: everything above still has to be able to speak to the connection,
-            // and the reset in particular runs statements on it.
+            // Last: the reset above runs statements through this session's connection.
             sessionClosed = true
         }
     }

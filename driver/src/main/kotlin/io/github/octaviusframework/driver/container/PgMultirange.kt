@@ -4,11 +4,9 @@ import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 
 /**
- * Represents a PostgreSQL multirange structure from the database.
+ * A value of a multirange type. One read from the server holds its ranges disjoint and in ascending order.
  *
- * @property multirangeOid OID of the multirange type.
- * @property rangeOid OID of the base range type contained in this multirange.
- * @property ranges List of ranges contained in this multirange.
+ * @property rangeOid OID of the range type it holds.
  */
 class PgMultirange internal constructor(
     val multirangeOid: Int,
@@ -21,13 +19,8 @@ class PgMultirange internal constructor(
     val size: Int get() = ranges.size
 
     /**
-     * Returns the range at [index].
+     * The range at [index].
      *
-     * PostgreSQL normalizes a multirange on the way in, merging anything that overlaps or touches and
-     * sorting what remains, so the ranges arrive disjoint and in ascending order however they were written.
-     *
-     * @param index Zero-based index.
-     * @return The range at that position.
      * @throws MappingException `COLUMN_NOT_FOUND` if [index] is outside [ranges].
      */
     operator fun get(index: Int): PgRange {
@@ -38,24 +31,11 @@ class PgMultirange internal constructor(
         return ranges[index]
     }
 
-    /**
-     * Returns the ranges as a list.
-     *
-     * @return [ranges] itself, not a copy.
-     */
+    /** [ranges] itself, not a copy. */
     fun toList(): List<PgRange> = ranges
 
     companion object {
-        /**
-         * Creates a multirange from ranges that are already of the right range type.
-         *
-         * Nothing is normalized or validated here; the server does that when the value reaches it.
-         *
-         * @param multirangeOid OID of the multirange type.
-         * @param rangeOid OID of the range type it contains.
-         * @param ranges The ranges to hold.
-         * @return The constructed [PgMultirange].
-         */
+        /** A multirange of [multirangeOid] holding [ranges] as given; the server normalizes them. */
         fun create(
             multirangeOid: Int,
             rangeOid: Int,

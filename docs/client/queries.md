@@ -5,8 +5,7 @@ clauses a case might or might not need — an exceptio if the defendant had a de
 claimant had an answer to it. The parties did not compose the words. They settled which clauses applied, and
 the formula was assembled from that.*
 
-The builders here do the assembling and nothing else. What goes in each clause is SQL, and it is passed through
-unread.
+The builders here do the assembling. What goes in each clause is SQL, and it is passed through unread.
 
 > The terminal methods — `fetchRows`, `fetchObjects<T>`, `fetchField<T>`, `forEach*`, `executeUpdate` — are the
 > driver's own, under the driver's names, with the driver's meanings. This page does not describe them; see
@@ -34,6 +33,10 @@ What the builder contributes is the mechanical part:
 - the keywords and the order they have to go in,
 - the column list paired with its own `@name` placeholders, so the two cannot drift apart,
 - the clauses that disappear when they have nothing to say.
+
+[`toCountQuery()`](#a-query-is-a-value) goes one step past that. It turns a `select` into a count of the rows it
+matches on every page, and leaves out its ordering, its paging and its locking clause to do it — chosen by which
+clause each is, with what is written in them still unread.
 
 Every builder carries `with(name, query)` and `recursive()` for a `WITH` clause, so a CTE — recursive or not —
 needs no raw SQL either.
@@ -125,7 +128,7 @@ A filter assembled at runtime is otherwise a string-concatenation problem with a
 clause either has something to say or is not rendered.
 
 `page(page, size)` is the exception and takes non-null values: it is `limit(size).offset(page * size)`, counted
-from zero.
+from zero. The total to show beside a page is [`toCountQuery()`](#a-query-is-a-value).
 
 `locking(clause)` adds row locking, written whole with `FOR` in it, since several clauses may follow one
 another: `locking("FOR NO KEY UPDATE OF l SKIP LOCKED")`. Worth calling only inside
@@ -334,6 +337,26 @@ val retired  = base.copy().where("rank = 'RETIRED'")
 ```
 
 `base` is untouched, and anything registered with `registerResultConverter` comes along with the copy.
+
+**`toCountQuery()`** counts the rows a `select` matches, whatever page it is set to:
+
+```kotlin
+val listed = db.select("id", "cognomen").from("senate").where(filter.sql).orderBy("cognomen")
+
+val total    = listed.toCountQuery().fetchFieldStrict<Long>(filter.params)
+val senators = listed.page(page, 20).fetchObjects<Senator>(filter.params)
+```
+
+The query is counted whole, as a subquery, so a `DISTINCT`, a `GROUP BY` or a set-returning function in it counts
+what it returns: a grouped query counts its groups. `ORDER BY`, `LIMIT`, `OFFSET` and the locking clause are left
+out, and a `LIMIT` that is part of the meaning, a top ten, goes with them. The count takes the same parameters and
+the parameter converters registered on the query, and costs what the same count written by hand would. It is a
+query of its own from the moment it is made, so changing `listed` afterwards does not reach it.
+
+The total and the page are two statements. Under the default `READ COMMITTED` each sees what was committed when it
+started, so they can disagree by whatever was committed in between. `count(*) OVER () AS total` in the select list
+puts the total on every row from the same statement instead, though a page past the last one has no row to carry
+it.
 
 ## Raw SQL
 

@@ -3,12 +3,9 @@ package io.github.octaviusframework.client.query
 import io.github.octaviusframework.client.session.SessionProvider
 
 /**
- * A `SELECT` under construction.
- *
- * Every clause takes SQL and passes it through: `from("legions l JOIN provinces p ON l.province_id = p.id")`
- * is written out because that is the join, not because the builder has a way to describe joins. What the
- * builder does is the mechanical part - the keywords, the order they go in, and above all the clauses that
- * disappear when they have nothing to say, which is what makes a filter assembled at runtime bearable.
+ * A `SELECT` under construction. Every clause takes SQL and passes it through; the builder supplies the keywords
+ * and their order, and leaves out a clause given `null` or blank, so a filter assembled at runtime can go
+ * straight in.
  *
  * ```kotlin
  * val senators = db.select("id", "cognomen", "province_id")
@@ -18,8 +15,6 @@ import io.github.octaviusframework.client.session.SessionProvider
  *     .page(page = 0, size = 20)
  *     .fetchObjects<Senator>(filter.params)
  * ```
- *
- * The terminal methods come from [RunnableQuery], so parameters are supplied there and never carried here.
  */
 class SelectQuery @PublishedApi internal constructor(
     provider: SessionProvider,
@@ -44,11 +39,8 @@ class SelectQuery @PublishedApi internal constructor(
     fun recursive(): SelectQuery = apply { cte.recursive = true }
 
     /**
-     * Sets the `FROM` clause, as SQL.
-     *
-     * Whatever PostgreSQL accepts after `FROM` goes here and is passed through untouched: `"legions"`,
-     * `"legions l"`, `"legions l JOIN provinces p ON l.province_id = p.id"`, `"UNNEST(@ids) AS id"`, or a
-     * function call such as `"calculate_tribute(@province, @year)"`.
+     * Sets the `FROM` clause, passed through as written: `"legions l JOIN provinces p ON l.province_id = p.id"`,
+     * `"UNNEST(@ids) AS id"`, `"calculate_tribute(@province, @year)"`.
      */
     fun from(source: String): SelectQuery = apply { fromClause = source }
 
@@ -84,12 +76,7 @@ class SelectQuery @PublishedApi internal constructor(
         offsetValue = position
     }
 
-    /**
-     * Sets `LIMIT` and `OFFSET` together from a page number and a page size.
-     *
-     * @param page The page, counted from zero.
-     * @param size How many rows a page holds.
-     */
+    /** Sets `LIMIT` and `OFFSET` for [page], counted from zero, of [size] rows. */
     fun page(page: Long, size: Long): SelectQuery = apply {
         requireBuildable(page >= 0) { "A page number cannot be negative, and was $page." }
         requireBuildable(size > 0) { "A page size has to be positive, and was $size." }
@@ -98,25 +85,13 @@ class SelectQuery @PublishedApi internal constructor(
     }
 
     /**
-     * Sets the locking clause, as SQL. `null` or blank leaves it out.
-     *
-     * Written whole, `FOR` included, since several may follow one another: `"FOR UPDATE"`,
-     * `"FOR NO KEY UPDATE OF l SKIP LOCKED"`, `"FOR UPDATE OF l FOR SHARE OF p NOWAIT"`.
-     *
-     * Only meaningful inside a transaction - the lock is held until it ends, and outside one that is until the
-     * statement finishes, which is no lock at all.
+     * Sets the locking clause, `FOR` included, since several may follow one another: `"FOR UPDATE"`,
+     * `"FOR UPDATE OF l FOR SHARE OF p NOWAIT"`. `null` or blank leaves it out. Outside a transaction the lock
+     * ends with the statement.
      */
     fun locking(clause: String?): SelectQuery = apply { lockingClause = clause }
 
-    /**
-     * Returns an independent copy, so that variants can be built from a shared base.
-     *
-     * ```kotlin
-     * val base = db.select("*").from("legions").orderBy("name")
-     * val onMarch = base.copy().where("status = 'ON_MARCH'")
-     * val garrisoned = base.copy().where("status = 'GARRISONED'")
-     * ```
-     */
+    /** Returns an independent copy, so that variants can be built from a shared base. */
     fun copy(): SelectQuery = SelectQuery(queryProvider, selectClause).also {
         it.copyConvertersFrom(this)
         it.cte.copyFrom(cte)
@@ -129,6 +104,35 @@ class SelectQuery @PublishedApi internal constructor(
         it.limitValue = limitValue
         it.offsetValue = offsetValue
         it.lockingClause = lockingClause
+    }
+
+    /**
+     * A query counting the rows this one matches across every page, for the total a paged list shows.
+     *
+     * ```kotlin
+     * val listed = db.select("id", "cognomen").from("senate").where(filter.sql).orderBy("cognomen")
+     *
+     * val total = listed.toCountQuery().fetchFieldStrict<Long>(filter.params)
+     * val senators = listed.page(page, 20).fetchObjects<Senator>(filter.params)
+     * ```
+     *
+     * This query is wrapped whole, `SELECT count(*) FROM (…)`, so a `DISTINCT` or a `GROUP BY` counts the rows it
+     * returns. Its `ORDER BY`, `LIMIT`, `OFFSET` and locking clause are left out - a `LIMIT` that belongs to the
+     * meaning, a top ten, along with them.
+     *
+     * The count takes this query's parameters and parameter converters, not its result converters. It is rendered
+     * now, so later changes to this builder do not reach it.
+     */
+    fun toCountQuery(): SelectQuery {
+        val counted = copy().also {
+            it.orderByClause = null
+            it.limitValue = null
+            it.offsetValue = null
+            it.lockingClause = null
+        }
+        return SelectQuery(queryProvider, "count(*)").fromSubquery(counted.querySql()).also {
+            it.queryParameterConverters = queryParameterConverters?.toMutableList()
+        }
     }
 
     override fun querySql(): String {

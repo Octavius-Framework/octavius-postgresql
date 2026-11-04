@@ -1,36 +1,24 @@
 package io.github.octaviusframework.driver.jdbc
 
 /**
- * A session's `search_path`, read from what the server reports, and the order the server looks a type name up in.
+ * A reported `search_path` read the way `namespace.c` reads it: the setting's text, unnormalized where it came
+ * from `set_config` or a startup parameter, and the order a type name is looked up in. What the server does not
+ * report stays out of it: `$user` follows `session_authorization` and not `SET ROLE`, a schema without `USAGE` is
+ * kept, and the session's temporary schema is left out.
  *
- * The report is the setting's text, which is not the path the server searches. `SET` normalizes what it is given
- * before storing it, but `set_config` and a startup parameter store the text as written, so `Gallia` arrives as
- * `Gallia` and means `gallia`. The setting also names schemas by alias - `$user`, `pg_temp` - and leaves out the
- * ones searched without being listed. Both halves are worked out here the way `namespace.c` works them out.
- *
- * What the server knows and does not report, this cannot follow:
- * - `$user` is the current role, and `SET ROLE` moves it without a `ParameterStatus` (`role` is not reported in
- *   PostgreSQL 18). It is taken from `session_authorization`, which `SET SESSION AUTHORIZATION` does report.
- * - A listed schema the current role has no `USAGE` on is skipped by the server and kept here.
- * - The session's temporary schema is a `pg_temp_N` created with its first temporary object, and reported nowhere.
- *   The server searches it ahead of everything else for type names, `pg_catalog` included, or where `pg_temp`
- *   stands in the setting; it is left out here either way.
- *
- * @property setting the reported `search_path`, as it arrived.
- * @property sessionUser the reported `session_authorization`, which `$user` stands for, or `null` where none was.
+ * @property sessionUser The reported `session_authorization`, which `$user` stands for, or `null`.
  */
 internal class SearchPath(val setting: String, val sessionUser: String?) {
 
     /**
-     * The setting's entries, split as the server splits them: an unquoted name folded to lower case, a quoted
-     * one unquoted, every name cut to [MAX_NAME_BYTES]. `$user` and `pg_temp` stay as they are.
+     * The setting's entries: unquoted names folded to lower case, quoted ones unquoted, every name cut to
+     * [MAX_NAME_BYTES]. `$user` and `pg_temp` stay as they are.
      */
     val entries: List<String> = splitIdentifiers(setting)
 
     /**
-     * The schemas an unqualified type name is looked up in, first match winning: [entries] with `$user` as
-     * [sessionUser], or without it where there is none, without `pg_temp`, and with `pg_catalog` ahead of them
-     * unless they list it.
+     * The schemas an unqualified type name is looked up in: [entries] with `$user` resolved or dropped, without
+     * `pg_temp`, and with `pg_catalog` first unless they list it.
      */
     val typeLookupOrder: List<String> = buildList {
         for (entry in entries) {
@@ -43,7 +31,7 @@ internal class SearchPath(val setting: String, val sessionUser: String?) {
         if (CATALOG_SCHEMA !in this) add(0, CATALOG_SCHEMA)
     }
 
-    /** Whether this was read from these two reports, and so still holds while they are what the server says. */
+    /** Whether this was read from these two reports. */
     fun isFor(setting: String, sessionUser: String?): Boolean =
         this.setting == setting && this.sessionUser == sessionUser
 
@@ -56,10 +44,8 @@ internal class SearchPath(val setting: String, val sessionUser: String?) {
         private const val MAX_NAME_BYTES = 63
 
         /**
-         * `SplitIdentifierString` over a list the server has already accepted, so there is no syntax to refuse.
-         *
-         * The folding is ASCII only, which is what the server does in a multibyte encoding; in a single-byte one
-         * it folds the letters past ASCII too.
+         * `SplitIdentifierString` over a list the server already accepted. Folds ASCII only, as the server does in a
+         * multibyte encoding.
          */
         private fun splitIdentifiers(setting: String): List<String> {
             val names = ArrayList<String>()

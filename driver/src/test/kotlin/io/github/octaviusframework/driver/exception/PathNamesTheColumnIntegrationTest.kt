@@ -5,13 +5,7 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/**
- * A failure inside a composite column has to read the same way whichever route reached it.
- *
- * `fetchObjects` maps the row through `ReflectionRowConverter`, which names each column as it descends;
- * `fetchField` and `Row.get` go through `Row.get`, which used to hand the value to the mapper with no segment
- * at all - so the same broken value arrived naming the attribute and never the column it was in.
- */
+/** A failure inside a composite column has to read the same way whichever route reached it. */
 class PathNamesTheColumnIntegrationTest : AbstractIntegrationTest() {
 
     /** `city` is `text` in the database, so reading it as an `Int` fails inside the composite. */

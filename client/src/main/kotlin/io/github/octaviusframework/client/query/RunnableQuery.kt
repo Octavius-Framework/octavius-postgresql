@@ -9,22 +9,13 @@ import io.github.octaviusframework.driver.row.Row
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 
 /**
- * Something that knows how to produce a query, and can therefore be run.
+ * A query that can be run: the base of every builder and of [RawQuery], carrying the terminal methods.
  *
- * This is where the terminal methods live, written once for everything that can be run. Every builder the
- * client offers extends it, and so does a hand-written [RawQuery]; a subclass supplies the SQL and inherits
- * `fetchRows`, `fetchObjects`, `fetchField`, `forEach*` and `executeUpdate` without restating a line of them.
+ * The terminals are the driver's, with the same names and meanings, and find their session when they run -
+ * inside a transaction, the transaction's. They throw as the driver throws; [asResult] switches to terminals
+ * that return a value.
  *
- * The names and their meanings are the driver's, unchanged, and parameters are supplied at the terminal as
- * they are there. What these add is the one thing a `RunnableQuery` knows and a driver query does not: which
- * session to run on. Nothing has to be opened around a query, which is what keeps a single one to a single
- * expression - the session is asked for when a terminal runs, and inside a transaction that is the
- * transaction's own.
- *
- * They throw, as the driver throws. Where a failure should be a value instead, [asResult] switches this query
- * to terminals that return one.
- *
- * Parameters are `@name` only. Positional `$1` placeholders stay reachable where they always were -
+ * Parameters are `@name` only and are supplied at the terminal. Positional `$1` placeholders are reached through
  * `db.execute { createNativeQuery(…) }`.
  */
 @Suppress("UNCHECKED_CAST")
@@ -37,20 +28,14 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     @PublishedApi
     internal abstract fun querySql(): String
 
-    // Null until something is registered, a query being a thing an application builds per request: an empty
-    // list apiece would be two allocations on every one of them for a feature most never use.
+    // Null until something is registered, so a query that registers nothing allocates no lists.
     @PublishedApi
     internal var queryResultConverters: MutableList<ResultConverter<*, *>>? = null
 
     @PublishedApi
     internal var queryParameterConverters: MutableList<ParameterConverter<*>>? = null
 
-    /**
-     * Builds the driver query a terminal is about to run, with this query's own converters on it.
-     *
-     * Every terminal goes through here rather than calling `createNamedQuery` itself, which is what makes
-     * [registerResultConverter] apply to all of them at once.
-     */
+    /** The driver query every terminal runs, carrying this query's own converters. */
     @PublishedApi
     internal fun OctaviusSessionOperations.preparedQuery(): NamedParameterQuery {
         val query = createNamedQuery(querySql())
@@ -60,16 +45,8 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     }
 
     /**
-     * Registers a [ResultConverter] for this query and nothing else.
-     *
-     * The driver lets every query hold converters of its own, consulted ahead of the registered ones and thrown
-     * away with the query; this is how a builder reaches them. A one-off mapping - a column read as something other
-     * than what the registry says, a shape that exists in one report and nowhere else - therefore costs nothing
-     * outside the query it was written for, where registering on the type manager would reach every session
-     * pointing at the same database.
-     *
-     * Registered ahead of whatever the session already holds, and later registrations here win over earlier
-     * ones.
+     * Registers a [ResultConverter] for this query alone, consulted ahead of the session's. A later registration
+     * here wins over an earlier one.
      *
      * ```kotlin
      * db.select("payload").from("dispatches")
@@ -77,9 +54,6 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
      *     .where("legion_id = @id")
      *     .fetchObjects<Envelope>("id" to 7)
      * ```
-     *
-     * @param converter The converter to consult for this query.
-     * @return This query, as its own type, so it can sit anywhere in a builder chain.
      */
     fun registerResultConverter(converter: ResultConverter<*, *>): T {
         (queryResultConverters ?: mutableListOf<ResultConverter<*, *>>().also { queryResultConverters = it })
@@ -87,15 +61,7 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
         return this as T
     }
 
-    /**
-     * Registers a [ParameterConverter] for this query and nothing else.
-     *
-     * The write-side mirror of [registerResultConverter], on the same terms: local to the query, ahead of the
-     * session's, and discarded with it.
-     *
-     * @param converter The converter to consult for this query.
-     * @return This query, as its own type.
-     */
+    /** Registers a [ParameterConverter] for this query alone, on the terms of [registerResultConverter]. */
     fun registerParameterConverter(converter: ParameterConverter<*>): T {
         (queryParameterConverters ?: mutableListOf<ParameterConverter<*>>().also { queryParameterConverters = it })
             .add(converter)
@@ -109,43 +75,25 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     }
 
     /**
-     * Renders the SQL this query would send.
-     *
-     * A query here is a value rather than an action waiting to happen, and this is what makes it composable:
-     * the rendered SQL drops into a `WITH` clause, a subquery, an arm of a `UNION` - anywhere the statement it
-     * produces belongs inside a larger one. Parameters are never carried by a query and are always supplied at
-     * the terminal, so the `@name` placeholders survive the embedding untouched and are bound by whoever runs
-     * the outer statement. The plainer uses follow from the same method: a log line, a test that asserts on
-     * what a builder generated.
-     *
-     * Rendering is not cached and costs whatever assembling costs, which for a builder means walking its
-     * clauses again. Composing a statement once per request is nothing; doing it per row is not.
+     * Renders the SQL this query would send. A query never carries parameters, so its `@name` placeholders survive
+     * embedding it in a `WITH`, a subquery or a `UNION`, and are bound by whoever runs the outer statement. Not
+     * cached: a builder walks its clauses again on every call.
      */
     fun toSql(): String = querySql()
 
     /**
-     * Switches this query to the result style: every terminal on the returned object hands back a
-     * [DataResult][io.github.octaviusframework.client.DataResult] instead of throwing.
-     *
-     * The boundary is the same one [dbResult][io.github.octaviusframework.client.dbResult] applies, so what is
-     * caught and what is let through does not change - a `fetch*Strict` that found no row still throws. Only
-     * the shape at the call site does, and it is worth the switch once a builder has put four calls in front
-     * of the terminal and wrapping the chain would mean indenting all of it.
-     *
-     * @return This query, with result-returning terminals.
+     * This query with terminals that return a [DataResult][io.github.octaviusframework.client.DataResult] instead
+     * of throwing, on the boundary [dbResult][io.github.octaviusframework.client.dbResult] applies - a
+     * `fetch*Strict` that found no row still throws.
      */
     fun asResult(): ResultQuery = ResultQuery(this)
 
     /**
-     * Turns this query into a step of a [TransactionPlan][io.github.octaviusframework.client.transaction.TransactionPlan]
-     * instead of something to run now.
-     *
-     * The terminal chosen on the returned builder decides what the step produces and how later steps can refer
-     * to it; the parameters given there may hold
+     * Turns this query into a step of a
+     * [TransactionPlan][io.github.octaviusframework.client.transaction.TransactionPlan] instead of running it. The
+     * parameters given at the step's terminal may hold
      * [TransactionValue][io.github.octaviusframework.client.transaction.TransactionValue]s pointing at earlier
      * steps.
-     *
-     * @return A builder for the step.
      */
     fun asStep(): StepBuilder = StepBuilder(this)
 
@@ -173,14 +121,11 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     fun fetchRowStrict(vararg params: Pair<String, Any?>): Row = fetchRowStrict(params.toMap())
 
     /**
-     * Runs the query and hands each row to [block] as it arrives, in batches of [fetchSize].
+     * Runs the query and hands each row to [block] as it arrives, so a result too large to hold is streamed.
+     * [block] runs while the result is still being read, and a query from inside it is refused with
+     * `CONNECTION_BUSY`.
      *
-     * The session stays open for the whole walk, so this streams a result too large to hold rather than
-     * materialising it first. [block] runs on that session, and the driver serialises nested use of one
-     * connection, so keep the body to the row.
-     *
-     * @param fetchSize Rows per batch, or `0` for the whole result in one `Execute`. Required, as it is on the
-     * driver.
+     * @param fetchSize Rows per batch, or `0` for the whole result in one `Execute`.
      */
     fun forEachRow(
         params: Map<String, Any?> = emptyMap(),
@@ -222,11 +167,7 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     inline fun <reified T : Any> fetchObjectStrict(vararg params: Pair<String, Any?>): T =
         fetchObjectStrict<T>(params.toMap())
 
-    /**
-     * Runs the query and hands each row, mapped onto [T], to [block] as it arrives.
-     *
-     * @param fetchSize As on [forEachRow]: rows per batch, `0` for the whole result at once, and required.
-     */
+    /** Runs the query and hands each row, mapped onto [T], to [block] as it arrives, as [forEachRow] does. */
     inline fun <reified T : Any> forEachObject(
         params: Map<String, Any?> = emptyMap(),
         fetchSize: Int,
@@ -253,10 +194,8 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
         fetchFields<T>(params.toMap())
 
     /**
-     * Runs the query and returns the first column of its single row as [T].
-     *
-     * Declare [T] nullable for a lookup allowed to find nothing; under a non-nullable one, a missing row and a
-     * `NULL` alike are thrown - the declaration asserted a value would be there.
+     * Runs the query and returns the first column of its single row as [T]. A nullable [T] gives `null` for a
+     * missing row or a `NULL`; a non-nullable one throws for either.
      */
     inline fun <reified T> fetchField(params: Map<String, Any?> = emptyMap()): T =
         queryProvider.execute { preparedQuery().fetchField<T>(params) }
@@ -273,11 +212,7 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
     inline fun <reified T> fetchFieldStrict(vararg params: Pair<String, Any?>): T =
         fetchFieldStrict<T>(params.toMap())
 
-    /**
-     * Runs the query and hands the first column of each row, as [T], to [block] as it arrives.
-     *
-     * @param fetchSize As on [forEachRow]: rows per batch, `0` for the whole result at once, and required.
-     */
+    /** Runs the query and hands the first column of each row, as [T], to [block] as [forEachRow] does. */
     inline fun <reified T> forEachField(
         params: Map<String, Any?> = emptyMap(),
         fetchSize: Int,

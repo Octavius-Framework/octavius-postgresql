@@ -2,38 +2,26 @@ package io.github.octaviusframework.driver.exception
 
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
-/**
- * Represents which assertion a PL/pgSQL routine made and the data then falsified.
- */
+/** Which assertion of a PL/pgSQL routine failed. */
 enum class RoutineAssertionExceptionReason {
-    /** A SELECT INTO STRICT statement did not return any rows (P0002). */
+    /** `SELECT INTO STRICT` found no row (P0002). */
     NO_DATA_FOUND,
 
-    /** A SELECT INTO STRICT statement returned more than one row (P0003). */
+    /** `SELECT INTO STRICT` found several rows (P0003). */
     TOO_MANY_ROWS,
 
-    /** An ASSERT statement failed (P0004). */
+    /** An `ASSERT` failed (P0004). */
     ASSERT_FAILURE
 }
 
 /**
- * Exception thrown when an assertion inside a PL/pgSQL routine turns out to be false.
+ * A PL/pgSQL routine's `INTO STRICT` or `ASSERT` turned out false: a defect in the routine. A routine refusing on
+ * purpose is [RoutineRaiseException].
  *
- * `INTO STRICT` states that the query matches exactly one row, and `ASSERT` states its condition holds. A run
- * that finds otherwise has falsified something the routine claimed, which makes this a defect in the database
- * code rather than an outcome of the call - the same reading that has `fetch*Strict` finding no row raise
- * [InvalidOperationException] with `INCORRECT_RESULT_SIZE` instead of returning null. This is that failure
- * one level down, asserted in PL/pgSQL rather than in Kotlin.
- *
- * A routine saying no on purpose is [RoutineRaiseException] and is deliberately a different type.
- *
- * @property reason Which assertion failed.
- * @property dbMessage The primary error message the routine raised (the PostgreSQL MESSAGE field).
- * @property dbDetail Explicit DETAIL field provided by PostgreSQL.
- * @property hint Explicit HINT field provided by PostgreSQL.
- * @property where Call stack or context (WHERE field) of the PL/pgSQL execution.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property dbMessage The server's message.
+ * @property dbDetail The server's detail.
+ * @property hint The server's hint.
+ * @property where The PL/pgSQL call stack.
  */
 class RoutineAssertionException(
     val reason: RoutineAssertionExceptionReason,

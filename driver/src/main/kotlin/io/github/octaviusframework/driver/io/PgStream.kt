@@ -36,21 +36,12 @@ import javax.net.ssl.SSLPeerUnverifiedException
 import javax.net.ssl.SSLSocket
 
 /**
- * Represents a connection stream to a PostgreSQL database.
- * Handles reading and writing of PostgreSQL wire protocol messages.
+ * One socket to the server, reading and writing protocol messages.
  *
- * @property host The hostname or IP address of the PostgreSQL server, as it was written - what a
- *   certificate is matched against.
- * @property port The port number of the PostgreSQL server.
- * @property address Which of the addresses [host] resolves to the socket is opened to. Kept because
- *   [host] can name several, and a second connection opened on this one's behalf - a cancel request -
- *   has to reach the same server.
- * @property loginTimeoutSecs Timeout in seconds for the initial connection and login process.
- * @param notificationBufferCapacity Capacity of the buffer for asynchronous notifications.
- * @property sslConfiguration The SSL settings this connection was established with, kept so that a
- *   second connection opened on its behalf - a cancel request - can be given the same treatment.
- * @property cancelSignalTimeoutSecs Seconds allowed for a cancel request sent on this connection's
- *   behalf, covering both its connect and its reads. Carried here for the same reason.
+ * @property host The host as written, which a certificate is matched against.
+ * @property address The address [host] resolved to that the socket reached, where a cancel request goes too.
+ * @property sslConfiguration The TLS settings, which a cancel request is sent under too.
+ * @property cancelSignalTimeoutSecs Seconds allowed for a cancel request's connect and reads.
  */
 internal class PgStream(
     val host: String,
@@ -64,14 +55,10 @@ internal class PgStream(
 ) : AutoCloseable {
     companion object {
         private val logger = KotlinLogging.logger {}
-        // A specific logger name allows users to filter just notices in logback.xml
+        // A logger of its own, so notices can be filtered apart.
         private val noticeLogger = KotlinLogging.logger("io.github.octaviusframework.driver.Notice")
 
-        /**
-         * How long a failed write may spend reading what the server sent before it closed. What the server sent
-         * arrived before the reset that failed the write, so it is there to be read at once; this only bounds a
-         * message that arrived in part.
-         */
+        /** How long a failed write may read what the server sent before closing, for a message that arrived in part. */
         private const val WRITE_FAILURE_READ_TIMEOUT_MS = 1000
     }
     val lock = ReentrantLock()
@@ -83,55 +70,29 @@ internal class PgStream(
     var isBroken: Boolean = false
     var maxCachedRowSize: Int = 65536
 
-    /**
-     * The `FATAL` or `PANIC` the server ended this session with, or `null` while it has not.
-     *
-     * Kept past the exception that reported it, so that whatever is asked of the connection afterwards can say
-     * why it is gone rather than only that its stream broke.
-     */
+    /** The `FATAL` or `PANIC` the server ended the session with, kept so later failures can say why. */
     var terminatedBy: ServerErrorMessage? = null
         private set
 
     /**
-     * The transfer that last held this connection in copy mode, live or spent.
-     *
-     * On the stream rather than on the `CopyManager` or `Session` that started it, because it outlives
-     * every one of them: a manager belongs to one session, and several sessions can be opened
-     * over one connection in turn, each with a manager of its own.
-     *
-     * Set by the operations under [lock] and never cleared - [CopyOperation.isActive] is the
-     * authority on whether it still refers to anything live.
+     * The transfer that last held this connection in copy mode, live or spent; [CopyOperation.isActive] says which.
+     * Here because it outlives the session that started it.
      */
     var activeCopy: CopyOperation? = null
 
-    /**
-     * True while a COPY operation holds the connection in copy mode.
-     *
-     * Read through [activeCopy], which the operations maintain under [lock], so others only ever
-     * observe it while the lock is free - at which point it says what is actually in flight.
-     */
+    /** Whether a `COPY` holds the connection in copy mode. */
     val copyInProgress: Boolean
         get() = activeCopy?.isActive == true
 
     /**
-     * True while a statement is being executed on this connection, from the first message sent
-     * until the exchange is fully drained.
-     *
-     * Set by [beginExchange] and cleared by [endExchange], both under [lock], so it is only
-     * observed by others while the lock is free - at which point it is always false. What it
-     * really catches is *reentrant* use: code called back into during an exchange (a `forEach`
-     * block, a `ResultConverter`) trying to run its own statement on the same connection.
+     * Whether an exchange runs, from its first message sent until it is drained. Set under [lock], so what it
+     * catches is the exchange's own thread: a `forEach` block or a converter running a statement of its own.
      */
     var exchangeInProgress: Boolean = false
 
     /**
-     * Guards any operation that needs the protocol stream to itself.
-     *
-     * A connection can carry exactly one exchange at a time. Anything interleaved into a
-     * transfer or a result being read would consume the other's messages and desynchronize
-     * the connection, so this fails fast instead. Note that [lock] cannot catch this on its
-     * own - it is reentrant, so the very thread that owns the exchange passes straight
-     * through it, and that is precisely the thread a callback runs on.
+     * Refuses a second exchange or transfer while one runs, which [lock] cannot: it is reentrant, and the thread
+     * running a callback is the one that holds it.
      */
     fun checkAvailable() {
         if (copyInProgress) {
@@ -152,11 +113,7 @@ internal class PgStream(
     }
 
     /**
-     * Marks the start of an exchange, refusing to begin one while another is already running.
-     * Every call must be paired with [endExchange] in a `finally`.
-     *
-     * Reads what the server sent since the last exchange before anything is written - see [readUnsolicited] -
-     * so a session it ended in the meantime is reported here, and nothing is sent at it.
+     * Starts an exchange, paired with [endExchange] in a `finally`, after [readUnsolicited].
      *
      * @throws SessionTerminatedException if the server ended the session while nobody was reading.
      */
@@ -171,19 +128,12 @@ internal class PgStream(
         exchangeInProgress = false
     }
 
-    /**
-     * The transaction status the server reported on its last `ReadyForQuery`: `I` outside a
-     * transaction block, `T` inside one, `E` inside one that has failed.
-     */
+    /** The status of the last `ReadyForQuery`: `I` idle, `T` in a transaction, `E` in a failed one. */
     var transactionStatus: Char = 'I'
         private set
 
 
-    /**
-     * Shared buffers used to reduce memory allocations during 'DataRow' deserialization.
-     * Since 'Row' eagerly parses all values into basic JVM types during initialization,
-     * the underlying byte arrays can be immediately reused for the next row.
-     */
+    /** Buffers reused for each `DataRow`, which a `Row` decodes as it is built. */
     private var sharedRowData = ByteArray(1024)
     private var sharedColumnOffsets = IntArray(16)
     private var sharedColumnLengths = IntArray(16)
@@ -197,13 +147,7 @@ internal class PgStream(
         outputStream = PgOutputStream(socket.getOutputStream())
     }
 
-    /**
-     * Upgrades the current connection to use SSL/TLS.
-     *
-     * @param host The hostname to verify against the SSL certificate.
-     * @param port The port number.
-     * @param config The SSL configuration to use.
-     */
+    /** Wraps the socket in TLS, verifying [host] as [config] says. */
     fun upgradeToSSL(host: String, port: Int, config: SslConfiguration) {
         val sslSocket = SslNegotiator.upgrade(socket, host, port, config)
         socket = sslSocket
@@ -215,15 +159,7 @@ internal class PgStream(
     val isSecure: Boolean
         get() = socket is SSLSocket
 
-    /**
-     * The certificate the server presented during the TLS handshake, or null on a plaintext
-     * connection and on the rare TLS connection where the peer never authenticated itself.
-     *
-     * Nothing here judges the certificate - that is the trust manager's job during
-     * [upgradeToSSL], and under `sslmode=require` it deliberately accepts anything. This
-     * reports only what was presented, which is precisely what channel binding hashes: the
-     * proof then covers the certificate actually on the wire, verified or not.
-     */
+    /** The certificate the server presented, verified or not, which channel binding hashes; `null` in plaintext. */
     val peerCertificate: X509Certificate?
         get() {
             val sslSocket = socket as? SSLSocket ?: return null
@@ -237,23 +173,10 @@ internal class PgStream(
 
     val parameters = mutableMapOf<String, String>()
 
-    /**
-     * False until the startup handshake reaches its first `ReadyForQuery`.
-     *
-     * The parameters that arrive during login come in one burst and are reported as a single line
-     * by the authenticator. Only what changes *after* that is an event of its own, and this is what
-     * tells the two apart.
-     */
+    /** Whether login reached its first `ReadyForQuery`; a parameter reported after it is logged as a change. */
     var startupComplete: Boolean = false
 
-    /**
-     * The socket's read timeout, in milliseconds, with 0 meaning no limit.
-     *
-     * Both directions are socket operations and both fail on a dead socket, so they are wrapped
-     * the way [sendMessage] and [flush] are. Left raw, a `SocketException` would travel out of
-     * `Connection.setNetworkTimeout` and `getNetworkTimeout` - which JDBC declares as throwing
-     * `SQLException`, and which a pool therefore only guards against as one.
-     */
+    /** The socket's read timeout in milliseconds, `0` for none. A dead socket raises a [NetworkException]. */
     var networkTimeout: Int
         get() = try {
             socket.soTimeout
@@ -276,13 +199,12 @@ internal class PgStream(
     val notifications: SharedFlow<PgNotification> = _notifications
 
     /**
-     * Sends a frontend message to the PostgreSQL server.
+     * Writes [msg] to the buffer, which goes out to the socket whenever it fills up.
      *
-     * @param msg The frontend message to send.
-     * @throws NetworkException if a network error occurs during transmission.
+     * @throws NetworkException if the write fails.
      * @throws SessionTerminatedException if the write failed because the server had ended the session.
      */
-    fun sendMessage(msg: FrontendMessage) {
+    fun writeMessage(msg: FrontendMessage) {
         try {
             msg.encode(outputStream)
         } catch (e: IOException) {
@@ -291,9 +213,9 @@ internal class PgStream(
     }
 
     /**
-     * Flushes the underlying output stream, forcing any buffered bytes to be written out.
+     * Sends what was written.
      *
-     * @throws NetworkException if a network error occurs during flush.
+     * @throws NetworkException if the write fails.
      * @throws SessionTerminatedException if the write failed because the server had ended the session.
      */
     fun flush() {
@@ -305,18 +227,8 @@ internal class PgStream(
     }
 
     /**
-     * What a failed write is reported as: the `FATAL` the server sent before it closed the connection, where
-     * one is waiting to be read, and a `NetworkException` about the write where not.
-     *
-     * A write fails on a connection the server has closed, and the server says why before it closes. Whatever
-     * is writing, though - a statement's parameters, a COPY being streamed in - reads nothing until it is done,
-     * so the reason is still in the input when the write fails, and reporting the write would lose it: the
-     * failure describes the reset the server's host answered with, not the `FATAL` that explained it. So what
-     * has already arrived is read first, bounded by a short timeout in case a message arrived only in part -
-     * the connection is finished either way, so the timeout is never put back.
-     *
-     * That reaches a plain connection only. A TLS connection shuts its TLS layer down on the failed write, and
-     * nothing that arrived before it can be read through it afterwards.
+     * What a failed write raises: the `FATAL` the server sent before closing, where it is still there to read, else
+     * a `NetworkException`. Over TLS nothing can be read after a failed write.
      */
     private fun writeFailed(e: IOException): OctaviusException {
         isBroken = true
@@ -333,45 +245,24 @@ internal class PgStream(
     }
 
     /**
-     * Receives a single backend message synchronously, blocking until data is available.
+     * The next message, waiting for it.
      *
-     * @return The parsed backend message.
-     * @throws NetworkException if a network error occurs.
+     * @throws NetworkException if the read fails.
      * @throws SessionTerminatedException if the message is a `FATAL` or `PANIC` that ended an open session.
      */
     fun receiveMessage(): BackendMessage {
         return receiveMessageInternal(isPolling = false)!!
     }
 
-    /**
-     * Attempts to receive a backend message if one is immediately available or within the timeout.
-     * Returns null if no message is available (e.g. timeout reached while polling).
-     *
-     * @return The parsed backend message, or null if a timeout occurs before receiving the tag.
-     */
+    /** The next message, or `null` if none starts within the read timeout. */
     fun pollMessage(): BackendMessage? {
         return receiveMessageInternal(isPolling = true)
     }
 
     /**
-     * Reads whatever the server sent while nobody was reading, without waiting for more.
-     *
-     * Between exchanges the server can still speak: a notification, a notice, a parameter that changed - and a
-     * `FATAL` that ended the session while it sat idle, which is how every timeout but the statement's own
-     * arrives, and how `pg_terminate_backend()` reaches an idle session. Reading that one before anything is
-     * written is what keeps it. Written first, a statement goes to a backend that has already exited, its host
-     * answers with a reset, and a reset lets the TCP stack drop whatever it still held for the connection - a
-     * Windows client does exactly that, so the error that explained everything never reaches a read, and the
-     * caller is told about a reset instead. That keeps the reason where the server closes the connection
-     * gracefully. A stock PostgreSQL on Windows resets it by itself as the backend exits, milliseconds after the
-     * `FATAL`, and a Windows client loses the reason then whatever the driver does, unless this look came first.
-     *
-     * Only what has already arrived is read, so an idle connection the server has told nothing costs one look
-     * at the socket. On a TLS connection that look reaches only what the TLS layer has already decrypted - bytes
-     * still encrypted on the socket cannot be told apart from a record that carries no message - so there a
-     * session ended while idle is found where it always was: by the first read after the next write.
-     *
-     * Not for use inside an exchange or a transfer, where what is waiting is the answer to what was sent.
+     * Reads what the server sent between exchanges, without waiting: notifications, notices, parameters, and a
+     * `FATAL` that ended an idle session. Read before the next write, since a write to an exited backend draws a
+     * reset, on which Windows discards the `FATAL`. Over TLS only what is already decrypted is seen.
      *
      * @throws SessionTerminatedException if the server ended the session in the meantime.
      */
@@ -384,22 +275,17 @@ internal class PgStream(
     }
 
     /**
-     * Reads one message if one has started to arrive, and returns null rather than wait for one that has not.
-     *
-     * For a transfer that writes without reading, where the server speaks only to end it. Notices and
-     * notifications are taken care of by the read itself, and a `FATAL` raises from inside it.
+     * One message if one has started to arrive, else `null`, for a transfer the server speaks into only to end it.
      *
      * @throws SessionTerminatedException if the server ended the session.
      */
     fun receivePendingMessage(): BackendMessage? = receiveMessageInternal(pendingOnly = true)
 
     /**
-     * Internal function to receive a backend message, optionally handling timeouts gracefully if polling.
+     * Reads one message, handling notices, notifications and parameter reports on the way.
      *
-     * @param isPolling If true, a read timeout when reading the initial message tag will return null instead of throwing an exception.
-     * @param pendingOnly If true, returns null rather than wait for a message that has not started to arrive.
-     * @return The parsed backend message, or null if polling and a timeout occurs, or if only what was pending was
-     *   to be read and nothing is.
+     * @param isPolling Returns `null` on a read timeout before the message starts.
+     * @param pendingOnly Returns `null` rather than wait for a message that has not started.
      */
     private fun receiveMessageInternal(isPolling: Boolean = false, pendingOnly: Boolean = false): BackendMessage? {
         var readingTag = true
@@ -417,11 +303,7 @@ internal class PgStream(
                         val name = inputStream.readCString()
                         val value = inputStream.readCString()
                         val previous = parameters.put(name, value)
-                        // A GUC_REPORT parameter moving mid-session is a real event, and often an
-                        // invisible one: a hand-written `SET search_path` changes which types and
-                        // tables everything after it resolves against, with nothing else to show
-                        // for it. Only actual changes - the server re-reports a parameter on
-                        // rollback whether or not the value moved.
+                        // Logged only where the value moved; a rollback re-reports parameters unchanged.
                         if (startupComplete && previous != value) {
                             logger.trace {
                                 if (previous == null) "[PID: $processId] Session parameter set: $name = $value"
@@ -600,11 +482,9 @@ internal class PgStream(
     }
 
     /**
-     * Parses an authentication request message from the backend.
+     * Parses an authentication request.
      *
-     * @param payloadLength The length of the message payload.
-     * @return The parsed AuthenticationMessage.
-     * @throws InitializationException if the authentication mechanism is unsupported.
+     * @throws InitializationException if the mechanism is unsupported.
      */
     private fun parseAuthentication(payloadLength: Int): BackendMessage {
         return when (val type = inputStream.readInt()) {
@@ -638,14 +518,7 @@ internal class PgStream(
         }
     }
 
-    /**
-     * Parses the field set an ErrorResponse (Tag 'E') and a NoticeResponse (Tag 'N') share.
-     *
-     * The fields terminate themselves with a zero byte, so the payload length says nothing this
-     * needs and is not taken.
-     *
-     * @return The parsed [ErrorOrNoticeMessage].
-     */
+    /** Parses the fields an `ErrorResponse` and a `NoticeResponse` share. */
     private fun parseErrorOrNotice(): ErrorOrNoticeMessage {
         val fields = mutableMapOf<Char, String>()
         while (true) {
@@ -658,16 +531,8 @@ internal class PgStream(
     }
 
     /**
-     * Takes a `FATAL` or `PANIC` for what it is: the server's last word before it closes the connection.
-     *
-     * Nothing follows either one - no `ReadyForQuery`, only the close - so the connection is given up here, on
-     * the message, rather than on whatever the socket does next. That is what keeps the reason: read on past it
-     * and what reaches the caller is the close, a `NetworkException` about a peer that hung up, with the error
-     * that explained it lost. It also means nothing waits on the close arriving at all.
-     *
-     * In an open session this raises the error as [SessionTerminatedException]. During login it returns, and
-     * the error goes back to the handshake, which reports it the way it reports every refusal - `FATAL` is how
-     * the server says no to a login, and there is no session yet to end.
+     * Gives the connection up on a `FATAL` or `PANIC`, which only the close follows, and raises it as
+     * [SessionTerminatedException]. During login it returns, and the handshake reports it as a refusal.
      */
     private fun endedByServer(error: ErrorOrNoticeMessage) {
         isBroken = true
@@ -677,16 +542,8 @@ internal class PgStream(
     }
 
     /**
-     * Blocks until the server closes this connection, discarding anything it sends beforehand.
-     *
-     * A backend answers a CancelRequest by closing the connection rather than replying, so waiting
-     * for that is what confirms the request was read - instead of leaving it in a socket buffer
-     * that an immediate close would race with. The socket timeout the stream was opened with
-     * bounds the wait, so a server that accepts the connection and then goes quiet cannot park
-     * the caller here.
-     *
-     * Never throws and reports nothing: how the connection ends carries no usable signal, since a
-     * backend that acted on the request drops it rather than closing it cleanly.
+     * Waits, within the read timeout, for the server to close this connection, which is how it answers a cancel
+     * request. Never throws.
      */
     fun awaitServerClose() {
         try {
@@ -695,17 +552,11 @@ internal class PgStream(
             while (raw.read() != -1) {
             }
         } catch (_: Exception) {
-            // A timeout, a reset, an already-closed socket: all say the same thing here, which is
-            // that nothing more is coming.
+            // A timeout, a reset or a closed socket all mean nothing more is coming.
         }
     }
 
-    /**
-     * Closes the socket without the Terminate that [close] sends first.
-     *
-     * For a connection the server hangs up on by itself - a cancel request, a session it ended with a
-     * `FATAL` - a Terminate is only bytes written at a backend that has already gone.
-     */
+    /** Closes the socket without the Terminate [close] sends, for a connection with no session behind it. */
     fun dropSocket() {
         if (!socket.isClosed) {
             try {
@@ -716,15 +567,12 @@ internal class PgStream(
         }
     }
 
-    /**
-     * Closes the connection stream, sending a Terminate message if the socket is still open.
-     */
+    /** Sends Terminate, if the socket is open, and closes it. */
     override fun close() {
         if (!socket.isClosed) {
             try {
-                // Written directly rather than through sendMessage, whose failed write reads what the server sent:
-                // an abort closes the stream from the executor it was handed, while the connection's own thread
-                // may still be inside a read, and two threads reading one stream corrupt it.
+                // Not through writeMessage, whose failed write reads: an abort runs here while another thread may
+                // be reading.
                 TerminateMessage().encode(outputStream)
                 outputStream.flush()
             } catch (e: Exception) {

@@ -6,28 +6,14 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
 import kotlin.reflect.KType
 
-/**
- * Token used to represent a missing value during instantiation,
- * avoiding the need for allocating result wrappers like Result or Optional.
- */
+/** What a value resolver returns for a name the source does not hold, as opposed to a `NULL`. */
 object MissingToken
 
 /**
- * Instantiates a data class based on its metadata.
+ * Builds a data class from [metadata], each parameter's value from [resolveValue]. A [MissingToken] takes the
+ * declared default, or `null`; a `NULL` is a value, which a default never replaces.
  *
- * A missing value and a SQL `NULL` are two different things here, and [resolveValue] distinguishes them
- * by returning [MissingToken] for the first and `null` for the second:
- *
- * - **Absent** — a declared default covers it. Without a default, a nullable property is set to `null`
- *   and a non-nullable one raises `REQUIRED_ATTRIBUTE_MISSING`.
- * - **Present and `NULL`** — a value, so a default never replaces it. It reaches a nullable property as
- *   `null` and raises `REQUIRED_ATTRIBUTE_MISSING` for a non-nullable one, default or not.
- *
- * @param kClass The data class to instantiate; named in the exception message only.
- * @param metadata Pre-computed constructor metadata, from [ReflectionCache.getOrCreateDataObjectMetadata].
- * @param resolveValue Supplies the value for one constructor parameter, or [MissingToken] when the source
- *   holds nothing under that name.
- * @return The instantiated object.
+ * @param kClass Named in the exception only.
  * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if a non-nullable property has no value to take.
  */
 fun <T : Any> instantiateDataObject(
@@ -83,34 +69,20 @@ fun <T : Any> instantiateDataObject(
 }
 
 /**
- * Converts a map to a data class instance.
+ * This map as the data class [T], each property read from the key of its `snake_case` name or its
+ * [PgName][io.github.octaviusframework.annotation.PgName]. An absent key and a `null` differ as in
+ * [instantiateDataObject]; a key with no property is ignored.
  *
- * Keys are matched to properties by converting each property name from `camelCase` to `snake_case`;
- * [PgName][io.github.octaviusframework.annotation.PgName] overrides that per property. A key the
- * class has no property for is ignored. A key that is absent and one whose value is `null` are treated
- * differently — see [instantiateDataObject].
- *
- * @param T The data class to build.
- * @return The instantiated object.
- * @throws MappingException if a value does not match its property's type, or a non-nullable property has
- *   no value to take. The property name is added to the exception's `path`.
+ * @throws MappingException if a value does not fit its property, or a non-nullable property has none.
  */
 inline fun <reified T : Any> Map<String, Any?>.toDataObject(): T {
     return toDataObject(T::class)
 }
 
 /**
- * Converts a map to a data class instance.
+ * [toDataObject] for a class found at runtime.
  *
- * Keys are matched to properties by converting each property name from `camelCase` to `snake_case`;
- * [PgName][io.github.octaviusframework.annotation.PgName] overrides that per property. A key the
- * class has no property for is ignored. A key that is absent and one whose value is `null` are treated
- * differently — see [instantiateDataObject].
- *
- * @param kClass The data class to build.
- * @return The instantiated object.
- * @throws MappingException if a value does not match its property's type, or a non-nullable property has
- *   no value to take. The property name is added to the exception's `path`.
+ * @throws MappingException if a value does not fit its property, or a non-nullable property has none.
  */
 fun <T : Any> Map<String, Any?>.toDataObject(
     kClass: KClass<T>
@@ -132,15 +104,7 @@ fun <T : Any> Map<String, Any?>.toDataObject(
     }
 }
 
-/**
- * Converts a data class object to a map, where keys are mapped property names
- * and values are the property values.
- *
- * Only primary constructor properties are included, under the same mapped names [toDataObject] reads.
- *
- * @param excludeKeys Mapped key names to exclude from the resulting map.
- * @return A map of mapped property name to property value.
- */
+/** This data class's constructor properties by the names [toDataObject] reads, without [excludeKeys]. */
 fun <T : Any> T.toDataMap(
     vararg excludeKeys: String
 ): Map<String, Any?> {
@@ -162,17 +126,10 @@ fun <T : Any> T.toDataMap(
 }
 
 /**
- * Validates whether a runtime value matches the expected Kotlin type.
+ * Returns [value] if it fits [targetType]. A `List` or `Map` is checked by its first non-null element only.
  *
- * Used during object mapping to ensure type safety. Collections are checked shallowly: a `List` or
- * `Map` is validated against its first non-null element or entry only, so a heterogeneous collection
- * can pass. Generic type arguments that are not concrete classes are not checked at all.
- *
- * @param value The value to validate (can be null).
- * @param targetType The expected Kotlin type (KType) including generic parameters.
- * @return The original value if validation passes.
  * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if [value] is null and [targetType] is not nullable,
- *   `CONVERSION_ERROR` if the value's type doesn't match the target type.
+ *   `CONVERSION_ERROR` if it does not fit.
  */
 private fun validateValue(value: Any?, targetType: KType): Any? {
     if (value == null) {

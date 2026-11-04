@@ -19,16 +19,7 @@ internal object SqlParameterParser {
         return (c.code < 128 && separatorIndex[c.code]) || c.isWhitespace()
     }
 
-    /**
-     * Parses [sql] into its `$n` form plus the parameter names, in the order the placeholders appear.
-     *
-     * Results are cached by SQL text, since the same statement is typically run many times and the parse is
-     * pure. The cache is cleared wholesale when it fills rather than evicted entry by entry - a statement
-     * that has fallen out is reparsed once, which is cheaper than tracking use.
-     *
-     * @param sql The statement, with `@name` placeholders.
-     * @return The rewritten SQL and the names it found.
-     */
+    /** [sql] in its `$n` form and the names in placeholder order, cached by text; the cache is cleared when full. */
     fun parse(sql: String): ParsedSql {
         return cache[sql] ?: run {
             if (cache.size >= MAX_CACHE_SIZE) {

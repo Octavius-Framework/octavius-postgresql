@@ -24,17 +24,10 @@ import javax.net.ssl.*
 
 private val logger = KotlinLogging.logger {}
 
-/**
- * Handles PostgreSQL SSL negotiation protocol and socket upgrade.
- */
+/** Asks the server for TLS and wraps the socket in it. */
 internal object SslNegotiator {
 
-    /**
-     * Builds the effective SSL configuration for a connection.
-     *
-     * Kept separate from [negotiate] because the configuration outlives the handshake: a cancel
-     * request travels on a second connection of its own and has to be given the same treatment.
-     */
+    /** The TLS settings [properties] ask for, kept past the handshake for cancel requests. */
     fun configurationOf(properties: OctaviusProperties): SslConfiguration = SslConfiguration(
         mode = properties.sslMode ?: if (properties.ssl == true) SslMode.REQUIRE else SslMode.PREFER,
         rootCertPath = properties.sslRootCert,
@@ -44,24 +37,16 @@ internal object SslNegotiator {
     )
 
     /**
-     * Asks the server for TLS and upgrades the connection if it agrees, before the startup message and so
-     * before any credential is on the wire.
+     * Asks for TLS before the startup message and upgrades [stream] if the server agrees. Under `PREFER` a refusal
+     * goes on in plaintext; `DISABLE` asks nothing.
      *
-     * What a refusal means is [SslMode][io.github.octaviusframework.driver.properties.SslMode]'s to say:
-     * under `DISABLE` nothing is asked at all, under the permissive modes a refusal continues in plaintext,
-     * and under `REQUIRE` and stronger it is a failure.
-     *
-     * @param stream The connection to upgrade in place.
-     * @param host The host, for hostname verification under the verifying modes.
-     * @param port The port, used when reporting a failure.
-     * @param config What was asked for: mode, certificates and key.
      * @throws InitializationException `SSL_ERROR` if the server refuses under a mode that requires TLS, or
-     *   answers the request with something that is not a yes or a no.
+     *   answers with neither yes nor no.
      */
     fun negotiate(stream: PgStream, host: String, port: Int, config: SslConfiguration) {
         if (config.mode == SslMode.DISABLE) return
 
-        stream.sendMessage(SSLRequestMessage())
+        stream.writeMessage(SSLRequestMessage())
         stream.flush()
 
         when (val response = stream.inputStream.readByte().toInt().toChar()) {
@@ -71,9 +56,7 @@ internal object SslNegotiator {
                     stream.close()
                     throw InitializationException(InitializationExceptionReason.SSL_ERROR, "Server does not support SSL, but sslmode=${config.mode.value} was specified.")
                 }
-                // The connection line the factory writes already carries
-                // both the outcome and the mode that allowed it. This stays for the connections
-                // that never get such a line - a cancel request opens one of its own.
+                // For a cancel request's connection, which gets no connection line of its own.
                 logger.trace { "Server declined SSL; continuing in plaintext under sslmode=prefer" }
             }
             else -> {
@@ -84,17 +67,8 @@ internal object SslNegotiator {
     }
 
     /**
-     * Wraps an agreed socket in TLS and completes the handshake.
+     * Wraps [socket], which the server agreed to upgrade, in TLS 1.2 or 1.3 and completes the handshake.
      *
-     * The half of [negotiate] that runs once the server has said yes, kept separate because the asking and
-     * the upgrading happen at different layers — the stream owns the socket and calls this, having been told
-     * by [negotiate] that the server agreed.
-     *
-     * @param socket The plaintext socket the server has agreed to upgrade.
-     * @param host The host to verify the certificate against.
-     * @param port The port, used when reporting a failure.
-     * @param config Mode, trust material and client certificate.
-     * @return The negotiated socket.
      * @throws InitializationException `SSL_ERROR` if the handshake or verification fails.
      */
     fun upgrade(socket: Socket, host: String, port: Int, config: SslConfiguration): SSLSocket {
@@ -116,9 +90,17 @@ internal object SslNegotiator {
         
         sslSocket.enabledProtocols = arrayOf("TLSv1.2", "TLSv1.3").filter { it in sslSocket.supportedProtocols }.toTypedArray()
         
-        sslSocket.startHandshake()
-        // Same reasoning as the plaintext case: that the connection is encrypted is on the
-        // connection line already, and only the protocol and cipher are new here.
+        try {
+            sslSocket.startHandshake()
+        } catch (e: SSLException) {
+            // A refused certificate among them. A timeout is not an SSLException and reaches the factory as one.
+            throw InitializationException(
+                InitializationExceptionReason.SSL_ERROR,
+                "TLS handshake with $host:$port failed under sslmode=${config.mode.value}: ${e.message}",
+                e
+            )
+        }
+        // The connection line says it is encrypted; only the protocol and cipher are new here.
         logger.trace {
             "TLS established with $host:$port under sslmode=${config.mode.value} " +
                 "(${sslSocket.session.protocol}, ${sslSocket.session.cipherSuite})"
@@ -165,12 +147,7 @@ internal object SslNegotiator {
             
             val decoded = Base64.getDecoder().decode(base64Content)
             
-            // The certificate names the algorithm its key was made for, and a private key that did
-            // not match it would be useless here anyway - so it is read off the certificate rather
-            // than assumed or guessed at. PKCS#8 carries the algorithm's OID, but nothing in the
-            // JDK will hand it over: `PKCS8EncodedKeySpec` stores the bytes without parsing them.
-            // This is how pgjdbc resolves it too, and it is what lets an EC key work without the
-            // driver keeping a list of the algorithms it has heard of.
+            // The key's algorithm is read off the certificate: the JDK does not parse it out of PKCS#8.
             val keyAlgorithm = certs.first().publicKey.algorithm
             val keySpec = if (lines.any { it.startsWith(ENCRYPTED_KEY_HEADER) }) {
                 decryptKey(decoded, config)
@@ -183,11 +160,7 @@ internal object SslNegotiator {
             val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
             keyStore.load(null, null)
 
-            // The keystore is built here, read once by the factory below and dropped; nothing
-            // persists it and nothing else can reach it, so there is nothing for a password to
-            // protect. An empty one is what it has always been given when `sslpassword` was unset,
-            // and now that the property has a real job - the key file - it is what it is given
-            // always.
+            // Never persisted or shared, so its password protects nothing.
             val keyStorePassword = CharArray(0)
             keyStore.setKeyEntry("client", privateKey, keyStorePassword, certs.toTypedArray())
 
@@ -195,14 +168,10 @@ internal object SslNegotiator {
             kmf.init(keyStore, keyStorePassword)
             return kmf.keyManagers
         } catch (e: InitializationException) {
-            // Already says exactly what is wrong - a missing password for an encrypted key. Restating
-            // it below would bury that under the generic advice.
+            // A missing password for an encrypted key, which says what is wrong already.
             throw e
         } catch (e: Exception) {
-            // Naming both files and leaving the cause attached, because everything that can go
-            // wrong here goes wrong the same way from the outside - the key is encrypted, or is
-            // PKCS#1 rather than PKCS#8, or belongs to a different certificate - and only the
-            // cause tells them apart.
+            // Every failure here looks the same from outside; the cause tells them apart.
             throw InitializationException(
                 InitializationExceptionReason.SSL_ERROR,
                 "Failed to load the client certificate '${config.certPath}' or its private key " +
@@ -216,14 +185,7 @@ internal object SslNegotiator {
     /** What a PEM file whose key is encrypted opens on, and an unencrypted one never does. */
     private const val ENCRYPTED_KEY_HEADER = "-----BEGIN ENCRYPTED PRIVATE KEY"
 
-    /**
-     * Unlocks an encrypted PKCS#8 key with [SslConfiguration.keyPassword].
-     *
-     * Which cipher it was locked with is not asked for and not configurable: the file states it, and
-     * [EncryptedPrivateKeyInfo] resolves the statement - including a PBES2 parameter block, which it
-     * reports already reduced to the concrete algorithm the JVM knows by name. What OpenSSL writes
-     * today and what it wrote a decade ago both come back as something `SecretKeyFactory` accepts.
-     */
+    /** Unlocks an encrypted PKCS#8 key with [SslConfiguration.keyPassword], under the cipher the file names. */
     private fun decryptKey(encoded: ByteArray, config: SslConfiguration): PKCS8EncodedKeySpec {
         val password = config.keyPassword
             ?: throw InitializationException(

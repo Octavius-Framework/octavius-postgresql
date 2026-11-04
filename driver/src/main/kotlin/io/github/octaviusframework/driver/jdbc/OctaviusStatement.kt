@@ -10,13 +10,8 @@ import java.sql.SQLWarning
 import java.sql.Statement
 
 /**
- * A stub implementation of java.sql.Statement.
- * It primarily exists to allow connection pools (such as HikariCP) to execute `connectionInitSql`, and Spring's
- * script runner the `spring.sql.init` scripts, using standard JDBC calls.
- *
- * What it implements fails as the connection does, in a [SQLExceptionWrapper]: a script runner told to carry on
- * past a failed statement recognizes the failure only as a `SQLException`. What it does not implement throws the
- * driver's own exception, as the connection's unsupported methods do.
+ * The `Statement` a pool runs `connectionInitSql` through, and Spring its `spring.sql.init` scripts: `execute`
+ * and `executeUpdate`, failing in a [SQLExceptionWrapper]. What it does not implement raises the driver's exception.
  */
 internal class OctaviusStatement(private val connection: OctaviusConnection) : Statement {
     

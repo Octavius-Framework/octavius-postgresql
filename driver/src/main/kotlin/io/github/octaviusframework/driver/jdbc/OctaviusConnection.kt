@@ -18,11 +18,7 @@ import kotlin.concurrent.withLock
 
 private val logger = KotlinLogging.logger {}
 
-/**
- * Represents a connection to a database within the Octavius Framework.
- * It implements the standard JDBC [Connection] interface but overrides
- * certain behaviors to fit the framework's architecture.
- */
+/** The JDBC [Connection], implemented only in part: queries run through an `OctaviusSession` on it. */
 internal class OctaviusConnection(
     internal val stream: PgStream,
     internal val databaseKey: DatabaseKey,
@@ -43,11 +39,8 @@ internal class OctaviusConnection(
     var isClosedFlag: Boolean = false
 
     /**
-     * Whether [close] or [abort] has run, as opposed to [isClosedFlag], which a broken stream latches as well.
-     *
-     * The two part ways at [abort]. A second abort is the no-op JDBC says it is, but the first one on a
-     * connection whose stream broke underneath is not a second one: the pool still holds it as borrowed, and
-     * the exception an abort raises is the only thing that tells the pool to let it go.
+     * Whether [close] or [abort] has run. Unlike [isClosedFlag], a broken stream does not set it, so the first
+     * [abort] on one still raises and the pool lets it go.
      */
     @Volatile
     private var closeRequested: Boolean = false
@@ -55,25 +48,14 @@ internal class OctaviusConnection(
     private var cachedSearchPath: SearchPath? = null
 
 
-    /**
-     * Prefix every log line on this connection carries.
-     *
-     * The backend process id is what ties a driver log to `pg_stat_activity` and to the server's
-     * own log, which is the only way to follow one connection across all three.
-     */
+    /** The backend process id every log line carries, as `pg_stat_activity` and the server's log show it. */
     private val pid: String get() = "[PID: ${stream.processId}]"
 
     /**
-     * Raises unless this connection is still usable, checking both what was asked of it and what happened to
-     * it — a connection closed by the caller and one whose stream broke underneath are different failures and
-     * are reported as different SQLSTATEs.
-     *
-     * Finding a broken stream also latches the closed flag, so the second call answers from the flag rather
-     * than by asking a socket that is already gone.
+     * Raises unless this connection is usable. A broken stream latches [isClosedFlag].
      *
      * @throws NetworkException `CONNECTION_CLOSED` (`08003`) if it was closed, `CONNECTION_ERROR` (`08006`)
-     *   if the stream broke - with the server's own reason in `details` where it was the server that ended
-     *   the session.
+     *   if the stream broke, with the server's reason in `details` where the server ended the session.
      */
     fun checkClosed() {
         if (isClosedFlag) throw NetworkException(NetworkExceptionReason.CONNECTION_CLOSED, sqlState = "08003")
@@ -126,9 +108,7 @@ internal class OctaviusConnection(
         )
         if (isClosed()) return@wrapSqlException false
 
-        // The timeout is a property of the whole connection, so it is swapped under the same lock
-        // that serializes exchanges - otherwise this would shorten the deadline of a query already
-        // in flight on another thread, and kill a healthy connection with a read timeout.
+        // Under the exchange lock, so the swapped timeout never shortens a query running on another thread.
         stream.lock.withLock {
             val originalTimeout = try {
                 stream.networkTimeout
@@ -136,12 +116,9 @@ internal class OctaviusConnection(
                 logger.debug(e) { "$pid Could not read the network timeout; reporting the connection as invalid" }
                 return@withLock false
             }
-            // In JDBC, the timeout for isValid is in seconds (0 means no limit). Widened to Long
-            // first, so a large value saturates instead of overflowing into a negative timeout.
+            // Seconds, 0 for none; widened first so a large value saturates instead of overflowing.
             val requested = (timeout.toLong() * 1000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-            // Only ever tighten the deadline. Relaxing it would let a probe outlive the timeout the
-            // connection was configured with - and isValid(0) would drop that timeout altogether,
-            // leaving the check to hang forever on exactly the dead socket it was meant to detect.
+            // Only ever tightened: isValid(0) must not leave the probe hanging on a dead socket.
             val tightens = requested != 0 && (originalTimeout == 0 || requested < originalTimeout)
 
             try {
@@ -150,10 +127,7 @@ internal class OctaviusConnection(
                 queryExecutor.control("")
                 true
             } catch (e: InvalidOperationException) {
-                // Misuse, not ill health: this very thread already owns an exchange or a COPY on
-                // this connection, which is only reachable from inside a streaming block or a
-                // converter. The connection is fine, so answering "invalid" would bury a caller
-                // bug under a wrong answer - and lose the reason enum that names it.
+                // Called from inside this thread's own exchange: a caller bug, not a dead connection.
                 throw e
             } catch (e: Exception) {
                 logger.debug(e) { "$pid Validation probe failed; reporting the connection as invalid" }
@@ -182,8 +156,7 @@ internal class OctaviusConnection(
             details = "Executor cannot be null"
         )
 
-        // Not isClosedFlag: a stream that broke latches that too, and a connection a pool still holds as
-        // borrowed has to raise below, or the pool never learns to let it go - see closeRequested.
+        // Not isClosedFlag, which a broken stream latches too; see closeRequested.
         if (closeRequested) return@wrapSqlException
         closeRequested = true
         isClosedFlag = true
@@ -216,29 +189,17 @@ internal class OctaviusConnection(
     }
 
     /**
-     * Asks the server to abandon whatever this connection is currently running.
-     *
-     * A request, not an instruction: PostgreSQL may have finished, or may be somewhere it does not check for
-     * one, and nothing here waits to find out. It travels on a **second connection** because the protocol
-     * requires that — this one is busy being the thing to cancel — which is why it can be called while a
-     * query is in flight and why a firewall that permits the session may still not permit this.
-     *
-     * Failing to open that second connection is not reported: there was nothing to clean up and the query
-     * carries on. A cancelled query surfaces at whoever is running it, as
-     * [ExecutionAbortedException][io.github.octaviusframework.driver.exception.ExecutionAbortedException]
-     * (SQLSTATE `57014`) — the same one a `statement_timeout` produces, since the server
-     * reports both the same way.
+     * Asks the server, over a second connection, to cancel what this one is running, without waiting for the
+     * outcome. A cancelled statement raises
+     * [ExecutionAbortedException][io.github.octaviusframework.driver.exception.ExecutionAbortedException] where
+     * it runs; a request that could not be sent is not reported.
      *
      * @throws NetworkException if this connection is already closed or broken.
      */
     fun cancelQuery() {
         checkClosed()
 
-        // The cancel request cannot travel on this connection - the protocol requires a fresh one -
-        // and it carries the backend's process id and cancel key. cancelSignalTimeout bounds both
-        // its connect and its reads, because a cancel can get stuck on a server the session itself
-        // is not stuck on. It goes to the address this connection reached, not by name: a name can
-        // resolve to several servers, and the key means something only to this one.
+        // To the address this connection reached, not by name: the key means something only to this server.
         val cancelStream = try {
             PgStream(stream.host, stream.port, stream.address, stream.cancelSignalTimeoutSecs)
         } catch (e: Exception) {
@@ -248,20 +209,16 @@ internal class OctaviusConnection(
         }
 
         try {
-            // The key gets the same TLS treatment the session asked for: under REQUIRE and stronger
-            // a server that will not encrypt makes negotiate() throw, so the request is never sent
-            // rather than being sent in the clear.
+            // Under the session's TLS settings, so the key is never sent in plaintext where they forbid it.
             stream.sslConfiguration?.let {
                 SslNegotiator.negotiate(cancelStream, stream.host, stream.port, it)
             }
-            cancelStream.sendMessage(CancelRequestMessage(stream.processId, stream.secretKey))
+            cancelStream.writeMessage(CancelRequestMessage(stream.processId, stream.secretKey))
             cancelStream.flush()
             cancelStream.awaitServerClose()
             logger.debug { "$pid Cancel request sent" }
         } catch (e: Exception) {
-            // Ignore errors during cancellation. Only the TLS negotiation, the send and the flush
-            // reach here - the wait reports its outcome rather than throwing - so arriving here
-            // means the request never made it onto the wire.
+            // Only negotiating, sending and flushing throw, so the request never went out.
             logger.debug(e) { "$pid Cancel request could not be sent" }
         } finally {
             cancelStream.dropSocket()
@@ -271,11 +228,8 @@ internal class OctaviusConnection(
     //------------------------------------------SEARCH PATH-------------------------------------------------------------
 
     /**
-     * The search path as the server last reported it in `ParameterStatus`, together with the
-     * `session_authorization` its `$user` stands for.
-     *
-     * The setting is always there: the connection factory refuses a server that did not report it at login, and
-     * PostgreSQL 18 reports it again whenever it changes. Read again only when either report has moved.
+     * The search path the server last reported, with the `session_authorization` its `$user` stands for. Parsed
+     * again only when either report moves.
      */
     private fun currentSearchPath(): SearchPath {
         val setting = stream.parameters.getValue("search_path")
@@ -284,19 +238,13 @@ internal class OctaviusConnection(
         return SearchPath(setting, sessionUser).also { cachedSearchPath = it }
     }
 
-    /**
-     * Retrieves the entries of the current search path, as the server reads the setting it last reported.
-     *
-     * @return The schema names the setting lists, `$user` and `pg_temp` among them as written.
-     */
+    /** The schemas the current search path lists, `$user` and `pg_temp` as written. */
     fun getSearchPath(): List<String> {
         checkClosed()
         return currentSearchPath().entries
     }
 
-    /**
-     * The schemas the server looks an unqualified type name up in, in its order - what type names resolve against.
-     */
+    /** The schemas an unqualified type name is looked up in, in the server's order. */
     fun getTypeLookupOrder(): List<String> {
         checkClosed()
         return currentSearchPath().typeLookupOrder
@@ -334,13 +282,7 @@ internal class OctaviusConnection(
 
     private var transactionIsolationLevel: Int = Connection.TRANSACTION_READ_COMMITTED
 
-    /**
-     * The transaction state as the session reports it: the server's, with the `BEGIN` still waiting counted in.
-     *
-     * With auto-commit off this is `IN_TRANSACTION` before the first statement too. The transaction is open
-     * from the caller's side from the moment auto-commit goes off; that the server hears of it only when a
-     * statement arrives is how it is opened, not a state of its own.
-     */
+    /** The server's transaction state, with a `BEGIN` still waiting counted as `IN_TRANSACTION`. */
     val transactionState: TransactionState
         get() {
             val reported = serverTransactionState
@@ -352,10 +294,8 @@ internal class OctaviusConnection(
         get() = TransactionState.fromChar(stream.transactionStatus)
 
     /**
-     * Switches auto-commit, sending nothing that is not needed.
-     *
-     * Turning it off sends nothing: the `BEGIN` goes out ahead of the first statement, so a transaction that
-     * never runs one never reaches the server. Turning it back on commits only a transaction that did.
+     * Switching off sends nothing, leaving `BEGIN` to the first statement; switching on commits a transaction a
+     * statement began.
      */
     override fun setAutoCommit(autoCommit: Boolean) = wrapSqlException { // required by Hikari
         checkClosed()
@@ -376,11 +316,8 @@ internal class OctaviusConnection(
     }
 
     /**
-     * Hands [terms] - `SET TRANSACTION`, `SET LOCAL` - to the transaction auto-commit was just turned off for,
-     * to go out with its `BEGIN`.
-     *
-     * Where the server already has a transaction running - one a hand-written `BEGIN` opened - no `BEGIN` is
-     * coming for them to travel with, and they go out now instead.
+     * Hands [terms] - `SET TRANSACTION`, `SET LOCAL` - to the waiting `BEGIN`, or sends them now where a
+     * hand-written `BEGIN` already opened the transaction.
      */
     internal fun deferTransactionTerms(terms: String) {
         checkClosed()
@@ -397,11 +334,8 @@ internal class OctaviusConnection(
     }
 
     /**
-     * Commits, and leaves the next transaction to the next statement.
-     *
-     * Nothing chains a `BEGIN` onto the `COMMIT`: the one that opened now would fix its `now()` at this
-     * moment, however long the session waited before using it. A transaction no statement began is ended
-     * without anything being sent.
+     * Commits and leaves the next `BEGIN` to the next statement, so its `now()` is not fixed here. A transaction no
+     * statement began ends with nothing sent.
      */
     override fun commit() = wrapSqlException {
         checkClosed()
@@ -424,10 +358,7 @@ internal class OctaviusConnection(
         endTransaction("ROLLBACK")
     }
 
-    /**
-     * Sends [command] - `COMMIT` or `ROLLBACK` - where a statement began a transaction on the server, and
-     * nothing where none did. Either way the terms waiting for this transaction's `BEGIN` go with it.
-     */
+    /** Sends [command] where a statement began a transaction, and drops the terms a waiting `BEGIN` held. */
     private fun endTransaction(command: String) {
         queryExecutor.deferredTerms = null
         if (serverTransactionState == TransactionState.IDLE) {
@@ -526,13 +457,8 @@ internal class OctaviusConnection(
     private fun unsupported(): Nothing =
         throw InvalidOperationException(InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED)
 
-    // Neither is connection state in PostgreSQL. A catalog is the database itself, which nothing on
-    // an open connection can change, and a schema is not a setting but the head of `search_path` -
-    // reported by the server and read back through getSearchPath(). The setters used to accept
-    // whatever they were given and do nothing with it, so a pool configured with a schema set none
-    // and every query after it ran somewhere else, while the getters answered with constants that
-    // were true of nothing. A pool asks only where it was configured to and never calls the getters
-    // itself, so what raises here is exactly the setting that was being ignored.
+    // Neither is connection state in PostgreSQL: a catalog is the database, and a schema the head of
+    // `search_path`. Raising makes a pool configured with one fail rather than run elsewhere.
     override fun setSchema(schema: String?) = unsupported()
     override fun getSchema(): String = unsupported()
     override fun setCatalog(catalog: String?) = unsupported()

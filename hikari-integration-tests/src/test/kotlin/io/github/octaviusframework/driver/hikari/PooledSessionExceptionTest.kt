@@ -4,8 +4,9 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.NetworkException
-import io.github.octaviusframework.driver.exception.NetworkExceptionReason
 import io.github.octaviusframework.driver.exception.SessionTerminatedException
 import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionReason
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
@@ -195,16 +196,84 @@ class PooledSessionExceptionTest {
     }
 
     @Test
-    fun `should report use after close as an Octavius failure`() {
+    fun `should restate an unchecked refusal with nothing of the driver's in it`() {
+        // With no URL, a pool made with the no-argument constructor refuses its configuration on the first borrow.
+        HikariDataSource().use {
+            val ex = assertThrows<InitializationException> { it.getOctaviusSession() }
+
+            assertEquals(InitializationExceptionReason.CONNECTION_ERROR, ex.reason)
+            assertInstanceOf<IllegalArgumentException>(ex.cause)
+        }
+    }
+
+    @Test
+    fun `should refuse a session used after close as a closed handle, not a lost connection`() {
         pool().use { ds ->
             val session = ds.getOctaviusSession()
             session.close()
 
-            // The connection is the pool's again, and its proxy answers everything from here with a
-            // bare java.sql.SQLException - which is not a type this API declares anywhere.
-            val ex = assertThrows<NetworkException> { session.autoCommit }
+            // The connection is fine and the pool's again. One call would go through the pool's proxy, the other
+            // to the connection underneath.
+            val setting = assertThrows<InvalidOperationException> { session.autoCommit }
+            val query = assertThrows<InvalidOperationException> { session.createNativeQuery("SELECT 1") }
 
-            assertEquals(NetworkExceptionReason.CONNECTION_CLOSED, ex.reason)
+            assertEquals(InvalidOperationExceptionReason.RESOURCE_CLOSED, setting.reason)
+            assertEquals(InvalidOperationExceptionReason.RESOURCE_CLOSED, query.reason)
         }
     }
+
+    @Test
+    fun `should refuse a session closed over a broken connection the same way`() {
+        pool {
+            jdbcUrl = "${TestDatabase.URL}?socketTimeout=1"
+            connectionTimeout = 5_000
+        }.use { ds ->
+            val session = ds.getOctaviusSession()
+            assertThrows<NetworkException> { session.createNativeQuery("SELECT pg_sleep(2)").fetchRows() }
+            session.close()
+
+            // Closing aborted the connection, but it was the caller who closed the session.
+            val ex = assertThrows<InvalidOperationException> { session.createNativeQuery("SELECT 1") }
+
+            assertEquals(InvalidOperationExceptionReason.RESOURCE_CLOSED, ex.reason)
+        }
+    }
+
+    @Test
+    fun `should refuse a session whose connection went back before it closed`() {
+        pool().use { ds ->
+            val connection = ds.connection
+            val session = connection.getOctaviusSession()
+            connection.close()
+
+            // The connection underneath is alive, and may be the next borrower's by now.
+            val setting = assertThrows<InvalidOperationException> { session.autoCommit }
+            val query = assertThrows<InvalidOperationException> { session.createNativeQuery("SELECT 1") }
+
+            assertEquals(InvalidOperationExceptionReason.RESOURCE_CLOSED, setting.reason)
+            assertEquals(InvalidOperationExceptionReason.RESOURCE_CLOSED, query.reason)
+            assertFalse(session.isValid(1))
+        }
+    }
+
+    @Test
+    fun `should leave the next borrower's transaction alone when closing a session whose connection went back`() {
+        pool().use { ds ->
+            val connection = ds.connection
+            val stale = connection.getOctaviusSession()
+            connection.close()
+
+            // A pool of one, so this is the same connection.
+            ds.getOctaviusSession().use { next ->
+                next.autoCommit = false
+                next.createNativeQuery("SET LOCAL application_name = 'legatus'").execute()
+
+                stale.close()
+
+                assertEquals("legatus", next.createNativeQuery("SHOW application_name").fetchFieldStrict<String>())
+                next.rollback()
+            }
+        }
+    }
+
 }

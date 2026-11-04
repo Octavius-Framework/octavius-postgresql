@@ -3,11 +3,8 @@ package io.github.octaviusframework.client.query
 import io.github.octaviusframework.client.session.SessionProvider
 
 /**
- * A `DELETE` under construction.
- *
- * **A `WHERE` is required**, on the same terms as [UpdateQuery]: emptying a table is a statement worth having
- * to mean, and a builder that lets it fall out of a `null` filter is how it happens by accident. Write it as
- * [OctaviusClient.rawQuery][io.github.octaviusframework.client.OctaviusClient.rawQuery] where it is meant.
+ * A `DELETE` under construction. A `WHERE` is required; emptying a table is written with
+ * [rawQuery][io.github.octaviusframework.client.OctaviusClient.rawQuery].
  *
  * ```kotlin
  * val removed = db.deleteFrom("expired_mandates")

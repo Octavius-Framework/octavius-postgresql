@@ -119,4 +119,17 @@ class QueryConverterTest : AbstractClientIntegrationTest() {
             db.insertInto("qc_probe").values(listOf("label")).executeUpdate("label" to Rank.Legatus)
         }
     }
+
+    @Test
+    fun `toCountQuery carries the parameter converters, the count binding the same parameters`() {
+        db.insertInto("qc_probe").values(listOf("label"))
+            .registerParameterConverter(RankConverter)
+            .executeUpdate("label" to Rank.Tribunus)
+
+        val tribunes = db.select("id").from("qc_probe")
+            .registerParameterConverter(RankConverter)
+            .where("label = @rank")
+
+        assertEquals(1L, tribunes.toCountQuery().fetchFieldStrict<Long>("rank" to Rank.Tribunus))
+    }
 }

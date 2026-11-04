@@ -29,7 +29,9 @@ one it borrows a session and gives it straight back.
 written out because that is the join. What the builder does is the mechanical part: the keywords, their order,
 the column list paired with its own placeholders, and above all the clauses that disappear when they have
 nothing to say. `where(null)` leaves out the `WHERE`, which is what makes a filter assembled at runtime
-bearable to write. `QueryFragment` keeps such a filter and the parameters it names together.
+bearable to write. `QueryFragment` keeps such a filter and the parameters it names together. One step past the
+mechanical part, `toCountQuery()` gives the total beside a page: the same `select`, counted with its ordering,
+paging and locking left out.
 
 **A converter, for one query.** `registerResultConverter` on a builder reaches the registries the driver gives
 every query — consulted ahead of the session's, thrown away with the query. A mapping that one report needs

@@ -222,7 +222,7 @@ class SessionTerminationProtocolTest {
                 // No exchange around it, so nothing looks for the FATAL before writing: only the failed write can
                 // find it. Large enough that some write lands after the reset.
                 val ex = assertThrows<SessionTerminatedException> {
-                    stream.sendMessage(FrontendCopyDataMessage(ByteArray(32 * 1024 * 1024)))
+                    stream.writeMessage(FrontendCopyDataMessage(ByteArray(32 * 1024 * 1024)))
                     stream.flush()
                 }
 

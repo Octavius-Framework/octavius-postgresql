@@ -10,27 +10,15 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 
 
 
-/**
- * Handles the authentication process during the PostgreSQL connection startup phase.
- * It manages the state machine for exchanging authentication messages with the server.
- */
+/** The login exchange, up to the first `ReadyForQuery`. */
 internal object Authenticator {
 
     private val logger = KotlinLogging.logger {}
 
     /**
-     * Authenticates the user with the PostgreSQL server using the provided credentials.
+     * Logs in with SCRAM-SHA-256, or a cleartext password over TLS; MD5 is refused.
      *
-     * SCRAM-SHA-256 is the mechanism this driver is built around, with or without channel binding.
-     * A cleartext password is answered too, but only over an encrypted connection - see
-     * [sendCleartextPassword] for what that is worth and why the condition is there. MD5 is refused
-     * outright: PostgreSQL has deprecated it, and a driver that starts at 18 has no era to support
-     * it for.
-     *
-     * @param stream The underlying PostgreSQL communication stream used for message exchange.
-     * @param password The password for the user, can be null if not required.
-     * @param channelBinding How hard to insist that the exchange be bound to the TLS channel.
-     * @throws InitializationException If authentication fails, protocol is violated, or unsupported mechanism is requested.
+     * @throws InitializationException if the login is refused or fails.
      */
     fun authenticate(stream: PgStream, password: String?, channelBinding: ChannelBinding) {
         var boundToChannel = false
@@ -40,9 +28,7 @@ internal object Authenticator {
 
             when (msg) {
                 is AuthenticationMessage.Ok -> {
-                    // A server can wave a connection through without asking anything - `trust`, or a
-                    // client certificate already accepted during the handshake. That is a perfectly
-                    // good login, but it is not a bound one, and REQUIRE means REQUIRE.
+                    // A login with no exchange, `trust` or a client certificate, is not a bound one.
                     if (channelBinding == ChannelBinding.REQUIRE && !boundToChannel) {
                         throw InitializationException(
                             InitializationExceptionReason.UNSUPPORTED_MECHANISM,
@@ -87,15 +73,12 @@ internal object Authenticator {
                 }
 
                 is ReadyForQueryMessage -> {
-                    // Reported as one line rather than one per parameter: the whole set arrives in
-                    // a burst, and it is the same set on every connection to the same server, so
-                    // eighteen lines of it ahead of every login say nothing the set does not.
+                    // One line for the whole burst.
                     logger.trace {
                         "Server ready for queries; session parameters: " +
                             stream.parameters.entries.joinToString("; ") { "${it.key}=${it.value}" }
                     }
-                    // From here on a ParameterStatus is a change rather than part of the burst,
-                    // and the stream reports each one on its own.
+                    // From here on the stream logs each ParameterStatus as a change.
                     stream.startupComplete = true
                     return // End of login phase
                 }
@@ -110,17 +93,8 @@ internal object Authenticator {
     }
 
     /**
-     * The minor version to carry on with once the server has named an older one than the 3.2 asked for.
-     *
-     * PostgreSQL 18 speaks 3.2 and never sends this. What does is a server or a pooler that speaks 3.0 -
-     * PostgreSQL 17, or a pooler in front of 18 - and the answer is taken rather than refused, because
-     * nothing in the driver depends on 3.2 itself: its one change is a longer cancel key, and the key is kept
-     * at whatever length it arrives. What the driver does need is PostgreSQL 18 behind whatever answered,
-     * and that is checked after login, where the server's own parameters say so.
-     *
-     * The version comes as the full protocol version word. A bare minor number is read too, because the
-     * protocol documentation describes the field that way and a server written from it sends one. Anything
-     * outside protocol 3, or newer than what was asked for, is not a negotiation this driver started.
+     * The minor version a pooler or server on 3.0 named instead of 3.2, accepted since nothing depends on 3.2;
+     * PostgreSQL 18 is checked after login. Read as the full version word or a bare minor number.
      */
     private fun negotiatedMinorVersion(msg: NegotiateProtocolVersionMessage): Int {
         val version = msg.newestVersion
@@ -136,18 +110,8 @@ internal object Authenticator {
     }
 
     /**
-     * Answers an `AuthenticationCleartextPassword` request, but only where answering it is safe.
-     *
-     * The server asks for a password in the clear when `pg_hba.conf` names `password`, `ldap`, `pam`
-     * or `radius` - the three latter because the server has to hold the password itself to check it
-     * against something that is not PostgreSQL. There is no protocol on the client side to make that
-     * safer: the password goes out as it is, and the only thing standing between it and the wire is
-     * the encryption underneath. So the driver requires that encryption rather than trusting the
-     * deployment to have arranged it, which is the one part of this exchange it can actually decide.
-     *
-     * A `channelBinding=require` connection is refused here rather than after the password has been
-     * sent. No cleartext exchange can be bound to the channel, so this login is already lost by the
-     * time the server would accept it; sending the credential first would give it away for nothing.
+     * Sends the password a `password`, `ldap`, `pam` or `radius` login asks for, only over TLS, and refuses it under
+     * `channelBinding=require` before anything is sent.
      */
     private fun sendCleartextPassword(stream: PgStream, password: String?, channelBinding: ChannelBinding) {
         if (!stream.isSecure) {
@@ -175,7 +139,7 @@ internal object Authenticator {
         }
 
         logger.trace { "Server requested a cleartext password; sending it over the encrypted connection" }
-        stream.sendMessage(PasswordMessage(password))
+        stream.writeMessage(PasswordMessage(password))
         stream.flush()
     }
 }

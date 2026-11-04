@@ -2,11 +2,7 @@ package io.github.octaviusframework.driver.message.frontend
 
 import io.github.octaviusframework.driver.io.PgOutputStream
 
-/**
- * Message sent by the frontend to execute a simple, un-parameterized SQL query.
- *
- * @property query The SQL query string to be executed.
- */
+/** `Query`: [query] through the simple protocol. */
 internal class SimpleQueryMessage(private val query: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         val queryBytes = query.toByteArray(Charsets.UTF_8)

@@ -23,25 +23,10 @@ enum class SessionTerminatedExceptionReason {
 }
 
 /**
- * Exception thrown when the server ends the session: it sent a `FATAL` or a `PANIC`, and closed the connection
- * behind it.
+ * The server ended an open session with a `FATAL` or `PANIC`, whatever the SQLSTATE. Uncommitted work is gone and
+ * the connection with it; a retry needs a new session. A `FATAL` at login is an [InitializationException].
  *
- * The session goes with it: nothing sent on it afterwards reaches a server, a pool evicts the connection, and
- * whatever the transaction had not committed is gone. Retrying means starting again on a new session. A statement
- * the server cancels is [ExecutionAbortedException] instead, and leaves the session usable.
- *
- * The type is decided by the severity rather than by the SQLSTATE, because the severity is what says the
- * connection is gone - whatever the code, a `FATAL` is the last thing the server sends. The code names the cause
- * for the ones an application would tell apart, and [SessionTerminatedExceptionReason.UNKNOWN] carries the rest
- * with the code intact.
- *
- * Only a session that was open is terminated. A `FATAL` during login is the server refusing one, and is an
- * [InitializationException].
- *
- * @property reason Why the server ended the session.
- * @property dbMessage The primary error message the server raised.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property dbMessage The server's message.
  */
 class SessionTerminatedException(
     val reason: SessionTerminatedExceptionReason,

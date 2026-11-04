@@ -25,15 +25,7 @@ private val logger = KotlinLogging.logger {}
  */
 internal class MigrationRunner(private val history: MigrationHistory) {
 
-    /**
-     * Applies one migration and records it, taking the SQL or the Kotlin path according to what it is.
-     *
-     * Where the history row is written relative to the transaction is the difference between the two, and is
-     * described on the class.
-     *
-     * @param session The session to run it on.
-     * @param migration The migration to apply.
-     */
+    /** Applies one migration and records it, by the SQL or the Kotlin path. */
     fun run(session: OctaviusSession, migration: DiscoveredMigration) {
         when (migration) {
             is DiscoveredMigration.Sql -> runSql(session, migration)

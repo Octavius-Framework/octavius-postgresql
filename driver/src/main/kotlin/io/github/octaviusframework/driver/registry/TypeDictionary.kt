@@ -5,13 +5,7 @@ import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.type.UNRESOLVED_OID
 
-/**
- * A dictionary that holds PostgreSQL types definitions and allows querying them by OID or name.
- * 
- * It provides specialized methods to fetch specific type categories such as arrays, ranges,
- * and multiranges. Instances of this class are immutable and intended to be replaced 
- * entirely when types are reloaded.
- */
+/** The database's types, by OID and by name, immutable and replaced whole on a reload. */
 class TypeDictionary private constructor(
     private val types: IntObjectMap<PgType>,
     private val typesByName: Map<String, Map<String, Int>>,
@@ -23,13 +17,7 @@ class TypeDictionary private constructor(
     //--------------------------------------------Construction----------------------------------------------------------
     companion object {
         /**
-         * Builds the dictionary the driver starts out with: one entry per codec it ships with an OID of its own.
-         *
-         * There is one query that has to run before any catalog has been read - the read itself - and its columns
-         * are `oid`, `name`, `char` and `int2`, types the driver already names in the codecs it hardcodes them
-         * for. Every entry here is replaced by the real catalog entry as soon as [build] runs.
-         *
-         * @param codecs the codec dictionary to take the names and OIDs from.
+         * The dictionary before the catalog is read: the built-in codecs' types, enough for the query that reads it.
          */
         internal fun ofBuiltinCodecs(codecs: CodecDictionary): TypeDictionary {
             val types = HashMap<Int, PgType>()
@@ -72,20 +60,11 @@ class TypeDictionary private constructor(
     }
 
     /**
-     * Resolves the OID of a type given its name and an optional schema.
+     * The OID of [typeName], or of its array type, in [requestedSchema] or else the first schema of [searchPath]
+     * that has it. A name off the path is refused, naming the schemas that have it.
      *
-     * A name with no schema is found on [searchPath] or not at all, as the server finds it. One the path does not
-     * reach is refused even where a single schema has it: that schema can be one this session's role may not see,
-     * or another tenant's, and which it is would depend on what else the database holds. The refusal names the
-     * schemas that do have it.
-     *
-     * @param typeName the name of the type.
-     * @param requestedSchema the schema where the type belongs (can be empty).
-     * @param isArray whether to resolve the OID for the array type of the given type.
-     * @param searchPath the schemas to search, in order, if the schema is not explicitly provided: the server's
-     *   order for type names, with the schemas it searches unlisted already in it, rather than the setting.
-     * @return the resolved OID.
-     * @throws TypeException if the type cannot be found, in the requested schema or on the search path.
+     * @param searchPath The server's lookup order for type names, not the setting.
+     * @throws TypeException `TYPE_NOT_FOUND` if the type is not in the schema asked for or on the path.
      */
     internal fun resolveOid(
         typeName: String,
@@ -133,82 +112,55 @@ class TypeDictionary private constructor(
 
     //----------------------------------------------------API-----------------------------------------------------------
 
-    /**
-     * How many types this dictionary holds.
-     */
+    /** How many types this dictionary holds. */
     val size: Int get() = types.size
 
-    /**
-     * Executes the given action on each registered type.
-     *
-     * @param action the action to perform on each type, taking the OID and the [PgType].
-     */
+    /** Runs [action] on each type and its OID. */
     fun forEachType(action: (Int, PgType) -> Unit) {
         types.forEach(action)
     }
 
     /**
-     * Retrieves a PostgreSQL type by its OID.
+     * The type whose OID is [oid].
      *
-     * @param oid the Object Identifier of the type.
-     * @return the [PgType] associated with the given OID.
-     * @throws TypeException if the type is not found.
+     * @throws TypeException `TYPE_NOT_FOUND` if there is none.
      */
     fun getPgType(oid: Int): PgType = types[oid]
         ?: throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, oid = oid, details = "Type with OID $oid not found")
 
-    /**
-     * Whether this dictionary describes [oid] at all - the question [getPgType] answers by raising.
-     */
+    /** Whether this dictionary describes [oid]. */
     internal fun describes(oid: Int): Boolean = types[oid] != null
 
-    /**
-     * The OID of one named type in one named schema, or `null` where this dictionary has no such type.
-     *
-     * What [resolveOid] does without the search path and the raising: a fully qualified name
-     * identifies at most one type, `pg_type` being unique on name and namespace.
-     */
+    /** The OID of [typeName] in [schema], or `null`. */
     internal fun findOid(typeName: String, schema: String): Int? = typesByName[typeName]?.get(schema)
 
     /**
-     * Retrieves an array type by the OID of its elements.
+     * The array type over [elementOid].
      *
-     * @param elementOid the OID of the array's elements.
-     * @return the [PgType.Array] type.
-     * @throws TypeException if the array type is not found.
+     * @throws TypeException `TYPE_NOT_FOUND` if there is none.
      */
     fun getArrayType(elementOid: Int): PgType.Array = arrayTypesByElementOid[elementOid]
         ?: throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, oid = elementOid, details = "Array type for element OID $elementOid not found")
 
     /**
-     * Retrieves a range type by the OID of its elements.
+     * The range type over [elementOid].
      *
-     * @param elementOid the OID of the range's subtype elements.
-     * @return the [PgType.Range] type.
-     * @throws TypeException if the range type is not found.
+     * @throws TypeException `TYPE_NOT_FOUND` if there is none.
      */
     fun getRangeType(elementOid: Int): PgType.Range = rangeTypesByElementOid[elementOid]
         ?: throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, oid = elementOid, details = "Range type for element OID $elementOid not found")
 
     /**
-     * Retrieves a multirange type by the OID of its base range type.
+     * The multirange type over [rangeOid].
      *
-     * @param rangeOid the OID of the underlying range type.
-     * @return the [PgType.Multirange] type.
-     * @throws TypeException if the multirange type is not found.
+     * @throws TypeException `TYPE_NOT_FOUND` if there is none.
      */
     fun getMultirangeType(rangeOid: Int): PgType.Multirange = multirangeTypesByRangeOid[rangeOid]
         ?: throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, oid = rangeOid, details = "Multirange type for range OID $rangeOid not found")
 
     /**
-     * Returns the row type of the relation with the given [relationOid], or `null` when this dictionary holds
-     * none for it.
-     *
-     * Unlike the rest of the lookups here, a miss is an ordinary answer rather than a failure: the type load
-     * skips composites in `pg_catalog` and `information_schema` and every type in a temporary schema, and a
-     * relation created since the load has no row type here yet. Callers are naming something for a reader, not resolving a type they have to have.
-     *
-     * @param relationOid the OID of the relation (`pg_class.oid`).
+     * The row type of the relation [relationOid], or `null` for one the load skipped (`pg_catalog`,
+     * `information_schema`, temporary) or one created since.
      */
     fun findCompositeByRelation(relationOid: Int): PgType.Composite? = compositeTypesByRelationOid[relationOid]
 

@@ -4,59 +4,33 @@ import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 // ------------------- INITIALIZATION -------------------
 
-/**
- * Represents the specific reason for an initialization failure during database connection or authentication.
- */
+/** Why a connection could not be opened. */
 enum class InitializationExceptionReason {
-    /** The server requested or only supports an authentication mechanism not supported by this driver. */
+    /** The server asked for an authentication mechanism the driver does not support. */
     UNSUPPORTED_MECHANISM,
-    /** The server sent an unexpected message sequence violating the connection protocol. */
+    /** The server broke the protocol during login. */
     PROTOCOL_VIOLATION,
-    /**
-     * A required parameter was missing from what the server sent at login - its authentication challenge, or
-     * the session parameters it reports once logged in, `search_path` among them.
-     */
+    /** The server's authentication challenge or session parameters lacked one the driver needs. */
     MISSING_PROTOCOL_PARAMETER,
-    /** The database server rejected the provided username or password. */
+    /** The server rejected the user or password. */
     SERVER_REJECTED_CREDENTIALS,
-    /** The server requested an outdated/unsupported password encryption method (e.g. MD5, Cleartext). */
+    /** The server asked for MD5, or for a cleartext password outside TLS or with none configured. */
     UNSUPPORTED_PASSWORD_ENCRYPTION,
-    /** SSL negotiation failed or certificates are invalid/unsupported. */
+    /** TLS was refused or failed, or a certificate did not verify. */
     SSL_ERROR,
-    /** The server version is too old for this driver to support. */
+    /** The server is older than PostgreSQL 18. */
     UNSUPPORTED_SERVER_VERSION,
     /**
-     * A generic connection error occurred before authentication could begin - or the server refused the login for
-     * something other than the credentials, too many connections or a database that does not exist among them,
-     * with its code in `sqlState` - or, of several servers listed, none could be used, which `details` goes through
-     * one by one.
+     * The server could not be reached, refused the login for a reason other than the credentials (its code in
+     * `sqlState`), or none of several servers could be used (each in `details`).
      */
     CONNECTION_ERROR,
 
-    /**
-     * The data source had no connection to give, rather than failing to open one - a pool that ran out of
-     * time waiting for a free one, most often.
-     *
-     * Nothing reached the server. The database and the credentials are not what is in question here; there
-     * was simply nothing free at that moment, which is a fact about the application's own demand for
-     * connections. `details` carries what the data source said, which for a pool includes its own count of
-     * how many were in play.
-     */
+    /** A pool had no free connection in time; nothing reached the server. `details` carries what the pool said. */
     CONNECTION_UNAVAILABLE
 }
 
-/**
- * Exception thrown when the driver fails to establish a connection or authenticate with the database server.
- *
- * This typically occurs during the initial connection handshake and can be caused by network issues,
- * invalid credentials, unsupported protocols, or incompatible server versions.
- *
- * @property reason The specific type of initialization failure.
- * @property details Additional, human-readable details about the failure.
- * @param cause The underlying exception that caused this failure, if any.
- * @param sqlState The SQL state code returned by the database, if available.
- * @param serverErrorMessage The original error message from the database server, if available.
- */
+/** A connection could not be opened or authenticated. */
 class InitializationException(
     val reason: InitializationExceptionReason,
     val details: String? = null,

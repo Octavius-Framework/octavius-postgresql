@@ -5,15 +5,11 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 
 /**
- * A sequence of operations to run as one transaction, assembled before any of it runs.
+ * Operations to run as one transaction, assembled before any of it runs - for a sequence decided in one place and
+ * run in another. Where the sequence is written out where it runs, a `transaction { }` block is simpler.
  *
- * A plan is for the case a `transaction { }` block does not cover: the sequence itself is data. Where one
- * layer decides what has to happen - a screen with a variable number of rows on it, a service turning a
- * request into operations - and another runs it, the block form would mean passing a lambda that closes over
- * everything it touched. A plan is a value; it can be built up, counted, inspected and handed on.
- *
- * Steps run in the order they were added, and a step may use what an earlier one produced through the
- * [StepHandle] that [add] returned:
+ * Steps run in the order they were added, and a step uses what an earlier one produced through the [StepHandle]
+ * [add] returned:
  *
  * ```kotlin
  * val plan = TransactionPlan()
@@ -37,16 +33,9 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
  * val results = db.executeTransactionPlan(plan)
  * ```
  *
- * Where the sequence is fixed and written out in one place, a `transaction { }` block says the same thing in
- * fewer moving parts and with the values in plain Kotlin locals. Reach for a plan when the sequence is not
- * known where it is executed.
- *
- * Executing a plan does not consume it: the steps are copied out and the results kept in a map of the run's
- * own, with nothing written back. The same plan runs again unchanged, which is what makes retrying a
- * serialization failure or a deadlock a loop around
- * [executeTransactionPlan][io.github.octaviusframework.client.OctaviusClient.executeTransactionPlan] rather
- * than a rebuild - and each run resolves its handles against its own results, so the second run reads what the
- * second run produced.
+ * Running a plan does not change it, so retrying a serialization failure is a loop around
+ * [executeTransactionPlan][io.github.octaviusframework.client.OctaviusClient.executeTransactionPlan], each run
+ * resolving its handles against its own results.
  */
 class TransactionPlan {
 
@@ -58,12 +47,7 @@ class TransactionPlan {
     /** Whether the plan holds no steps at all. */
     fun isEmpty(): Boolean = entries.isEmpty()
 
-    /**
-     * Appends a step, and returns the handle later steps use to refer to what it will produce.
-     *
-     * @param step The operation, built with [io.github.octaviusframework.client.query.RunnableQuery.asStep].
-     * @return A handle on this step's future result.
-     */
+    /** Appends [step], built with [RunnableQuery.asStep], and returns the handle later steps refer to it by. */
     fun <T> add(step: TransactionStep<T>): StepHandle<T> {
         val handle = StepHandle<T>(entries.size)
         entries += PlannedStep(handle, step.query, step.params, step.run)
@@ -71,25 +55,14 @@ class TransactionPlan {
     }
 
     /**
-     * Appends every step of [other], in its order, after the steps already here.
+     * Appends every step of [other], in its order. [other]'s handles keep working against the merged plan and its
+     * result, and [other] itself is left unchanged.
      *
-     * This is what makes a plan compose. One layer produces a plan for its own part of the work, another for
-     * its part, and something above them runs the two as one transaction without having to know what either
-     * put in. Handles handed out by [other] keep working against the merged plan and against
-     * [TransactionPlanResult]: a result is filed under the handle itself rather than under a position, so
-     * where a step ends up in the merged sequence changes nothing about how it is referred to.
+     * A step takes values only from steps ahead of it, so [other]'s steps may use this plan's handles and not the
+     * other way round. A plan merged the wrong way is refused when executed, before any of it runs.
      *
-     * Where one plan uses the other's handles, the order is the one thing to get right. A step can take a value
-     * only from a step ahead of it, so [other]'s steps may use handles from the steps already here and not the
-     * other way round. Merged the other way round, the plan is refused when it is executed, before any of it
-     * runs.
-     *
-     * [other] is not consumed and not changed - it can still be run on its own, or merged elsewhere.
-     *
-     * @param other The plan whose steps to take.
-     * @throws InvalidOperationException `INVALID_ARGUMENT` where [other] is this plan, or holds a step this
-     * plan already holds. Running one step twice under one handle would leave the first result unreachable,
-     * the second having overwritten it.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` where [other] is this plan, or holds a step this plan
+     * already holds.
      */
     fun addPlan(other: TransactionPlan) {
         if (other === this) {
@@ -115,8 +88,7 @@ class TransactionPlan {
     }
 
     /**
-     * The whole of what this plan will do, as text: every step's index, its SQL, and where each of its
-     * parameters comes from.
+     * What this plan will do, as text: every step's index, its SQL, and where each parameter comes from.
      *
      * ```
      * TransactionPlan, 2 steps
@@ -132,21 +104,9 @@ class TransactionPlan {
      *   @amount   <- literal
      * ```
      *
-     * This is the piece a plan needs and a `transaction { }` block does not. A block is read where it is
-     * written; a plan is assembled by one layer and run by another, so the code holding it when it fails is
-     * usually not the code that decided what went in - and a plan built in a loop has the same SQL in twenty
-     * steps, which is what makes "step 17" in a failure worth being able to look up.
-     *
-     * What a literal *is* is deliberately not shown. The wiring is the part that cannot be read off the code
-     * that assembled the plan; a bound value can, and printing one would put a `bytea` parameter or a column
-     * of personal data wherever this was written to. The values a step actually ran with are on the
+     * Literal values are not shown; what a step ran with is on the
      * [queryContext][io.github.octaviusframework.driver.exception.OctaviusException.queryContext] of what it
-     * threw, which is bounded for the purpose.
-     *
-     * A step whose query cannot be rendered says so in place of its SQL rather than throwing: a plan holding
-     * one is among the things worth describing, and the other nineteen steps still describe.
-     *
-     * @return One block per step, in the order they will run.
+     * threw. A step whose query cannot be rendered says so in place of its SQL.
      */
     fun describe(): String = describePlan(entries)
 
@@ -154,7 +114,7 @@ class TransactionPlan {
 
     internal fun steps(): List<PlannedStep> = entries.toList()
 
-    /** A step and the handle it was filed under, which is all the executor needs of either. */
+    /** A step and the handle it was filed under. */
     internal class PlannedStep(
         val handle: StepHandle<*>,
         val query: RunnableQuery<*>,
@@ -163,12 +123,7 @@ class TransactionPlan {
     )
 }
 
-/**
- * What a [TransactionPlan] produced, by step.
- *
- * Every step's result is kept, whether or not anything referred to it, because the caller usually wants at
- * least one of them - the id that was generated - and which one that is only the caller knows.
- */
+/** What a [TransactionPlan] produced: every step's result, referred to or not. */
 class TransactionPlanResult internal constructor(
     private val results: Map<StepHandle<*>, Any?>,
     /** How many steps ran. */
@@ -178,10 +133,8 @@ class TransactionPlanResult internal constructor(
     /**
      * The result of the step [handle] names.
      *
-     * @param handle The handle [TransactionPlan.add] returned for that step.
-     * @return What that step produced.
-     * @throws InvalidOperationException `INVALID_ARGUMENT` where the handle is from another plan, or from a
-     * plan that has not been executed.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` where the handle is not from the plan that produced
+     * this result.
      */
     @Suppress("UNCHECKED_CAST")
     operator fun <T> get(handle: StepHandle<T>): T {

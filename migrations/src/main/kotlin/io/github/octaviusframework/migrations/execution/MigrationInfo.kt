@@ -1,6 +1,5 @@
 package io.github.octaviusframework.migrations.execution
 
-import io.github.octaviusframework.migrations.MigrationException
 import io.github.octaviusframework.migrations.MigrationVersion
 import io.github.octaviusframework.migrations.MigratorConfig
 import io.github.octaviusframework.migrations.discovery.label
@@ -8,9 +7,6 @@ import io.github.octaviusframework.migrations.history.AppliedMigration
 
 /**
  * What is going to happen to one migration, or what already has.
- *
- * Wider than the reason enum on [MigrationException] on purpose. That one is keyed on in a log; this one is
- * the answer to "what about this migration", and every value here is a different answer.
  */
 enum class MigrationStatus {
     /** Not applied yet. The next run will apply it. */
@@ -25,10 +21,7 @@ enum class MigrationStatus {
     /** Applied, unchanged since. Nothing to do. */
     APPLIED,
 
-    /**
-     * Applied and changed since, which the run refuses. A migration the database has already run is a
-     * migration whose text is a record of what was done, not a draft.
-     */
+    /** Applied and changed since, which the run refuses. */
     CHANGED,
 
     /** The database has run it and there is no file or class for it any more, which the run refuses. */
@@ -76,11 +69,8 @@ class MigrationInfo internal constructor(
 /**
  * What a run did.
  *
- * Worth logging at startup, and the empty case is the one worth logging too - "the database was already up to
- * date" is an answer, and a run that says nothing at all leaves you wondering whether it happened.
- *
  * @property applied The migrations this run applied, in the order it applied them, read back from the history
- * table rather than assembled from what was intended.
+ * table.
  * @property durationMs How long the whole run took, waiting for the lock included.
  */
 class MigrationReport internal constructor(

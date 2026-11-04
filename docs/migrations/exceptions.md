@@ -33,9 +33,10 @@ each disagreement is called and what to do about it. Only `MIGRATION_FAILED` mea
 
 ## What is not on it
 
-**No `sqlState`.** Every reason above is decided before the database is touched, or after a failure has already
-been rolled back, so there is no server error for one to come from. A `MigrationException` with a
-[SQLSTATE](../driver/exceptions.md#sqlstate-routing) would be claiming the server said something it did not.
+**No `sqlState`.** Most reasons are decided without the server. Where it did say something — a lock wait that ran
+out, a statement of a migration it refused — what it said is the `cause`, the driver's exception, with its
+[SQLSTATE](../driver/exceptions.md#sqlstate-routing). A `sqlState` on the `MigrationException` itself would only
+repeat that, or claim the server said something it did not.
 
 **No query context.** The driver attaches the SQL and the parameters to exceptions
 [it raises itself](../driver/exceptions.md#query-context). These are not those: what is wrong is a file, a
@@ -116,9 +117,10 @@ try {
 }
 ```
 
-Catching it at all is a decision about startup rather than about migrations: a run that refused has left the
-database exactly as it was, so the only question is whether this application is willing to serve traffic
-against a schema it does not agree with. For almost every application the answer is no, and letting the
+Catching it at all is a decision about startup rather than about migrations: a run that stopped has left the
+database as it was or at the last migration it finished — partway through one only where that one ran outside a
+transaction — so the only question is whether this application is willing to serve traffic against a schema it
+does not agree with. For almost every application the answer is no, and letting the
 exception end the startup is the whole of the handling.
 
 ## Next

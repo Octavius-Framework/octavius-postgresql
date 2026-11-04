@@ -13,17 +13,12 @@ import io.github.octaviusframework.driver.registry.CodecScope
 import io.github.octaviusframework.driver.type.PgType
 
 
-/**
- * Utility object for parsing and serializing PostgreSQL container types.
- * Supports arrays, composites, records, ranges, and multiranges.
- */
+/** Reads and writes the binary form of arrays, composites, records, ranges and multiranges. */
 internal object ContainerCodec {
 
     // ------------------------------------------PARSERS----------------------------------------------------------------
 
-    /**
-     * Parses a generic field, which can be either a container or a primitive type.
-     */
+    /** Reads one nested value, a container or a scalar. */
     private fun parseField(data: ByteArray, offset: Int, length: Int, oid: Int, scope: CodecScope): Any {
         val codec = scope.codecs.getCodecByOid<Any>(oid)
             ?: throw TypeException(
@@ -34,9 +29,7 @@ internal object ContainerCodec {
         return codec.decodeSafely(data, offset, length)
     }
 
-    /**
-     * Parses a byte array into a [PgContainer] based on the OID.
-     */
+    /** Reads the container of type [oid] at [offset]. */
     fun parseContainer(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgContainer {
         return when (val pgType = scope.types.getPgType(oid)) {
             is PgType.Array -> parsePgArray(data, offset, pgType.oid, scope)
@@ -48,15 +41,7 @@ internal object ContainerCodec {
         }
     }
 
-    /**
-     * Parses a PostgreSQL array from its binary format.
-     *
-     * @param data The byte array containing the payload.
-     * @param offset The starting position in the byte array.
-     * @param oid The OID of the array type.
-     * @param scope The dictionaries this codec resolves nested values through.
-     * @return The parsed [PgArray].
-     */
+    /** Reads an array of type [oid], its elements through [scope]. */
     fun parsePgArray(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgArray {
         var localOffset = offset
 
@@ -89,15 +74,7 @@ internal object ContainerCodec {
         return PgArray(oid, elementOid, dimensions, elements)
     }
 
-    /**
-     * Parses a PostgreSQL composite type (row) from its binary format.
-     *
-     * @param data The byte array containing the payload.
-     * @param offset The starting position in the byte array.
-     * @param oid The OID of the composite type.
-     * @param scope The dictionaries this codec resolves nested values through.
-     * @return The parsed [PgComposite].
-     */
+    /** Reads a composite of type [oid], its attributes through [scope]. */
     fun parsePgComposite(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgComposite {
         val pgType = scope.types.getPgType(oid) as? PgType.Composite
             ?: throw TypeException(
@@ -122,15 +99,7 @@ internal object ContainerCodec {
         return PgComposite(pgType, fields)
     }
 
-    /**
-     * Parses an anonymous PostgreSQL record type from its binary format.
-     *
-     * @param data The byte array containing the payload.
-     * @param offset The starting position in the byte array.
-     * @param oid The OID of the record type.
-     * @param scope The dictionaries this codec resolves nested values through.
-     * @return The parsed [PgRecord].
-     */
+    /** Reads an anonymous record, its fields through [scope]. */
     fun parsePgRecord(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgRecord {
         val pgType = scope.types.getPgType(oid) as? PgType.Record
             ?: throw TypeException(
@@ -160,15 +129,7 @@ internal object ContainerCodec {
         return PgRecord(pgType, fieldOids, fields)
     }
 
-    /**
-     * Parses a PostgreSQL range type from its binary format.
-     *
-     * @param data The byte array containing the payload.
-     * @param offset The starting position in the byte array.
-     * @param oid The OID of the range type.
-     * @param scope The dictionaries this codec resolves nested values through.
-     * @return The parsed [PgRange].
-     */
+    /** Reads a range of type [oid], its bounds through [scope]. */
     fun parsePgRange(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgRange {
         val pgType = scope.types.getPgType(oid) as? PgType.Range
             ?: throw TypeException(
@@ -203,15 +164,7 @@ internal object ContainerCodec {
         return PgRange(oid, pgType.subtypeOid, flags, lowerBound, upperBound)
     }
 
-    /**
-     * Parses a PostgreSQL multirange type from its binary format.
-     *
-     * @param data The byte array containing the payload.
-     * @param offset The starting position in the byte array.
-     * @param oid The OID of the multirange type.
-     * @param scope The dictionaries this codec resolves nested values through.
-     * @return The parsed [PgMultirange].
-     */
+    /** Reads a multirange of type [oid], its ranges through [scope]. */
     fun parsePgMultirange(data: ByteArray, offset: Int, oid: Int, scope: CodecScope): PgMultirange {
         val pgType = scope.types.getPgType(oid) as? PgType.Multirange
             ?: throw TypeException(
@@ -235,9 +188,7 @@ internal object ContainerCodec {
 
     // ----------------------------------------------SERIALIZERS--------------------------------------------------------
 
-    /**
-     * Serializes a [PgContainer] into the provided [PgByteWriter].
-     */
+    /** Writes [container]. */
     fun serializeContainer(container: PgContainer, writer: PgByteWriter, scope: CodecScope) {
         when (container) {
             is PgArray -> serializePgArray(container, writer, scope)
@@ -253,10 +204,7 @@ internal object ContainerCodec {
         }
     }
 
-    /**
-     * Writes a single field (primitive or container) to the provided [PgByteWriter].
-     * Uses length prefix framing as expected by the PostgreSQL binary protocol.
-     */
+    /** Writes one nested value, a container or a scalar, behind its length. */
     private fun writeField(
         value: Any?,
         expectedOid: Int,
@@ -279,13 +227,7 @@ internal object ContainerCodec {
         writer.fillLengthInt(marker)
     }
 
-    /**
-     * Serializes a [PgArray] into the provided [PgByteWriter].
-     *
-     * @param array The array container to serialize.
-     * @param writer The binary packet writer.
-     * @param scope The dictionaries this codec resolves nested values through.
-     */
+    /** Writes [array], its elements through [scope]. */
     fun serializePgArray(array: PgArray, writer: PgByteWriter, scope: CodecScope) {
         val count = array.totalElements
         val hasNulls = array.elements.any { it == null }
@@ -304,13 +246,7 @@ internal object ContainerCodec {
         }
     }
 
-    /**
-     * Serializes a [PgComposite] into the provided [PgByteWriter].
-     *
-     * @param composite The composite container to serialize.
-     * @param writer The binary packet writer.
-     * @param scope The dictionaries this codec resolves nested values through.
-     */
+    /** Writes [composite], its attributes through [scope]. */
     fun serializePgComposite(composite: PgComposite, writer: PgByteWriter, scope: CodecScope) {
         writer.writeInt(composite.fields.size)
         val attributeOids = composite.type.attributeOids
@@ -320,10 +256,7 @@ internal object ContainerCodec {
         }
     }
 
-    /**
-     * Attempting to serialize an anonymous record will throw an exception,
-     * since PostgreSQL does not accept anonymous records as bound parameters.
-     */
+    /** Refuses: PostgreSQL does not take an anonymous record as a parameter. */
     fun serializePgRecord() {
         throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
@@ -332,13 +265,7 @@ internal object ContainerCodec {
         )
     }
 
-    /**
-     * Serializes a [PgRange] into the provided [PgByteWriter].
-     *
-     * @param range The range container to serialize.
-     * @param writer The binary packet writer.
-     * @param scope The dictionaries this codec resolves nested values through.
-     */
+    /** Writes [range], its bounds through [scope]. */
     fun serializePgRange(range: PgRange, writer: PgByteWriter, scope: CodecScope) {
         writer.writeByte(range.flags)
 
@@ -352,13 +279,7 @@ internal object ContainerCodec {
         }
     }
 
-    /**
-     * Serializes a [PgMultirange] into the provided [PgByteWriter].
-     *
-     * @param multirange The multirange container to serialize.
-     * @param writer The binary packet writer.
-     * @param scope The dictionaries this codec resolves nested values through.
-     */
+    /** Writes [multirange], its ranges through [scope]. */
     fun serializePgMultirange(multirange: PgMultirange, writer: PgByteWriter, scope: CodecScope) {
         writer.writeInt(multirange.ranges.size)
         for (range in multirange.ranges) {

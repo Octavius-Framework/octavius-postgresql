@@ -3,11 +3,8 @@ package io.github.octaviusframework.migrations
 import io.github.octaviusframework.driver.exception.OctaviusException
 
 /**
- * Why a migration run stopped.
- *
- * Deliberately coarse, and meant for a log line or a metric to be keyed on. What a human needs in order to
- * fix anything is in `details`, which names the file, the class or the version at fault, and in the cause
- * where there is one - so the split here is by *kind of problem*, not by which check happened to catch it.
+ * Why a migration run stopped, by kind of problem, for a log line or a metric to be keyed on. What is
+ * actually wrong is in `details` and in the cause.
  */
 enum class MigrationExceptionReason {
     /**
@@ -47,9 +44,9 @@ enum class MigrationExceptionReason {
 /**
  * Exception thrown when a migration run cannot go on.
  *
- * Every one of these is raised before or instead of touching the database, or else after a failure has
- * already been rolled back - which is the reason there is no `sqlState` on it. A statement the server
- * refused arrives as the driver's own exception instead, unchanged, since the server said it better.
+ * It carries no `sqlState`: where the server said something - a lock wait that ran out, a statement of a
+ * migration it refused - its exception is the cause. Where the migrator has no opinion - the history table
+ * failing to be read, a connection dying mid-run - the driver's own exception comes through instead.
  *
  * @property reason What kind of problem this is, for a log line to be keyed on.
  * @property details What is actually wrong, naming the file, class or version it is wrong about.

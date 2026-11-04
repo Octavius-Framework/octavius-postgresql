@@ -1,12 +1,10 @@
 package io.github.octaviusframework.driver.identifier
 
 /**
- * Represents a qualified PostgreSQL name (schema + object name).
- * Handles quoting correctly even if names contain dots.
+ * A schema-qualified name.
  *
- * @property schema The schema name. If empty, the object belongs to the default schema.
- * @property name The object name (e.g., table or type name).
- * @property isArray Indicates whether this qualified name refers to an array type (appends `[]`).
+ * @property schema Empty where the name goes through the search path.
+ * @property isArray Whether it names the array type over [name].
  */
 data class QualifiedName(
     val schema: String,
@@ -18,10 +16,7 @@ data class QualifiedName(
         return if (isArray) "$base[]" else base
     }
 
-    /**
-     * Returns a SQL-safe representation. 
-     * Respects existing quotes and adds new ones only if necessary (e.g. dots in name).
-     */
+    /** This name as SQL, with each part quoted by [quoteAsPgIdentifier]: `"imperium"."senator"[]`. */
     fun quote(): String {
         val quotedBase = if (schema.isBlank()) {
             name.quoteAsPgIdentifier()
@@ -31,10 +26,6 @@ data class QualifiedName(
         return if (isArray) "$quotedBase[]" else quotedBase
     }
 
-    /**
-     * Returns this name as the array type over it — `senator` becomes `senator[]`.
-     *
-     * @return A copy with [isArray] set.
-     */
+    /** The array type over this name: `senator` becomes `senator[]`. */
     fun asArray(): QualifiedName = copy(isArray = true)
 }

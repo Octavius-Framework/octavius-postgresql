@@ -21,11 +21,8 @@ import kotlin.concurrent.withLock
 private val logger = KotlinLogging.logger {}
 
 /**
- * Manages COPY IN and COPY OUT operations for a specific connection stream.
- *
- * A `COPY` starts on the stream directly rather than through an exchange of [queryExecutor], so it is the one
- * place that has to ask for a waiting `BEGIN` itself: with auto-commit off, a `COPY` can be what begins the
- * transaction.
+ * Runs `COPY … FROM STDIN` and `COPY … TO STDOUT` on this session. With auto-commit off, a `COPY` begins the
+ * transaction like any other statement.
  */
 class CopyManager internal constructor(
     private val stream: PgStream,
@@ -33,20 +30,14 @@ class CopyManager internal constructor(
 ) {
 
     companion object {
-        /** Chunk size used by the [InputStream] overload of [copyIn] when none is given. */
+        /** Chunk size of the [InputStream] overload of [copyIn]. */
         const val DEFAULT_BUFFER_SIZE: Int = 65536
     }
 
     /**
-     * Initiates a COPY IN operation allowing manual chunk writing.
+     * Starts [sql], a `COPY … FROM STDIN`, and returns the handle to write it through. The connection runs nothing
+     * else until the transfer ends; closing the handle cancels one still running.
      *
-     * The connection stays in copy mode until [CopyIn.endCopy] or [CopyIn.cancelCopy] is called, or until
-     * [CopyIn.writeToCopy] reports that the server has ended the copy itself, and no ordinary query can run
-     * on it meanwhile. [CopyIn] is [AutoCloseable] and cancels on close, so `use { }` is the safe way to hold
-     * one.
-     *
-     * @param sql A `COPY … FROM STDIN` statement.
-     * @return The handle to write chunks through.
      * @throws InvalidOperationException `UNEXPECTED_RESULT` if [sql] did not start a COPY IN.
      */
     fun copyIn(sql: String): CopyIn {
@@ -54,7 +45,7 @@ class CopyManager internal constructor(
         try {
             stream.checkAvailable()
             queryExecutor.beginWaitingTransactionNow()
-            stream.sendMessage(SimpleQueryMessage(sql))
+            stream.writeMessage(SimpleQueryMessage(sql))
             stream.flush()
 
             var errorResponse: ErrorOrNoticeMessage? = null
@@ -83,14 +74,9 @@ class CopyManager internal constructor(
     }
 
     /**
-     * Initiates a COPY OUT operation allowing manual chunk reading.
+     * Starts [sql], a `COPY … TO STDOUT`, and returns the handle to read it through. The connection runs nothing
+     * else until the transfer ends; closing the handle cancels one still running.
      *
-     * The connection stays in copy mode until the stream is drained or [CopyOut.cancelCopy] is called,
-     * and no ordinary query can run on it meanwhile. [CopyOut] is [AutoCloseable] and cancels on close,
-     * so `use { }` is the safe way to hold one.
-     *
-     * @param sql A `COPY … TO STDOUT` statement.
-     * @return The handle to read chunks through.
      * @throws InvalidOperationException `UNEXPECTED_RESULT` if [sql] did not start a COPY OUT.
      */
     fun copyOut(sql: String): CopyOut {
@@ -98,7 +84,7 @@ class CopyManager internal constructor(
         try {
             stream.checkAvailable()
             queryExecutor.beginWaitingTransactionNow()
-            stream.sendMessage(SimpleQueryMessage(sql))
+            stream.writeMessage(SimpleQueryMessage(sql))
             stream.flush()
 
             var errorResponse: ErrorOrNoticeMessage? = null
@@ -128,20 +114,11 @@ class CopyManager internal constructor(
     }
 
     /**
-     * Reads all data from the provided InputStream and writes it to the COPY IN operation.
+     * Runs [sql], a `COPY … FROM STDIN`, over [inputStream] and returns the number of rows the server accepted.
+     * On any failure the transfer is cancelled, and a row the server rejects stops the reading at the next
+     * chunk. [inputStream] is left open.
      *
-     * The transfer is aborted if anything goes wrong, so the connection is never left in copy mode.
-     * [inputStream] is not closed — that stays with the caller.
-     *
-     * A row the server rejects as it reads it ends the transfer at the next chunk - see [CopyIn] - and
-     * [inputStream] is read no further, so a bad row early in a large input costs a chunk or two rather than
-     * the rest of the input.
-     *
-     * @param sql A `COPY … FROM STDIN` statement.
-     * @param inputStream The source of the data, read to exhaustion unless the server rejects a row first.
-     * @param bufferSize Size of the chunks the input is forwarded in. Each chunk is one message
-     *   and one flush, so very small values turn a bulk load back into per-chunk round trips.
-     * @return The number of rows the server accepted.
+     * @param bufferSize Bytes per chunk; each chunk is one message and one flush.
      * @throws InvalidOperationException `INVALID_ARGUMENT` if [bufferSize] is not positive,
      *   `UNEXPECTED_RESULT` if [sql] did not start a COPY IN.
      */
@@ -169,15 +146,10 @@ class CopyManager internal constructor(
     }
 
     /**
-     * Reads all data from the COPY OUT operation and writes it to the provided OutputStream.
+     * Runs [sql], a `COPY … TO STDOUT`, into [outputStream] and returns the number of bytes written - not rows,
+     * which the server does not report. On any failure the transfer is cancelled. [outputStream] is neither
+     * flushed nor closed.
      *
-     * The transfer is aborted if anything goes wrong, so the connection is never left in copy mode.
-     * [outputStream] is neither flushed nor closed — that stays with the caller.
-     *
-     * @param sql A `COPY … TO STDOUT` statement.
-     * @param outputStream Where the data is written.
-     * @return The number of **bytes** written. PostgreSQL reports no row count for COPY OUT, so this is
-     *   not the counterpart of what [copyIn] returns.
      * @throws InvalidOperationException `UNEXPECTED_RESULT` if [sql] did not start a COPY OUT.
      */
     fun copyOut(sql: String, outputStream: OutputStream): Long {
@@ -189,7 +161,7 @@ class CopyManager internal constructor(
                 outputStream.write(chunk)
                 totalBytes += chunk.size
             }
-            return totalBytes // PG doesn't return rows count for COPY OUT in the same way, or at least we return bytes written here
+            return totalBytes
         } catch (e: Exception) {
             if (copyOut.isActive) {
                 copyOut.cancelCopy()
@@ -200,45 +172,25 @@ class CopyManager internal constructor(
 }
 
 /**
- * A `COPY ... FROM STDIN` in progress: write chunks with [writeToCopy], finish with [endCopy].
+ * A `COPY … FROM STDIN` in progress: write chunks with [writeToCopy], finish with [endCopy]. Single-use.
  *
- * The connection is in copy mode for the whole of it and will run nothing else, which is what makes the handle
- * single-use — [endCopy] or [cancelCopy] ends the transfer and the handle with it, and the next one comes from
- * the [CopyManager] again.
- *
- * Errors in the data are the server's to find, and it finds them on its own schedule. What it can check as it
- * reads a row - a value that does not parse, a wrong column count, `NOT NULL`, `CHECK` - ends the copy there and
- * then, and the next [writeToCopy] reports it. Foreign keys are checked when the statement ends, so [endCopy]
- * reports those, and a duplicate key surfaces when the server writes out the rows it has buffered, which on a
- * small copy is the end as well.
+ * What the server checks as it reads a row - parsing, column count, `NOT NULL`, `CHECK` - ends the copy, and
+ * the next [writeToCopy] raises it. Foreign keys, and on a small copy duplicate keys, are raised by [endCopy].
  */
 class CopyIn internal constructor(private val stream: PgStream) : CopyOperation {
     override var isActive: Boolean = true
         private set
 
-    /** Registers the transfer on the connection, which is where the rest of the driver reads it. */
+    /** Registers the transfer on the connection. */
     init {
         stream.activeCopy = this
     }
 
     /**
-     * Writes a chunk of data to the server.
+     * Sends [length] bytes of [data] from [offset] as one message and one flush, so chunks should be larger than
+     * a row. A row the server already rejected, or a session it ended, is raised instead of sending, and the
+     * operation is finished.
      *
-     * Each call is one protocol message and one flush, so chunks want to be substantial rather than
-     * row-sized.
-     *
-     * Before the chunk goes out, whatever the server has sent since the last one is read. During a COPY IN it
-     * sends nothing unless it is ending the copy, so this costs one look at the socket. A server that rejected a
-     * row has already left copy mode and drops any data that still arrives, so the rejection is raised here
-     * instead of the chunk being sent, and the operation is finished. A server that ended the session is caught
-     * the same way, while its `FATAL` can still be read: written first, the chunk would draw a reset, and a
-     * Windows client discards what it had not read when one arrives. That holds where the server closes the
-     * connection gracefully. A stock PostgreSQL on Windows resets it by itself as the backend exits, and the
-     * `FATAL` goes with it unless a chunk was about to go out in between.
-     *
-     * @param data The bytes to send.
-     * @param offset Where to start in [data].
-     * @param length How many bytes to send.
      * @throws InvalidOperationException `RESOURCE_CLOSED` if the operation has already finished.
      * @throws DataException if the server rejected a row it could not parse.
      * @throws ConstraintViolationException if the server rejected a row that breaks a constraint.
@@ -247,16 +199,13 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
     fun writeToCopy(data: ByteArray, offset: Int = 0, length: Int = data.size) = stream.lock.withLock {
         if (!isActive) throw InvalidOperationException(InvalidOperationExceptionReason.RESOURCE_CLOSED, "This COPY operation is no longer active. Handles are single-use - start a new one through the CopyManager.")
         raiseIfServerEnded()
-        stream.sendMessage(FrontendCopyDataMessage(data, offset, length))
+        stream.writeMessage(FrontendCopyDataMessage(data, offset, length))
         stream.flush()
     }
 
     /**
-     * Raises the error the server ended the copy with, if it has sent one.
-     *
-     * The `COPY` went out as a simple query, so an error in the middle of it is always followed by a
-     * `ReadyForQuery`. That is read too before raising, which leaves the connection in step and the operation
-     * finished. A `FATAL` raises from inside the read, with nothing to follow it.
+     * Raises the error the server ended the copy with, if it has sent one, after reading the `ReadyForQuery` that
+     * follows it. A `FATAL` raises from inside the read.
      */
     private fun raiseIfServerEnded() {
         while (true) {
@@ -272,19 +221,16 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
     }
 
     /**
-     * Ends the COPY IN operation and returns the number of rows affected.
+     * Finishes the copy and returns the number of rows the server accepted, or raises what it rejected after the
+     * last chunk. The connection leaves copy mode either way.
      *
-     * This is where the server reports what it checks only once the data is all in - see [CopyIn] - and
-     * anything it rejected after the last chunk went out. The connection leaves copy mode either way.
-     *
-     * @return The number of rows the server accepted.
      * @throws InvalidOperationException `RESOURCE_CLOSED` if the operation has already finished.
      */
     fun endCopy(): Long {
         stream.lock.lock()
         try {
             if (!isActive) throw InvalidOperationException(InvalidOperationExceptionReason.RESOURCE_CLOSED, "This COPY operation is no longer active. Handles are single-use - start a new one through the CopyManager.")
-            stream.sendMessage(FrontendCopyDoneMessage())
+            stream.writeMessage(FrontendCopyDoneMessage())
             stream.flush()
 
             var rowsAffected = 0L
@@ -320,12 +266,11 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
         try {
             if (!isActive) return
             if (stream.isBroken) {
-                // Nothing left to cancel: the server discarded the transfer along with the connection. Trying
-                // would only raise about the connection, over whatever failure brought the caller here.
+                // The server discarded the transfer with the connection; trying would only raise about it.
                 isActive = false
                 return
             }
-            stream.sendMessage(FrontendCopyFailMessage("Copy operation cancelled by user."))
+            stream.writeMessage(FrontendCopyFailMessage("Copy operation cancelled by user."))
             stream.flush()
             isActive = false
             logger.debug { "[PID: ${stream.processId}] COPY IN cancelled" }
@@ -344,12 +289,7 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
 }
 
 /**
- * A `COPY ... TO STDOUT` in progress: call [readFromCopy] until it hands back `null`.
- *
- * The mirror of [CopyIn] and single-use for the same reason — the connection is in copy mode until the
- * transfer ends, and it ends when the server says so. Chunk boundaries are the server's, so a chunk is a
- * protocol message rather than a row; draining to `null` is what returns the connection to normal use, and
- * abandoning the handle before that leaves it in copy mode.
+ * A `COPY … TO STDOUT` in progress: call [readFromCopy] until it returns `null`, or cancel. Single-use.
  */
 class CopyOut internal constructor(private val stream: PgStream) : CopyOperation {
     override var isActive: Boolean = true
@@ -357,22 +297,17 @@ class CopyOut internal constructor(private val stream: PgStream) : CopyOperation
 
     private var errorResponse: ErrorOrNoticeMessage? = null
 
-    /** Only ever read by the log line that closes the transfer; PostgreSQL reports no row count for COPY OUT. */
+    /** For the log line that closes the transfer. */
     private var bytesRead: Long = 0L
 
-    /** Registers the transfer on the connection; see [CopyIn]. */
+    /** Registers the transfer on the connection. */
     init {
         stream.activeCopy = this
     }
 
     /**
-     * Reads a chunk of data from the server.
-     *
-     * Chunk boundaries are the server's, not yours: a chunk is one protocol message and may hold part of
-     * a row, several rows, or both. Keep calling until this returns `null`, at which point the
-     * connection has left copy mode.
-     *
-     * @return The next chunk, or `null` once the transfer is over.
+     * The next chunk, or `null` once the transfer is over and the connection has left copy mode. A chunk is one
+     * message from the server, not one row.
      */
     fun readFromCopy(): ByteArray? {
         stream.lock.lock()

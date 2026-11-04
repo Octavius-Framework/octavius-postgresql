@@ -2,9 +2,7 @@ package io.github.octaviusframework.driver.message.frontend
 
 import io.github.octaviusframework.driver.io.PgOutputStream
 
-/**
- * Sends data during a COPY IN operation.
- */
+/** `CopyData` from the client. */
 internal class FrontendCopyDataMessage(
     private val data: ByteArray,
     private val offset: Int = 0,
@@ -17,9 +15,7 @@ internal class FrontendCopyDataMessage(
     }
 }
 
-/**
- * Indicates completion of a COPY IN operation from the frontend.
- */
+/** `CopyDone` from the client. */
 internal class FrontendCopyDoneMessage : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         out.writeByte('c'.code.toByte())
@@ -27,9 +23,7 @@ internal class FrontendCopyDoneMessage : FrontendMessage {
     }
 }
 
-/**
- * Fails a COPY IN operation from the frontend.
- */
+/** `CopyFail`, abandoning a COPY IN. */
 internal class FrontendCopyFailMessage(private val errorMessage: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         out.writeByte('f'.code.toByte())

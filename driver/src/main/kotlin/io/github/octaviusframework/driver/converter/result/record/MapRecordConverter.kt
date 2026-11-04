@@ -14,19 +14,9 @@ import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
 /**
- * Reads an anonymous `ROW(...)` as a map, taking its fields as alternating key/value pairs.
- *
- * Both halves of a pair go through [DeserializationContext.convert] against the type arguments of the `Map`
- * asked for, so the key is converted like any value: `Map<String, Any?>` wants text keys, `Map<Int, String>`
- * wants `int4` ones, and `Map<Tribute, Int>` wants a registered composite. A key whose column converts to
- * none of that fails where it is met, instead of being stringified into something that looks like it worked.
- * Asked for as `Any`, or as a `Map` with nothing said about its arguments, each half is what the chain makes
- * of it with nothing narrower named — a registered composite still arriving as its class, not as the
- * [PgComposite][io.github.octaviusframework.driver.container.PgComposite] its codec produced.
- *
- * Three shapes are refused rather than guessed at, because the map would quietly hold fewer fields than the
- * record did otherwise: an odd number of fields, a `NULL` key, and a key already in the map. The last is
- * worth having even where keys look distinct in SQL, since two of them only have to be *equal* to collide.
+ * Reads an anonymous `ROW(...)` as a map of alternating keys and values, each converted to the `Map`'s type
+ * arguments, or as `Any` where there are none. An odd number of fields, a `NULL` key and a repeated key are
+ * refused.
  */
 internal object MapRecordConverter : ResultConverter<PgRecord, Map<Any, Any?>> {
 
@@ -38,9 +28,7 @@ internal object MapRecordConverter : ResultConverter<PgRecord, Map<Any, Any?>> {
     }
 
     override fun convert(source: PgRecord, expectedType: KType, sourceType: PgType, context: DeserializationContext): Map<Any, Any?> {
-        // Arguments are only there to read on a `Map`; under `Any` there is nothing said about either half,
-        // and a star-projected `Map<*, *>` says as little, so both fall back to an unconstrained type and the
-        // chain answers as it answers anything asked for as `Any`.
+        // Under `Any` or `Map<*, *>` both halves are read as `Any`.
         val asMap = expectedType.classifier == Map::class
         val keyType = (if (asMap) expectedType.arguments.getOrNull(0)?.type else null) ?: typeOf<Any>()
         val valueType = (if (asMap) expectedType.arguments.getOrNull(1)?.type else null) ?: typeOf<Any?>()
@@ -54,9 +42,7 @@ internal object MapRecordConverter : ResultConverter<PgRecord, Map<Any, Any?>> {
         val result = LinkedHashMap<Any, Any?>(source.fields.size)
 
         for (i in source.fields.indices step 2) {
-            // A key is named by its position, the record having no names to give - the same `[i]` the array
-            // converter and `PgRecord.get` write. A value is named by the key just read, which is what a
-            // caller holding the map has to go on.
+            // A key's path names its position; a value's names its key.
             val keyRaw = source.fields[i] ?: throw conversionErrorAt(
                 "[$i]",
                 "A record read as a map cannot carry a NULL key: the field at index $i is null"

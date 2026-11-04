@@ -1,10 +1,14 @@
 package io.github.octaviusframework.driver.notice
 
+import io.github.octaviusframework.driver.jdbc.OctaviusDataSource
+import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.octaviusframework.testsupport.TestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 object TestNoticeHandler : NoticeHandler {
     var lastNotice: PgNotice? = null
@@ -19,7 +23,7 @@ class NoticeHandlerTest : AbstractIntegrationTest() {
     fun testNoticeHandlerReceivesNotice() = runBlocking {
         TestNoticeHandler.lastNotice = null
         
-        val session = openSession { noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
+        val session = openSession { noticeHandlerClassName = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
         
         // Generate a notice
         session.createNativeQuery("DO $$ BEGIN RAISE NOTICE 'the augurs report a flight of crows'; END; $$;").execute()
@@ -44,7 +48,7 @@ class NoticeHandlerTest : AbstractIntegrationTest() {
     fun testNoticeExposesEveryFieldTheServerSends() = runBlocking {
         TestNoticeHandler.lastNotice = null
 
-        val session = openSession { noticeHandler = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
+        val session = openSession { noticeHandlerClassName = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
 
         session.createNativeQuery(
             """DO $$ BEGIN
@@ -78,5 +82,30 @@ class NoticeHandlerTest : AbstractIntegrationTest() {
         assertEquals("NOTICE", notice.severity)
 
         session.close()
+    }
+
+    @Test
+    fun `an instance set on the data source takes the notices in place of the class it names`() {
+        TestNoticeHandler.lastNotice = null
+        val received = mutableListOf<String>()
+
+        val dataSource = OctaviusDataSource().apply {
+            url = TestDatabase.URL
+            user = TestDatabase.USER
+            password = TestDatabase.PASSWORD
+            noticeHandlerClassName = "io.github.octaviusframework.driver.notice.TestNoticeHandler"
+            noticeHandler = object : NoticeHandler {
+                override fun handleNotice(notice: PgNotice) {
+                    received += notice.message
+                }
+            }
+        }
+
+        dataSource.getOctaviusSession().use { session ->
+            session.createNativeQuery("DO $$ BEGIN RAISE NOTICE 'the omens are favourable'; END; $$;").execute()
+        }
+
+        assertEquals(listOf("the omens are favourable"), received)
+        assertNull(TestNoticeHandler.lastNotice)
     }
 }

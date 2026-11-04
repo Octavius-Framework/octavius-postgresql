@@ -3,19 +3,9 @@ package io.github.octaviusframework.driver.exception
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 /**
- * Exception thrown when the current database user lacks the required privileges to execute a statement or access an object.
+ * The user lacks a privilege the statement needs. The object refused is named where the server names it.
  *
- * This exception can include optional metadata identifying the specific schema, table, column, datatype,
- * or routine where the permission denial occurred, aiding in debugging access control issues.
- *
- * @property dbMessage The primary error message the database raised.
- * @property schema The name of the schema for which permission was denied, if applicable.
- * @property table The name of the table for which permission was denied, if applicable.
- * @property column The name of the column for which permission was denied, if applicable.
- * @property datatype The name of the datatype for which permission was denied, if applicable.
- * @property routine The name of the routine (function/procedure) for which permission was denied, if applicable.
- * @param sqlState The SQL state code returned by the database.
- * @param serverErrorMessage The original error message from the database server.
+ * @property dbMessage The server's message.
  */
 class PermissionDeniedException(
     sqlState: String,

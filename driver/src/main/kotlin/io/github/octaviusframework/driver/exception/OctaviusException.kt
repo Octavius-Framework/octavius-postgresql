@@ -4,19 +4,13 @@ import io.github.octaviusframework.driver.message.ServerErrorMessage
 import io.github.octaviusframework.driver.query.QueryContext
 
 /**
- * Base exception for all errors in the Octavius JDBC driver.
+ * The base of every exception the driver throws.
  *
- * @param message The exception identifier, formatted as `EXCEPTION_NAME[:REASON_ENUM]` for programmatic filtering.
- * @property sqlState The SQL state code associated with the error, if applicable.
- * @property serverErrorMessage The raw error message received from the database, if applicable.
- * @param cause The underlying exception that caused this failure, if any.
- * @property path Where this happened, innermost first, appended to by each layer as the exception unwinds.
- * It is on the base class for the same reason [queryContext] is: adding to it is the only thing a frame can
- * do to an exception without replacing it, and replacing one costs the type the caller catches on - a
- * `ConstraintViolationException` restated as something else stops being the failure a retry looks for. A
- * mapper walking a nested composite appends the attribute it was on, a transaction plan the step and
- * parameter it was resolving. Rendered reversed, outermost first, so `PATH: step 1 -> parameter 'name' ->
- * map #1` reads from the plan down to the lambda.
+ * @param message `EXCEPTION_NAME[:REASON]`, for filtering.
+ * @property sqlState The server's SQLSTATE, where the server reported the failure.
+ * @property serverErrorMessage The server's error report, where there was one.
+ * @property path Where in a nested value or a plan this happened, innermost first, each layer appending its
+ * segment as the exception unwinds. Rendered outermost first: `PATH: step 1 -> parameter 'name' -> map #1`.
  */
 abstract class OctaviusException(
     message: String,
@@ -27,22 +21,12 @@ abstract class OctaviusException(
 ) : RuntimeException(message, cause) {
 
     /**
-     * The context of the query that resulted in this exception, if applicable.
-     *
-     * Filled in by the query layer as the exception unwinds, and only where it is still `null`, so the innermost
-     * frame - the one that knows the real SQL - is the one that wins.
-     *
-     * Settable, and deliberately so: a caller about to log the exception can put a redacted [QueryContext] in its
-     * place. What the driver bounds is the rendering, not the content, and `logParameterValues` governs the driver's
-     * own log lines and says nothing about an exception logged by the caller.
+     * The SQL and parameters of the query this happened in, set by the innermost query layer. Settable, so a
+     * caller can put a redacted one in its place before logging.
      */
     var queryContext: QueryContext? = null
 
-    /**
-     * Provides a detailed, human-readable description of the error.
-     *
-     * @return A detailed string message describing the exception, or null if no detailed message is available.
-     */
+    /** A human-readable description of the failure, or `null`. [toString] shows it under `EXCEPTION DETAILS`. */
     open fun getDetailedMessage(): String? = null
 
     override fun toString(): String = buildString {
@@ -82,28 +66,12 @@ abstract class OctaviusException(
 
 private const val line = "--------------------------------------------------------------------------------"
 
-/**
- * How far down a cause chain [findOctaviusCause] is willing to look. Bounded so a chain that
- * loops back on itself ends rather than spinning; nothing legitimate nests this deep.
- */
+/** How far down a cause chain [findOctaviusCause] looks, so a looping chain ends. */
 private const val MAX_CAUSE_DEPTH = 16
 
 /**
- * Finds the Octavius failure behind this throwable, if there is one.
- *
- * A driver failure that crosses a JDBC boundary rarely arrives as itself. A connection pool
- * restates it as an `SQLException` of its own, a framework restates that one in turn, and what
- * the caller finally catches names only the layer it came from - HikariCP reporting a borrow that
- * timed out says nothing about the server refusing the connection underneath it. The chain still
- * carries the original, either as a [SQLExceptionWrapper] put there by the driver's JDBC surface
- * or as a bare [OctaviusException] recorded by a pool that was trying to open a connection, so
- * anything restating a foreign failure looks for the real one here before inventing its own.
- *
- * The receiver itself is examined first, so a driver exception passed in directly is returned
- * as it stands.
- *
- * @return The first Octavius exception found on the way down the cause chain, or `null` if the
- * failure did not originate in this driver.
+ * The driver's exception behind this throwable - itself, or one down its cause chain, unwrapped from a
+ * [SQLExceptionWrapper] - or `null`. For a failure a pool or a framework has restated as its own.
  */
 fun Throwable.findOctaviusCause(): OctaviusException? {
     var current: Throwable? = this

@@ -12,42 +12,29 @@ private const val INV_READ = 0x00040000
  * @property value The bit mask `lo_open` takes.
  */
 enum class LargeObjectMode(val value: Int) {
-    /** Opens the Large Object for writing only. */
+    /** Writing only. */
     WRITE(INV_WRITE),
 
-    /** Opens the Large Object for reading only. */
+    /** Reading only. */
     READ(INV_READ),
 
-    /** Opens the Large Object for both reading and writing. */
+    /** Reading and writing. */
     READ_WRITE(INV_READ or INV_WRITE)
 }
 
 /**
- * Manager for PostgreSQL Large Objects associated with a specific connection.
- * NOTE: All operations on Large Objects must be performed within a transaction
- * (BEGIN ... COMMIT/ROLLBACK) to be valid in PostgreSQL.
- * Note: PostgreSQL OIDs are unsigned 32-bit integers.
- * In the JVM, they are represented as signed Int, meaning values above 2.14B will appear as negative numbers if printed.
- * This is expected and perfectly safe for database operations.
+ * Creates, opens and deletes large objects on this session. Use them inside a transaction. An OID above
+ * `Int.MAX_VALUE` reads as a negative `Int`, which the server takes back as it was.
  */
 class LargeObjectManager internal constructor(private val session: OctaviusSession) {
 
-    /**
-     * Creates a new empty Large Object and returns its OID.
-     * @return The OID of the newly created Large Object.
-     */
+    /** Creates an empty large object and returns its OID. */
     fun create(): Int {
         return session.createNativeQuery("SELECT lo_create(0)")
             .fetchFieldStrict<Int>()
     }
 
-    /**
-     * Opens an existing Large Object and returns a descriptor allowing read/write operations.
-     * @param oid The OID of the Large Object to open.
-     * @param mode The access mode: [LargeObjectMode.READ], [LargeObjectMode.WRITE] or
-     *   [LargeObjectMode.READ_WRITE], which is the default.
-     * @return A [LargeObject] instance for reading/writing.
-     */
+    /** Opens the large object [oid] in [mode]. */
     fun open(oid: Int, mode: LargeObjectMode = LargeObjectMode.READ_WRITE): LargeObject {
         val fd = session.createNativeQuery("SELECT lo_open($1, $2)")
             .fetchFieldStrict<Int>(oid, mode.value)
@@ -55,10 +42,7 @@ class LargeObjectManager internal constructor(private val session: OctaviusSessi
         return LargeObject(session, oid, fd)
     }
 
-    /**
-     * Deletes a Large Object from the database.
-     * @param oid The OID of the Large Object to remove.
-     */
+    /** Deletes the large object [oid]. */
     fun unlink(oid: Int) {
         session.createNativeQuery("SELECT lo_unlink($1)")
             .fetchFieldStrict<Int>(oid)

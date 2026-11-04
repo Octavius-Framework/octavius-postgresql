@@ -19,19 +19,16 @@ internal data class OctaviusSessionKey(val dataSource: DataSource)
  * transaction it begins, and by [OctaviusTemplate] for one another manager began, or for
  * synchronization with no transaction behind it.
  *
- * A session lasts as long as the transaction does rather than as long as one [OctaviusTemplate.execute]
- * call: opening one per call would build a notification, copy and type manager each time, and would
- * leave the question of which of them undoes the state on the connection unanswered.
+ * A session lasts as long as the transaction, not as one [OctaviusTemplate.execute] call, so the state it
+ * leaves on the connection is undone once.
  */
 internal open class OctaviusSessionHolder(val session: OctaviusSession) : ResourceHolderSupport()
 
 /**
  * Ends the transaction-scoped session at the right point in Spring's completion sequence.
  *
- * `ResourceHolderSynchronization` carries the binding for us, including `suspend` and `resume` - a
- * `REQUIRES_NEW` transaction inside another one gets a different connection, and without unbinding
- * over the suspension it would find the outer transaction's session still bound and run its work on
- * the wrong connection.
+ * `ResourceHolderSynchronization` unbinds it over a suspension, so a `REQUIRES_NEW` transaction inside
+ * another does not find the outer one's session.
  *
  * @property springTransaction Whether Spring began a transaction the session runs in, rather than
  * synchronization alone - `PROPAGATION_SUPPORTS` with no transaction to join.
@@ -50,19 +47,14 @@ internal class OctaviusSessionSynchronization(
     override fun getOrder(): Int = DataSourceUtils.CONNECTION_SYNCHRONIZATION_ORDER - 1
 
     /**
-     * Moves the release of a session in a transaction Spring began from `beforeCompletion`, where
-     * this class puts it by default, to `afterCompletion`.
+     * Moves the release of a session in a transaction Spring began from `beforeCompletion` to
+     * `afterCompletion`. Before completion a failed transaction is still failed, every statement gets
+     * `25P02`, and a session that cannot reset its connection gives it up - one connection for every
+     * transaction that failed on the server. After completion the connection answers again, and Spring has not
+     * released it yet.
      *
-     * `beforeCompletion` runs ahead of the rollback, so on the failing path the transaction is still
-     * failed - and PostgreSQL ignores every statement until the block ends, with `25P02`. The reset
-     * would raise there, and a session that cannot reset its connection gives the connection up
-     * instead: every transaction that failed on the server would cost one, measured as an eviction
-     * and a new backend on the next borrow. `afterCompletion` runs once the commit or rollback is
-     * through and the connection answers again, and still before Spring releases it.
-     *
-     * Where Spring began nothing there is no commit or rollback to wait for, and its connection
-     * synchronization gives the connection back already in `beforeCompletion`, nothing holding it
-     * open. The session ends there, ahead of it.
+     * Where Spring began nothing, its connection synchronization gives the connection back in
+     * `beforeCompletion`, so the session ends there, ahead of it.
      */
     override fun shouldReleaseBeforeCompletion(): Boolean = !springTransaction
 

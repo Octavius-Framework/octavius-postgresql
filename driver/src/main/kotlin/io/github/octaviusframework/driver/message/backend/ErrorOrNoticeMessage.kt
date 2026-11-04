@@ -1,17 +1,6 @@
 package io.github.octaviusframework.driver.message.backend
 
-/**
- * The fields of an ErrorResponse (Tag 'E') or of a NoticeResponse (Tag 'N').
- *
- * The two messages carry the same field set and differ only in their tag and in what [severity]
- * says, so one class reads both. An error is returned from the stream and becomes an exception
- * through [ExceptionTranslator][io.github.octaviusframework.driver.message.translator.ExceptionTranslator];
- * a notice never leaves the stream and becomes a
- * [PgNotice][io.github.octaviusframework.driver.notice.PgNotice] there.
- *
- * [severity], [localizedSeverity], [code] and [message] are the fields the protocol requires of
- * either message; which of the rest arrive depends on what raised it.
- */
+/** The fields of an `ErrorResponse` or a `NoticeResponse`, which carry the same set. */
 internal class ErrorOrNoticeMessage(val fields: Map<Char, String>) : BackendMessage {
 
     companion object {
@@ -39,10 +28,7 @@ internal class ErrorOrNoticeMessage(val fields: Map<Char, String>) : BackendMess
 
     val severity: String get() = fields[SEVERITY_NON_LOCALIZED]!!
 
-    /**
-     * Whether this is an error that ends the session: a `FATAL`, or a `PANIC`, which ends every session on the
-     * server. The server closes the connection behind either one, so nothing follows it - no `ReadyForQuery`.
-     */
+    /** Whether this ends the session: a `FATAL` or `PANIC`, after which only the close follows. */
     val isFatal: Boolean get() = severity == "FATAL" || severity == "PANIC"
 
     val code: String get() = fields[SQLSTATE]!!

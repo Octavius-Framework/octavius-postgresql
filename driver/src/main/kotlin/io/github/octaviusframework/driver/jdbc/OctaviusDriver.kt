@@ -9,13 +9,7 @@ import java.sql.DriverPropertyInfo
 import java.util.*
 import java.util.logging.Logger
 
-/**
- * The main entry point for the JDBC API into the Octavius driver.
- *
- * This class implements the standard `java.sql.Driver` interface and is automatically
- * registered with the [DriverManager] when the class is loaded. It accepts URLs starting
- * with `jdbc:octavius:`.
- */
+/** The JDBC driver for `jdbc:octavius:` URLs, registered with [DriverManager] when the class loads. */
 internal class OctaviusDriver : Driver {
     companion object {
         init {

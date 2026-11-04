@@ -3,34 +3,21 @@ package io.github.octaviusframework.driver.exception
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 
-/**
- * Represents specific types of network-related errors that can occur during database communication.
- */
+/** What happened to the connection. */
 enum class NetworkExceptionReason {
-    /** A generic network connection error. */
+    /** Any other I/O failure. */
     CONNECTION_ERROR,
-    /** A read or connect operation timed out. */
+    /** A read or a connect timed out. */
     CONNECTION_TIMEOUT,
-    /** Attempted to use a connection that has already been closed locally. */
+    /** The connection was already closed here, or the session aborted. */
     CONNECTION_CLOSED,
-    /** The remote database server (peer) closed the connection unexpectedly. */
+    /** The server closed the connection. */
     CONNECTION_CLOSED_BY_PEER,
-    /** The connection was aborted locally, e.g., by a thread interrupt or specific API call. */
+    /** The connection was aborted here, by `abort()` or an interrupt. */
     CONNECTION_ABORTED
 }
 
-/**
- * Exception thrown when a network error disrupts communication with the database server.
- *
- * This can occur during active queries or while the connection is idle, typically resulting from
- * broken pipes, connection timeouts, or sudden closures by the server or intermediary network devices.
- *
- * @property reason The specific type of network failure.
- * @property details Additional, human-readable details about the failure.
- * @param cause The underlying exception that caused this failure, if any.
- * @param sqlState The SQL state code returned by the database, if available.
- * @param serverErrorMessage The original error message from the database server, if available.
- */
+/** The connection failed or was already closed. */
 class NetworkException(
     val reason: NetworkExceptionReason,
     val details: String? = null,

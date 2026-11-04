@@ -4,10 +4,8 @@ import io.github.octaviusframework.migrations.MigrationVersion
 import io.github.octaviusframework.migrations.OctaviusMigration
 
 /**
- * A migration the scan found, before anything about the database is known.
- *
- * The two kinds carry different things, so they are separate types rather than one with nullable fields: a
- * `.sql` file arrives with its text and checksum read, a class as a class that has not been constructed.
+ * A migration the scan found, before anything about the database is known: a `.sql` file with its text and
+ * checksum read, or a class that has not been constructed.
  */
 internal sealed interface DiscoveredMigration {
 

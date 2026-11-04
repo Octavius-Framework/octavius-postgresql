@@ -4,26 +4,16 @@ import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.StatementExceptionReason
 
 /**
- * Walks SQL text, recognising the constructs whose contents mean nothing to whoever is reading it.
- *
- * Two things read SQL here and neither of them parses it: [SqlParameterParser] looks for `@name`, and
- * [SqlScript] looks for the `;` that separate statements. Both have the same hard problem - a quoted
- * string, a dollar-quoted function body or a comment can hold anything at all, `@name` and `;` included,
- * and none of it counts. That problem is solved once, here. A standard-SQL function body holds `;` too, but
- * unquoted, and only [SqlScript] has to know where one ends.
+ * Finds where quotes, dollar quotes and comments end, for [SqlParameterParser] and [SqlScript], to whom nothing
+ * inside them counts.
  */
 internal object SqlScanner {
 
     /**
-     * Where the construct starting at [i] ends, or [i] itself if nothing starts there.
+     * The index of the last character of the construct starting at [i], or [i] itself if none starts there.
      *
-     * The return is the index of the construct's **last** character, so a caller resuming at
-     * `findConstructEnd(sql, i) + 1` lands on the first character after it and a return of [i] means
-     * "ordinary character, deal with it yourself".
-     *
-     * @throws io.github.octaviusframework.driver.exception.StatementException `UNCLOSED_TOKEN` where a quote, dollar quote or block comment opens and
-     * never closes. A `--` comment running to the end of the text is not that: it has no terminator to be
-     * missing.
+     * @throws io.github.octaviusframework.driver.exception.StatementException `UNCLOSED_TOKEN` where a quote,
+     * dollar quote or block comment never closes.
      */
     fun findConstructEnd(sql: String, i: Int): Int {
         return when (sql[i]) {
@@ -39,12 +29,7 @@ internal object SqlScanner {
         }
     }
 
-    /**
-     * Whether what starts at [i] is a comment rather than content.
-     *
-     * [findConstructEnd] skips comments and string literals alike, and a caller counting whether a
-     * statement holds anything at all has to tell them apart: `'text'` is a statement, `-- text` is not.
-     */
+    /** Whether a comment starts at [i]. */
     fun isCommentStart(sql: String, i: Int): Boolean {
         if (i + 1 >= sql.length) return false
         return (sql[i] == '-' && sql[i + 1] == '-') || (sql[i] == '/' && sql[i + 1] == '*')

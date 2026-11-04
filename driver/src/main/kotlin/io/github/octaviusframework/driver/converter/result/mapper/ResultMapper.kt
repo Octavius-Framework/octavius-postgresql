@@ -10,17 +10,10 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
 /**
- * Entry point of the read conversion chain: hands a decoded value to the converters and checks the result.
+ * Hands a decoded value to the converters and checks what comes back. One per execution, over its pinned
+ * [catalog]; a `Row` keeps the one it was read under.
  *
- * One of these belongs to each execution, over the [TypeCatalog] that execution pinned and whatever converters
- * the query registered for itself. It is what [Row.get][io.github.octaviusframework.driver.row.Row.get] and the
- * `fetchObject*` family call, and a `Row` holds on to the one its execution ran under - so a row read long after
- * the query finished still resolves against the catalog the query ran against.
- *
- * @param catalog The pinned catalog to resolve converters, dictionaries and registrations against.
- * @param localConverters Converters registered on the query itself, in registration order, or `null` where it
- *   registered none. Consulted ahead of the catalog's.
- * @param types The lookup handed to converters, reading the same pinned catalog.
+ * @param localConverters The query's own converters, in registration order, asked ahead of the catalog's.
  */
 internal class ResultMapper(
     internal val catalog: TypeCatalog,
@@ -30,26 +23,16 @@ internal class ResultMapper(
     internal val context = DefaultDeserializationContext(catalog, localConverters, types)
 
     /**
-     * Converts a decoded database value to [expectedType].
+     * Converts [source] to [expectedType]. A value no converter claims passes only if it already is one.
      *
-     * A `null` source is returned as `null` when [expectedType] allows it. Where no converter claims the
-     * value, it is returned unchanged if it is already an instance of [expectedType]; otherwise this
-     * fails rather than casting blindly. What a converter produces is checked against [expectedType]
-     * too, so a converter that over-claims is named in the exception instead of surfacing as a
-     * `ClassCastException` in the caller's own frame.
-     *
-     * @param T The type to return.
-     * @param source The decoded value, or `null` for SQL `NULL`.
-     * @param expectedType The Kotlin type wanted, generic arguments included.
-     * @param sourceType The PostgreSQL type of the value.
-     * @return The converted value.
+     * @param pathSegment Added to the path of a failure: the column being read.
      * @throws MappingException
      *   `REQUIRED_ATTRIBUTE_MISSING` if [source] is `null` and [expectedType] is not nullable,
      *   `NO_CONVERTER_FOUND` if nothing can produce [expectedType],
      *   `CONVERSION_ERROR` if a converter failed or returned the wrong type.
      */
-    fun <T> deserialize(source: Any?, expectedType: KType, sourceType: PgType): T {
-        return context.convert(source, expectedType, sourceType)
+    fun <T> deserialize(source: Any?, expectedType: KType, sourceType: PgType, pathSegment: String? = null): T {
+        return context.convert(source, expectedType, sourceType, pathSegment)
     }
 }
 
@@ -77,10 +60,8 @@ internal class DefaultDeserializationContext(
         if (converter != null) {
             val converted = converter.convert(source, expectedType, sourceType, this)
 
-            // The cast below is erased, so a converter that answered canConvert() and then produced
-            // something else would sail through here and blow up as a ClassCastException in the
-            // caller's own frame - with nothing in the stack naming the converter responsible.
-            // Checking here is what turns that into an exception that can say who did it.
+            // The cast below is erased; without this a wrong result surfaces as a ClassCastException in the
+            // caller's frame, naming no converter.
             if (kClass != null && !kClass.isInstance(converted)) {
                 throw MappingException(
                     MappingExceptionReason.CONVERSION_ERROR,
@@ -117,9 +98,8 @@ internal class DefaultDeserializationContext(
     }
 
     /**
-     * The query's own converters first, then the catalog's, and within each the class the codec produced -
-     * or a sealed class above it - before `Any::class`, so a converter registered on the query displaces one
-     * the session registered for the same class, and a catch-all registered on the query displaces both.
+     * The query's converters, then the catalog's; within each, those of the value's class or a sealed class
+     * above it before those of `Any::class`.
      */
     @Suppress("UNCHECKED_CAST")
     override fun findConverter(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType): ResultConverter<Any, *>? {

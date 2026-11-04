@@ -1,72 +1,40 @@
 package io.github.octaviusframework.driver.exception
 
-/**
- * Represents the specific reason for an invalid operation.
- */
+/** Why an operation was refused. */
 enum class InvalidOperationExceptionReason {
-    /** Transaction operations like commit or savepoint used when auto-commit is enabled. */
+    /** A commit, rollback or savepoint with auto-commit on. */
     AUTO_COMMIT_VIOLATION,
     /**
-     * A commit asked of a transaction an earlier error already aborted - by `commit()`, or by switching
-     * auto-commit back on, which commits. PostgreSQL would carry the `COMMIT` out as a `ROLLBACK` and report
-     * nothing, so the driver refuses it instead of sending it: the transaction stays aborted, and rolling it back
-     * is the way out, as it is for every other statement there.
+     * A commit, or auto-commit switched back on, in a transaction an earlier error aborted. Nothing is sent; roll
+     * back.
      */
     COMMIT_OF_FAILED_TRANSACTION,
-    /** Provided savepoint is invalid or belongs to another connection. */
+    /** A savepoint the driver did not create, a `null` name, or a name or number asked of one without it. */
     INVALID_SAVEPOINT,
-    /**
-     * The handle being used is closed or finished - a statement, a Large Object, a `COPY` that has already
-     * ended. Handles are not reopened; `details` names the one at fault and the answer is always a new one.
-     */
+    /** A session, statement, large object or `COPY` handle used after it was closed or finished. */
     RESOURCE_CLOSED,
-    /**
-     * An argument supplied by the caller is not acceptable - out of range, null, or unsupported.
-     * Covers negative timeouts, a null SQL string, an unknown isolation level, a `PgTyped` wrapping
-     * another `PgTyped`, a `PgRecord` read out of a result and handed back as a bound parameter, and
-     * the like. The offending value is named in `details`; there is nothing to branch on here, since
-     * no caller can react to its own bad argument at runtime.
-     */
+    /** An argument the operation does not accept; `details` names it. */
     INVALID_ARGUMENT,
-    /**
-     * The statement names a parameter the supplied values do not include. A `@name` with nothing to put
-     * there is the call being incomplete rather than the SQL being wrong, which is why it is here and not
-     * on [StatementException]; `details` names the parameter.
-     */
+    /** A `@name` the statement uses and the values omit; `details` names it. */
     MISSING_NAMED_PARAMETER,
-    /** JDBC unwrap() failed. */
+    /** A JDBC `unwrap` to an interface this object does not implement. */
     UNWRAP_ERROR,
-    /** The JDBC feature is not implemented by this driver. */
+    /** A JDBC feature the driver does not implement. */
     FEATURE_NOT_SUPPORTED,
-    /** executeUpdate or execute returned result. */
+    /** Rows returned to a call that expects none. */
     UNEXPECTED_RESULT,
-    /**
-     * The query returned a number of rows the chosen terminal forbids - a `fetch*Strict` that found none,
-     * or a single-row fetch that found several. The statement ran; what does not fit is the terminal picked
-     * for it, which makes this [UNEXPECTED_RESULT]'s neighbour rather than a statement failure.
-     */
+    /** A row count the terminal forbids: none for a `fetch*Strict`, several for a single-row fetch. */
     INCORRECT_RESULT_SIZE,
     /**
-     * The connection is already carrying an exchange and can carry only one - a `COPY` still running, or a
-     * statement still being read - or, for a listener loop, a transaction still open, which holds back every
-     * notification until it ends. `details` says which, and what to do about it.
+     * The connection is busy with a `COPY` or a result still being read, or, for a listener loop, an open
+     * transaction. `details` says which.
      */
     CONNECTION_BUSY
 }
 
 /**
- * Exception thrown when the driver attempts an operation that is not allowed in the current state or context.
- *
- * Examples include trying to commit when auto-commit is enabled, operating on a closed statement,
- * using unsupported features, or asking a query for something the call itself did not make possible.
- *
- * Purely client-side: nothing here was reported by the server, so there is no `sqlState` and no
- * `serverErrorMessage`. Raised inside a query, it still carries the
- * [queryContext][OctaviusException.queryContext] - the SQL and the parameters - the way every driver
- * exception does.
- *
- * @property reason The specific type of invalid operation.
- * @property details Additional details about the failure.
+ * An operation the driver refuses in the current state, or a call it cannot carry out. Raised by the driver, not
+ * the server, so it has no `sqlState`.
  */
 class InvalidOperationException(
     val reason: InvalidOperationExceptionReason,
@@ -83,7 +51,7 @@ private fun generateDeveloperMessage(reason: InvalidOperationExceptionReason): S
         InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION -> "Operation (like setting a savepoint or commit/rollback) is not allowed when auto-commit is enabled."
         InvalidOperationExceptionReason.COMMIT_OF_FAILED_TRANSACTION -> "An earlier error aborted this transaction, so a COMMIT would only roll it back. Nothing was sent: roll back, and look for that earlier failure."
         InvalidOperationExceptionReason.INVALID_SAVEPOINT -> "Invalid savepoint operation."
-        InvalidOperationExceptionReason.RESOURCE_CLOSED -> "The statement, Large Object or COPY handle this was asked of is already closed. See the details for which; handles are single-use, so the answer is a new one."
+        InvalidOperationExceptionReason.RESOURCE_CLOSED -> "The session, statement, Large Object or COPY handle this was asked of is already closed. See the details for which; handles are single-use, so the answer is a new one."
         InvalidOperationExceptionReason.INVALID_ARGUMENT -> "An argument passed to this operation is not acceptable. See the details for the value the driver rejected."
         InvalidOperationExceptionReason.MISSING_NAMED_PARAMETER -> "The statement names a parameter the supplied values do not include. See the details for its name."
         InvalidOperationExceptionReason.UNWRAP_ERROR -> "Cannot unwrap the connection/statement to the requested interface."

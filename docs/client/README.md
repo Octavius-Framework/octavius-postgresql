@@ -53,7 +53,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [`QueryFragment`](queries.md#queryfragment) — A condition and the parameters it names, kept together
 - [A Value, or an Expression](queries.md#a-value-or-an-expression) — `valueExpression`, `setExpression`, and the decrement no parameter can send
 - [Upserts](queries.md#upserts) — `onConflict { }`, `excluded`, the conditional update, and the row `DO NOTHING` does not return
-- [A Query Is a Value](queries.md#a-query-is-a-value) — `toSql()`, `copy()`, and embedding one in another
+- [A Query Is a Value](queries.md#a-query-is-a-value) — `toSql()`, `copy()`, `toCountQuery()`, and embedding one in another
 - [Raw SQL](queries.md#raw-sql) — `rawQuery`, and the one terminal only it has
 - [Per-Query Converters](queries.md#per-query-converters) — A mapping for one call and nothing else
 

@@ -10,23 +10,8 @@ private const val DIAGNOSTIC_MAX_ELEMENTS = 10
 private const val DIAGNOSTIC_MAX_DEPTH = 3
 
 /**
- * Renders one value for a diagnostic - an exception's query context, or a traced statement.
- *
- * Every place a parameter is shown to a human goes through here, so a value reads the same
- * whichever of them the reader is looking at.
- *
- * The rendering is bounded **as it is built**, not trimmed afterwards, and that distinction is the
- * whole point. Cutting `value.toString()` down to size materialises the entire thing first: this
- * driver's own bulk-write idiom passes an array of ten thousand elements as a single parameter, so
- * "render it all, then keep a hundred characters" would build a string of megabytes to discard
- * almost all of it - on the error path, where something has already gone wrong.
- *
- * So containers are walked element by element against a shared budget and abandoned once it is
- * spent, and a [ByteArray] is named rather than dumped, its `toString` being an identity hash
- * anyway. The one thing that cannot be bounded is a class the driver does not know: its `toString`
- * is a single opaque call that renders whatever it renders. Small DTOs are worth reading and most
- * are small, so it is still called - but a custom `toString` that assembles something enormous is
- * beyond anything this can do about it.
+ * Renders a parameter for an exception or a trace, bounded as it is built: containers are walked against a budget,
+ * a [ByteArray] is named, not dumped. Only an unknown class's `toString` runs unbounded.
  */
 internal fun formatDiagnosticValue(value: Any?): String {
     val out = StringBuilder(DIAGNOSTIC_VALUE_MAX_LENGTH + 8)
@@ -45,8 +30,7 @@ private fun appendDiagnosticValue(out: StringBuilder, value: Any?, depth: Int) {
     when (value) {
         null -> out.append("null")
 
-        // Named, never dumped: a bytea parameter runs to megabytes and its toString is an
-        // identity hash, so printing it costs everything and says nothing.
+        // Named, never dumped.
         is ByteArray -> out.append("ByteArray(").append(value.size).append(" bytes)")
 
         // Appended as a range, so a 40 MB text parameter never becomes a 40 MB copy.
@@ -65,8 +49,7 @@ private fun appendDiagnosticValue(out: StringBuilder, value: Any?, depth: Int) {
                     appendDiagnosticValue(out, element, depth + 1)
                 }
             } else {
-                // A type the driver does not know. See the note on [formatDiagnosticValue]: this
-                // call is the one thing here that is not bounded.
+                // Unknown to the driver, so its toString is not bounded.
                 out.append(value.toString())
             }
         }
@@ -101,11 +84,7 @@ private inline fun <T> appendEntries(
     out.append(']')
 }
 
-/**
- * The size and elements of [value] when it is a container the driver can walk, or null when it is
- * not. Kotlin's primitive arrays are listed one by one because none of them shares an interface
- * with the others, and every one of them has an identity hash for a `toString`.
- */
+/** The size and elements of [value] where it is a container the driver can walk, or `null`. */
 private fun elementsOf(value: Any): Pair<Int, Sequence<Any?>>? = when (value) {
     is Collection<*> -> value.size to value.asSequence()
     is Array<*> -> value.size to value.asSequence()

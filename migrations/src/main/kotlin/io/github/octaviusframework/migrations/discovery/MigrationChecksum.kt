@@ -4,8 +4,6 @@ import java.util.zip.CRC32
 
 /**
  * The number a `.sql` migration is recognised by on every run after the first.
- *
- * The content is normalised before it is hashed.
  */
 internal object MigrationChecksum {
 
