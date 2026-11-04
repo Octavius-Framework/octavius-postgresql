@@ -7,19 +7,17 @@ import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSessionImpl
 import java.sql.Connection
-import java.sql.SQLException
 import java.sql.SQLTransientConnectionException
 import javax.sql.DataSource
 
 /**
  * Runs [block], which gets a connection from [from], and raises what fails as the driver's exception: the one
- * in the cause chain where there is one, else an [InitializationException] over the `SQLException`. An unchecked
- * exception with nothing of the driver's in it, unlike Hikari's `PoolInitializationException`, goes on as it is.
+ * in the cause chain where there is one, else an [InitializationException] over what was raised.
  */
 private inline fun <T> obtainingSession(from: Any, block: () -> T): T {
     try {
         return block()
-    } catch (e: SQLException) {
+    } catch (e: Exception) {
         throw e.findOctaviusCause() ?: InitializationException(
             // A pool's borrow that timed out is transient, and worth retrying; failing to open one is not.
             if (e is SQLTransientConnectionException) InitializationExceptionReason.CONNECTION_UNAVAILABLE
@@ -27,8 +25,6 @@ private inline fun <T> obtainingSession(from: Any, block: () -> T): T {
             "Could not obtain a session from ${from.javaClass.name}: ${e.message}",
             e
         )
-    } catch (e: RuntimeException) {
-        throw e.findOctaviusCause() ?: e
     }
 }
 

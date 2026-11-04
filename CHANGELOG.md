@@ -30,6 +30,12 @@
   name it does not carry - is `InitializationException(SSL_ERROR)`, as `exceptions.md` describes. The TLS library's
   `SSLHandshakeException` left the connection attempt as it was.
 
+- An unchecked exception a `DataSource` raises with nothing of the driver's in it leaves
+  `DataSource.getOctaviusSession()` as `InitializationException(CONNECTION_ERROR)` over it, as `exceptions.md` describes
+  and as it already left `OctaviusTemplate` and `OctaviusJdbcTransactionManager`. HikariCP's `IllegalArgumentException`
+  for a pool with no URL and Spring's `IllegalStateException` from an `AbstractRoutingDataSource` with no target for its
+  key came through as they were.
+
 ### Client
 
 #### Added

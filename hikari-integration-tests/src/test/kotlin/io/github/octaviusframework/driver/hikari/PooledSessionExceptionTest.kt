@@ -195,6 +195,17 @@ class PooledSessionExceptionTest {
     }
 
     @Test
+    fun `should restate an unchecked refusal with nothing of the driver's in it`() {
+        // With no URL, a pool made with the no-argument constructor refuses its configuration on the first borrow.
+        HikariDataSource().use {
+            val ex = assertThrows<InitializationException> { it.getOctaviusSession() }
+
+            assertEquals(InitializationExceptionReason.CONNECTION_ERROR, ex.reason)
+            assertInstanceOf<IllegalArgumentException>(ex.cause)
+        }
+    }
+
+    @Test
     fun `should report use after close as an Octavius failure`() {
         pool().use { ds ->
             val session = ds.getOctaviusSession()
