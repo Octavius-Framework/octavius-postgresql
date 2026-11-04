@@ -96,9 +96,9 @@ internal class QueryExecutor(
      */
     private fun sendWaitingBegin(): Int {
         if (!beginsTransactions || stream.transactionStatus != 'I') return 0
-        stream.sendMessage(SimpleQueryMessage("BEGIN"))
+        stream.writeMessage(SimpleQueryMessage("BEGIN"))
         val terms = deferredTerms ?: return 1
-        stream.sendMessage(SimpleQueryMessage(terms))
+        stream.writeMessage(SimpleQueryMessage(terms))
         return 2
     }
 
@@ -150,7 +150,7 @@ internal class QueryExecutor(
         val startedAt = traceStart(sql, emptyArray())
 
         val beginMessages = if (beginFirst) sendWaitingBegin() else 0
-        stream.sendMessage(SimpleQueryMessage(sql))
+        stream.writeMessage(SimpleQueryMessage(sql))
         stream.flush()
         val beginRefusal = receiveBegin(beginMessages)
 
@@ -202,13 +202,13 @@ internal class QueryExecutor(
         val paramValuesLength = if (parameterSerializer != null) parameterWriter.position else 0
 
         val beginMessages = sendWaitingBegin()
-        stream.sendMessage(ParseMessage(UNNAMED, sql, paramTypes))
-        stream.sendMessage(
+        stream.writeMessage(ParseMessage(UNNAMED, sql, paramTypes))
+        stream.writeMessage(
             BindMessage(
                 UNNAMED, UNNAMED, params.size, paramValues, BINARY_FORMAT, BINARY_FORMAT, paramValuesLength
             )
         )
-        stream.sendMessage(DescribeMessage('P', UNNAMED))
+        stream.writeMessage(DescribeMessage('P', UNNAMED))
         return beginMessages
     }
 
@@ -225,8 +225,8 @@ internal class QueryExecutor(
         val startedAt = traceStart(sql, params)
 
         val beginMessages = sendParseBindDescribe(sql, params, parameterSerializer)
-        stream.sendMessage(ExecuteMessage(UNNAMED, 0))
-        stream.sendMessage(SyncMessage())
+        stream.writeMessage(ExecuteMessage(UNNAMED, 0))
+        stream.writeMessage(SyncMessage())
 
         stream.flush()
         val beginRefusal = receiveBegin(beginMessages)
@@ -307,8 +307,8 @@ internal class QueryExecutor(
         val startedAt = traceStart(sql, params)
 
         val beginMessages = sendParseBindDescribe(sql, params, parameterSerializer)
-        stream.sendMessage(ExecuteMessage(UNNAMED, maxRows))
-        stream.sendMessage(SyncMessage())
+        stream.writeMessage(ExecuteMessage(UNNAMED, maxRows))
+        stream.writeMessage(SyncMessage())
 
         stream.flush()
         val beginRefusal = receiveBegin(beginMessages)
@@ -415,8 +415,8 @@ internal class QueryExecutor(
             var rowCount = 0L
 
             fetchLoop@ while (true) {
-                stream.sendMessage(ExecuteMessage(UNNAMED, fetchSize))
-                stream.sendMessage(FlushMessage())
+                stream.writeMessage(ExecuteMessage(UNNAMED, fetchSize))
+                stream.writeMessage(FlushMessage())
                 stream.flush()
                 // Only after the first Execute: the BEGIN goes out in the same write as the statement, and a
                 // refused term leaves the statement to be refused in turn, which the loop below reads as usual.
@@ -475,7 +475,7 @@ internal class QueryExecutor(
                 }
             }
 
-            stream.sendMessage(SyncMessage())
+            stream.writeMessage(SyncMessage())
             stream.flush()
         
             while (true) {

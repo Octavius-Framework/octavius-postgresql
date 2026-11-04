@@ -139,7 +139,7 @@ internal object Authenticator {
         }
 
         logger.trace { "Server requested a cleartext password; sending it over the encrypted connection" }
-        stream.sendMessage(PasswordMessage(password))
+        stream.writeMessage(PasswordMessage(password))
         stream.flush()
     }
 }

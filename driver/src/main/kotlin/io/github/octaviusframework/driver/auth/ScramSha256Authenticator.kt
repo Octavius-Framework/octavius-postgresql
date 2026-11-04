@@ -87,7 +87,7 @@ internal object ScramSha256Authenticator {
         val clientNonce = generateClientNonce()
         val clientFirstMessageBare = "n=,r=$clientNonce"
 
-        stream.sendMessage(SASLInitialResponse(mechanism, gs2Header + clientFirstMessageBare))
+        stream.writeMessage(SASLInitialResponse(mechanism, gs2Header + clientFirstMessageBare))
         stream.flush()
 
         val serverFirstMessage = String(expect<AuthenticationMessage.SASLContinue>(stream).data, StandardCharsets.UTF_8)
@@ -122,7 +122,7 @@ internal object ScramSha256Authenticator {
             clientFinalMessageWithoutProof
         )
 
-        stream.sendMessage(SASLResponse("$clientFinalMessageWithoutProof,p=${scramResult.clientProof}"))
+        stream.writeMessage(SASLResponse("$clientFinalMessageWithoutProof,p=${scramResult.clientProof}"))
         stream.flush()
 
         val serverFinalMessage = String(expect<AuthenticationMessage.SASLFinal>(stream).data, StandardCharsets.UTF_8)

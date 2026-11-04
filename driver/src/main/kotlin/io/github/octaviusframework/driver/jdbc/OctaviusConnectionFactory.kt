@@ -179,7 +179,7 @@ internal object OctaviusConnectionFactory {
             properties.applicationName?.let { startupParams["application_name"] = it }
             startupParams.putIfAbsent("application_name", DEFAULT_APPLICATION_NAME)
 
-            stream.sendMessage(StartupMessage(startupParams))
+            stream.writeMessage(StartupMessage(startupParams))
             stream.flush()
 
             Authenticator.authenticate(stream, properties.password, properties.channelBinding ?: ChannelBinding.PREFER)

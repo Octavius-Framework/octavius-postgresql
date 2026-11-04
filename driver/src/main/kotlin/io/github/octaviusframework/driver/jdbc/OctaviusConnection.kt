@@ -213,7 +213,7 @@ internal class OctaviusConnection(
             stream.sslConfiguration?.let {
                 SslNegotiator.negotiate(cancelStream, stream.host, stream.port, it)
             }
-            cancelStream.sendMessage(CancelRequestMessage(stream.processId, stream.secretKey))
+            cancelStream.writeMessage(CancelRequestMessage(stream.processId, stream.secretKey))
             cancelStream.flush()
             cancelStream.awaitServerClose()
             logger.debug { "$pid Cancel request sent" }

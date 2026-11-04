@@ -78,7 +78,7 @@ class ScramServerSignatureTest {
     fun `refuses a server whose final signature does not prove it knows the password`() {
         ImpostorServer().use { server ->
             PgStream("localhost", server.port, InetAddress.getLoopbackAddress()).use { stream ->
-                stream.sendMessage(StartupMessage(mapOf("user" to "postgres", "database" to "senatus")))
+                stream.writeMessage(StartupMessage(mapOf("user" to "postgres", "database" to "senatus")))
                 stream.flush()
 
                 val ex = assertThrows<InitializationException> {

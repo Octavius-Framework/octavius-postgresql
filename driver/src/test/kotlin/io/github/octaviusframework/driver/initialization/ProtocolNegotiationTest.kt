@@ -26,7 +26,7 @@ class ProtocolNegotiationTest {
     private fun login(script: ByteArray, check: (PgStream, ScriptedServer) -> Unit) {
         ScriptedServer(script).use { server ->
             PgStream("localhost", server.port, InetAddress.getLoopbackAddress()).use { stream ->
-                stream.sendMessage(StartupMessage(mapOf("user" to "postgres", "database" to "senatus")))
+                stream.writeMessage(StartupMessage(mapOf("user" to "postgres", "database" to "senatus")))
                 stream.flush()
                 Authenticator.authenticate(stream, null, ChannelBinding.PREFER)
                 check(stream, server)
@@ -70,7 +70,7 @@ class ProtocolNegotiationTest {
         for (version in listOf(0x0004_0000, 0x0003_0003)) {
             val ex = ScriptedServer(negotiate(version) + authenticationOk + readyForQuery).use { server ->
                 PgStream("localhost", server.port, InetAddress.getLoopbackAddress()).use { stream ->
-                    stream.sendMessage(StartupMessage(mapOf("user" to "postgres")))
+                    stream.writeMessage(StartupMessage(mapOf("user" to "postgres")))
                     stream.flush()
                     assertThrows<InitializationException> {
                         Authenticator.authenticate(stream, null, ChannelBinding.PREFER)

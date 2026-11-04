@@ -45,7 +45,7 @@ class CopyManager internal constructor(
         try {
             stream.checkAvailable()
             queryExecutor.beginWaitingTransactionNow()
-            stream.sendMessage(SimpleQueryMessage(sql))
+            stream.writeMessage(SimpleQueryMessage(sql))
             stream.flush()
 
             var errorResponse: ErrorOrNoticeMessage? = null
@@ -84,7 +84,7 @@ class CopyManager internal constructor(
         try {
             stream.checkAvailable()
             queryExecutor.beginWaitingTransactionNow()
-            stream.sendMessage(SimpleQueryMessage(sql))
+            stream.writeMessage(SimpleQueryMessage(sql))
             stream.flush()
 
             var errorResponse: ErrorOrNoticeMessage? = null
@@ -199,7 +199,7 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
     fun writeToCopy(data: ByteArray, offset: Int = 0, length: Int = data.size) = stream.lock.withLock {
         if (!isActive) throw InvalidOperationException(InvalidOperationExceptionReason.RESOURCE_CLOSED, "This COPY operation is no longer active. Handles are single-use - start a new one through the CopyManager.")
         raiseIfServerEnded()
-        stream.sendMessage(FrontendCopyDataMessage(data, offset, length))
+        stream.writeMessage(FrontendCopyDataMessage(data, offset, length))
         stream.flush()
     }
 
@@ -230,7 +230,7 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
         stream.lock.lock()
         try {
             if (!isActive) throw InvalidOperationException(InvalidOperationExceptionReason.RESOURCE_CLOSED, "This COPY operation is no longer active. Handles are single-use - start a new one through the CopyManager.")
-            stream.sendMessage(FrontendCopyDoneMessage())
+            stream.writeMessage(FrontendCopyDoneMessage())
             stream.flush()
 
             var rowsAffected = 0L
@@ -270,7 +270,7 @@ class CopyIn internal constructor(private val stream: PgStream) : CopyOperation 
                 isActive = false
                 return
             }
-            stream.sendMessage(FrontendCopyFailMessage("Copy operation cancelled by user."))
+            stream.writeMessage(FrontendCopyFailMessage("Copy operation cancelled by user."))
             stream.flush()
             isActive = false
             logger.debug { "[PID: ${stream.processId}] COPY IN cancelled" }

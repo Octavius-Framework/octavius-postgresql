@@ -46,7 +46,7 @@ internal object SslNegotiator {
     fun negotiate(stream: PgStream, host: String, port: Int, config: SslConfiguration) {
         if (config.mode == SslMode.DISABLE) return
 
-        stream.sendMessage(SSLRequestMessage())
+        stream.writeMessage(SSLRequestMessage())
         stream.flush()
 
         when (val response = stream.inputStream.readByte().toInt().toChar()) {

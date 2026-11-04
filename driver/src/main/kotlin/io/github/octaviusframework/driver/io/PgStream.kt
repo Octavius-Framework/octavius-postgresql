@@ -199,12 +199,12 @@ internal class PgStream(
     val notifications: SharedFlow<PgNotification> = _notifications
 
     /**
-     * Writes [msg] to the buffer.
+     * Writes [msg] to the buffer, which goes out to the socket whenever it fills up.
      *
      * @throws NetworkException if the write fails.
      * @throws SessionTerminatedException if the write failed because the server had ended the session.
      */
-    fun sendMessage(msg: FrontendMessage) {
+    fun writeMessage(msg: FrontendMessage) {
         try {
             msg.encode(outputStream)
         } catch (e: IOException) {
@@ -571,7 +571,7 @@ internal class PgStream(
     override fun close() {
         if (!socket.isClosed) {
             try {
-                // Not through sendMessage, whose failed write reads: an abort runs here while another thread may
+                // Not through writeMessage, whose failed write reads: an abort runs here while another thread may
                 // be reading.
                 TerminateMessage().encode(outputStream)
                 outputStream.flush()
