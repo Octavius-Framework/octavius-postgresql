@@ -18,7 +18,7 @@ Contents:
 * [How a value actually travels](#how-a-value-actually-travels)
 * [`TypeManager` — the entry point](#typemanager--the-entry-point)
 * [Basic codecs](#basic-codecs)
-* [Basic converters](#basic-converters)
+* [How a converter gets chosen](#how-a-converter-gets-chosen)
 * [Registering your own mappings](#registering-your-own-mappings)
 * [Practical rules and gotchas](#practical-rules-and-gotchas)
 
@@ -146,16 +146,7 @@ Because step 1 is eager and steps 3–5 are lazy, the cost of `row.get<T>()` is 
 
 ### Writing (Kotlin → database)
 
-Note the ordering: parameters are serialized **before** anything is sent, and the OIDs the driver derives here are what it declares to PostgreSQL in the `Parse` message. As in other PostgreSQL drivers, the types aren't negotiated with the server — the client decides, and binary format means it has to.
-
-1. If the value is wrapped in `PgTyped`, its type name is resolved to an OID right away (honoring this session's `search_path`) and the wrapper is unwrapped. Otherwise the expected OID starts out **unresolved**.
-2. A `PgContainer` (`PgComposite`, `PgArray`, `PgRange`, ...) already knows its own OID and short-circuits straight to serialization.
-3. Otherwise the `ParameterConverter` chain runs, newest registration first, first match wins. No match at all means the value passes through untouched.
-4. If the converter's output is still untyped and the OID is still unresolved, the converter's `getDefaultTypeName()` is consulted and the result gets wrapped in `PgTyped`. This is how a registered enum gets its type name attached without you writing `::legio_status` in the SQL — the converter states what the client couldn't otherwise know.
-5. Serialization picks the codec **by OID** when one is known, otherwise **by Kotlin class** — which only works for codecs marked `isDefaultForKotlinType`. For plain scalar parameters this second branch is the usual one; see [One default per Kotlin class](#one-default-per-kotlin-class).
-6. The OID that goes into `Parse` is the resolved one, or the OID the chosen codec is bound to, or a last-resort resolution of the codec's type name against the session's search path.
-
-Values nested inside a composite or an array are a separate case: there the enclosing type's catalog definition supplies each attribute's or element's OID, so step 5 always takes the by-OID branch.
+Parameters are serialized before anything is sent, and the OID each one is declared with in `Parse` is the client's choice, not the server's. [One default per Kotlin class](#one-default-per-kotlin-class) says how it is chosen and when you have to state it yourself.
 
 ## `TypeManager` — the entry point
 
@@ -214,64 +205,38 @@ dataSource.getOctaviusSession().use { session ->
 // Every session opened afterwards already knows about all three.
 ```
 
-Doing it per request isn't just wasted work — the catalog's converter lists are copy-on-write, and re-registering the same converter **prepends another copy** every time. The newest one wins so behavior stays correct, but the list grows without bound and lookups get slower. Register once.
+Doing it per request isn't just wasted work — the catalog's converter lists are copy-on-write, and re-registering the same converter **prepends another copy** every time. The newest one wins so behavior stays correct, but the list grows without bound and lookups get slower. Register once. What a registration or a reload promises the threads already querying is in [Concurrency](concurrency.md#what-is-shared-beyond-the-connection).
 
 ### What *is* per-session: the search path
 
-The one genuinely session-scoped ingredient is the schema search path. `TypeManager` is constructed with a `searchPathProvider` bound to its connection, and `resolveOid` passes it through:
+The one session-scoped ingredient is the schema search path. A type name given without a schema — to `registerEnum`,
+`withPgType` or `resolveOid` — resolves to the type PostgreSQL would resolve it to in this session, so two sessions
+with different paths can resolve one name to different OIDs over the same catalog. A schema named explicitly always
+wins, and throws if the type is not there.
 
 ```kotlin
 session.createNativeQuery("SET search_path TO imperium, public").execute()
-session.searchPath // -> [imperium, public]
 
 session.typeManager.resolveOid("legio_status")             // resolved via search_path
 session.typeManager.resolveOid("legio_status", "imperium") // explicit schema, search_path ignored
 ```
 
-`searchPath` is read-only and has no setter to pair with it, which is deliberate rather than missing. The path
-is moved the way PostgreSQL moves it — a `SET search_path`, or a `search_path` among the
-[startup parameters](initialization.md#startup-parameters) so that every session opens with it — and read back
-from what the server announced: PostgreSQL 18 sends `search_path` in `ParameterStatus` and sends it again
-whenever it moves, so whatever moved it — this session, or any other code holding this same connection — shows
-up here with no round trip of its own. A setter would be a second way to say it, and one that could disagree
-with the first.
-
-`searchPath` lists the schemas as the server reads the setting: unquoted names in lower case, quoted ones as
-written, every name cut to 63 bytes, and `$user` and `pg_temp` as they stand. A path stored as written, by
-`set_config` or a startup parameter, is read the same way, so `set_config('search_path', 'Imperium', false)`
-reads back as `[imperium]`.
-
-A type name given without a schema resolves to the type PostgreSQL would resolve it to in this session, and where
-PostgreSQL would find none, it is refused:
-
-1. An explicitly requested schema always wins (and throws if the type isn't there).
-2. Otherwise, schemas are tried in the order PostgreSQL tries them for a type name — first match wins. That is
-   the search path with two schemas the setting does not spell out:
-   * `pg_catalog` comes first unless the path lists it. A type of yours named like a built-in one — `money`,
-     `point`, `box` — loses to the built-in, as it does in SQL; list `pg_catalog` after your schema to turn that
-     round.
-   * `$user` is the schema named after the session user, where there is one, so a path of `"$user", public` finds
-     each user's own types ahead of the shared ones.
-3. A name the path does not reach is refused with `TypeException(TYPE_NOT_FOUND)`, and the refusal names the schemas
-   that have it: *"Type 'legio_status' is not on the search path [pg_catalog, public], but schema 'imperium' has it.
-   Name the schema, or put it on the search path."*
-
-So two sessions with different search paths — or one `"$user"` path under different users — can resolve the same type name to different OIDs, even though they share one catalog. A type in a schema off the path, an extension installed into `extensions` among them, is reached by naming the schema — at registration (`registerEnum<LegioStatus>(schema = "imperium")`) or in `withPgType` — or by putting the schema on the path.
+A name the path does not reach is refused with `TypeException(TYPE_NOT_FOUND)`, and the refusal names the schemas that
+have it: *"Type 'legio_status' is not on the search path [pg_catalog, public], but schema 'imperium' has it. Name the
+schema, or put it on the search path."* Name it — `registerEnum<LegioStatus>(schema = "imperium")`,
+`withPgType("legio_status", schema = "imperium")` — or put it on the path with `SET search_path`, or as a
+[startup parameter](initialization.md#startup-parameters) so that every session opens with it. `session.searchPath`
+reads the path back and has no setter.
 
 Three things set the driver's answer apart from the server's:
 
-* **`SET ROLE`.** PostgreSQL does not report the current role, so after `SET ROLE` the driver still reads `$user`
-  as the session user, where the server reads it as the role. That matters only where schemas are named after
-  roles and `$user` is on the path: a type the role's schema shares with `public` resolves to `public`'s, and one
-  only the role's schema has is refused. Set the path in plain names along with the role —
-  `SET ROLE legatus; SET search_path = legatus, public` — and the driver follows it, `search_path` being
-  reported. `SET SESSION AUTHORIZATION` is reported as well, and followed.
+* **Temporary types are outside the catalog**, a temporary table's row type among them, even for a table made `OF` a
+  permanent type. The driver never resolves a name to one, and a column of one, such as the whole row of a temporary
+  table, fails when the result is described, `reloadTypes()` or not. Cast it to a permanent composite with the same
+  attributes: `SELECT e::imperium.edict FROM edicts e`.
+* **`SET ROLE`** is not reported, so `$user` keeps meaning the session user. Where schemas are named after roles, set
+  the path in plain names along with the role: `SET ROLE legatus; SET search_path = legatus, public`.
 * **`USAGE`.** A schema on the path the current role may not use is skipped by the server, not by the driver.
-* **Temporary types are outside the catalog**, a temporary table's row type among them — even a table made `OF`
-  a permanent type has a temporary row type of its own. The server searches the session's temporary schema first,
-  or where `pg_temp` stands in the path; the driver never resolves a name to a temporary type, and a column of
-  one, such as the whole row of a temporary table, fails when the result is described, `reloadTypes()` or not.
-  Cast it to a permanent composite with the same attributes: `SELECT e::imperium.edict FROM edicts e`.
 
 ### Query-scoped overrides
 
@@ -287,21 +252,10 @@ A query's own converters are consulted first and the catalog's after them, so a 
 
 They take effect from the next terminal, which is where the catalog for a run is pinned. Rows already in hand were mapped against the catalog *their* terminal pinned, so registering a converter after a fetch does not reach them — run the query again to map them through it. It takes a deliberately odd shape to notice: a query kept and reconfigured between fetches.
 
-| Registered on              | Visible to                                          | Lifetime                                        |
-|:---------------------------|:----------------------------------------------------|:------------------------------------------------|
-| `query.register*Converter` | that one query instance                             | until the query is discarded                    |
-| `session.typeManager.*`    | every session on that host+port+database in the JVM | lifetime of the JVM (or until `removeCatalog`) |
-
-### Thread safety and cost
-
-The catalog is built for **many readers, rare writers**:
-
-* `TypeDictionary` and `CodecDictionary` are immutable, and so is the `TypeCatalog` holding them alongside the converters and the registrations; every update builds a new catalog and publishes it through a single `@Volatile` field under a `ReentrantLock`.
-* Converters live in that catalog in copy-on-write collections; new entries are inserted at the front, so **the most recently registered converter wins**.
-* A terminal reads that field once and maps the whole execution against what it found — its parameters, its columns, the values nested inside them and the `Row`s it returns. A registration or a `reloadTypes()` landing mid-query reaches the next terminal, not this one; [Concurrency](concurrency.md#what-a-reload-does-not-promise) has the details.
-* Reads — every query, every row, every conversion — take no locks at all.
-
-The flip side is that each registration copies the collection it touches. Cheap a handful of times at startup, wasteful in a hot path.
+| Registered on              | Visible to                                              | Lifetime                                       |
+|:---------------------------|:--------------------------------------------------------|:-----------------------------------------------|
+| `query.register*Converter` | that one query instance                                 | until the query is discarded                   |
+| `session.typeManager.*`    | every session on the same servers + database in the JVM | lifetime of the JVM (or until `removeCatalog`) |
 
 ## Basic codecs
 
@@ -353,15 +307,7 @@ The tie-break is `isDefaultForKotlinType`. Exactly one codec claims each Kotlin 
 | `Instant`, `LocalDateTime`, `LocalDate`, `LocalTime`, `PgInterval`                       | `timestamptz`, `timestamp`, `date`, `time`, `interval`                         | —                                                                                                                      |
 | `PgPoint`, `PgLine`, `PgLseg`, `PgBox`, `PgPath`, `PgPolygon`, `PgCircle`                | `point`, `line`, `lseg`, `box`, `path`, `polygon`, `circle`                    | —                                                                                                                      |
 
-This is the **common** path, not a rare fallback — so it's worth knowing where those OIDs come from.
-
-The client decides them. Parameters are serialized first, the driver derives an OID for each one, and those OIDs are what it declares to PostgreSQL in the `Parse` message. That's ordinary PostgreSQL driver behavior rather than anything specific to Octavius — pgjdbc likewise takes its parameter types from the `setXxx` call you made, not from the server.
-
-Octavius has even less room to defer, because it is **binary in both directions**. The classic escape hatch — declaring a parameter with the unspecified OID and letting the server coerce it from context, which is what pgjdbc's `stringtype=unspecified` buys you — depends on the text format. A binary representation is specific to one type, so the codec has to be chosen *before* a single byte is written. There is nothing to defer.
-
-The one exception is a null with no type hint: it's declared as OID `0` and carries no bytes at all, so the server resolves it from context.
-
-For every other top-level parameter that isn't wrapped in `PgTyped`, the default-per-class codec *is* the answer. If you're arriving from pgjdbc, this is the same class of problem `stringtype` exists to solve — just addressed per value instead of per connection.
+This is the **common** path, not a rare fallback. The client decides every parameter's OID and declares it in `Parse`, and being binary in both directions it cannot leave the choice to the server: a binary representation belongs to one type, so the codec has to be picked before a single byte is written. pgjdbc's `stringtype=unspecified` defers that choice through the text format; here it is made per value instead. The one exception is a null with no type hint: it's declared as OID `0` and carries no bytes at all, so the server resolves it from context.
 
 Where an OID **is** known, and the default therefore doesn't apply:
 
@@ -389,23 +335,15 @@ session.createNamedQuery("INSERT INTO senators (dossier) VALUES (@dossier)")
 | `timestamptz`   | `infinity`, `-infinity` | `Instant.DISTANT_FUTURE`, `Instant.DISTANT_PAST`             |
 | `interval`      | `infinity`, `-infinity` | `PgInterval.Infinity`, `PgInterval.MinusInfinity`            |
 
-The first three are constants, and that is all they can be: a `LocalDate` has no room for a fourth state
-beside a date, so the infinity is carried as the extreme value the class already holds and you have to know the
-constant to recognise it. `interval` is the one that does have room, `PgInterval` being sealed — there the
-infinities are cases of the type rather than values of it, and a `when` over them is checked rather than
-remembered. [PgInterval](#pginterval) below has the rest.
-
-Handy, incidentally, for anything modeled as lasting "in perpetuity" — an empire's founding decree, say, with no scheduled end date.
+kotlinx-datetime has no such constants of its own: the four on `LocalDate` and `LocalDateTime` are extension
+properties from `pg-model`, imported from `io.github.octaviusframework.type.datetime`, while `Instant`'s two are the
+standard library's. Each is the extreme value its class can hold, so an infinity is recognised by comparing with the
+constant. `interval` has cases of its own instead; see [PgInterval](#pginterval).
 
 ### Numeric (BigDecimal) Special Values
 
-Unlike dates, the driver **does not** map PostgreSQL `numeric` special values (`NaN`, `Infinity`, `-Infinity`) to Kotlin. 
-Java and Kotlin use `java.math.BigDecimal` for exact-precision decimal types, and that class mathematically prohibits non-finite values by design. 
-If your query retrieves a `numeric` column containing `NaN` or `Infinity`, the driver will immediately throw an `IllegalArgumentException` / `TypeException` to prevent silent data corruption (such as treating Infinity as zero).
-
-If your domain logic genuinely relies on `NaN` or `Infinity` (e.g. sensor readings, AI analysis), you should either:
-1. Use standard IEEE 754 floating-point types (`float4` / `float8`), which map to Kotlin's `Float` and `Double` and fully support non-finite values.
-2. Override the default `NumericCodec` with your own custom codec that maps the `numeric` OID (1700) to a custom Kotlin wrapper class capable of representing both exact decimals and non-finite concepts.
+`BigDecimal` has no non-finite values, so reading a `numeric` that holds `NaN`, `Infinity` or `-Infinity` throws `CodecException(DECODING)` rather than produce a number it is not.
+Where those values are meant, use `float4` / `float8`, which map to `Float` / `Double`, or [override the `numeric` codec](#overriding-a-built-in) (OID 1700) with a class that can hold them.
 
 ### `BigDecimal` in a Shared Class
 
@@ -418,10 +356,7 @@ Both the infinities above and this one lose their meaning once the value travels
 
 By default, PostgreSQL's `interval` type maps to the driver's own `PgInterval` class rather than to a stock Kotlin type like `kotlin.time.Duration` or `kotlinx.datetime.DateTimePeriod`.
 
-That's a deliberate choice — there's no single clean equivalent in the Kotlin standard library:
-* **Database-side calculation is usually the right call.** Interval math belongs in the database, where timezones and variable-length dates are already handled correctly.
-* **`Duration` has limits.** It's tempting to reach for `Duration`, but it's based on absolute time and can't represent variable-length calendar units — days and months — accurately. Converting approximately (assuming 1 month = 30 days, 1 day = 24 hours) can quietly introduce drift.
-* **`DateTimePeriod` has its own limits.** It's exact, and does support months/days, but it's often awkward to actually compute with.
+`Duration` holds only absolute time, so months and days would need an assumed length. `DateTimePeriod` keeps them apart, but counts the time part in nanoseconds of a `Long`, which runs out past about 2.5 million hours where `interval` does not, and has no `infinity` beyond the `pg-model` marker the conversions below use.
 
 So when you extract an interval, you get a `PgInterval` holding the raw database representation as-is, and
 explicit extensions — `toDurationApproximate()`, `toDurationExact()`, `toDateTimePeriod()` — so you decide how
@@ -457,11 +392,10 @@ and the alternative — `Finite` alone, with `infinity` smuggled in as `Long.MAX
 arrangement `date` and `timestamp` are stuck with, where nothing in the type says the sentinel exists and
 arithmetic on it silently produces nonsense. Here the compiler asks.
 
-The conversions carry the cases across rather than refusing them: `toDateTimePeriod()` gives
-`DateTimePeriod.INFINITY` and `DateTimePeriod.MINUS_INFINITY`, `toDurationExact()` and
-`toDurationApproximate()` give `Duration.INFINITE` and `-Duration.INFINITE`, and each runs back the other way.
-`DateTimePeriod.INFINITY` is a marker and nothing more — it is `Int.MAX_VALUE` years and days at once, so
-`date + DateTimePeriod.INFINITY` overflows rather than meaning anything.
+The conversions carry the infinities across rather than refusing them: `toDateTimePeriod()` gives
+`DateTimePeriod.INFINITY` and `DateTimePeriod.MINUS_INFINITY` (from the same `pg-model` package as the date constants),
+`toDurationExact()` and `toDurationApproximate()` give `Duration.INFINITE` and `-Duration.INFINITE`, and the extensions
+below turn each of those back into `PgInterval.Infinity` and `PgInterval.MinusInfinity`.
 
 The same extensions run the other way, for the parameter you are about to send:
 
@@ -471,59 +405,48 @@ The same extensions run the other way, for the parameter you are about to send:
 | `Duration.toPgIntervalExact()`       | Time only — `months` and `days` stay zero, however long the duration is.            |
 | `Duration.toPgIntervalApproximate()` | Split into months of 30 days and days of 24 hours, the way `justify_interval` does. |
 
-`toPgIntervalExact()` is the one to reach for by default. A `Duration` is a claim about elapsed time; splitting `60.days` into "2 months" is a claim about the calendar that it never made, and the approximate form exists for when you do want that shape and accept the assumption under it. Infinite values survive in both directions, mapping to and from PostgreSQL's `infinity` and `-infinity`.
+`toPgIntervalExact()` is the one to reach for by default. A `Duration` is a claim about elapsed time; splitting `60.days` into "2 months" is a claim about the calendar that it never made, and the approximate form exists for when you do want that shape and accept the assumption under it.
 
-Going the other way, `toDurationExact()` is the one that can refuse: an interval carrying months or days has no fixed length in absolute time, so it throws `IllegalArgumentException` rather than pick a convention on your behalf. That is easier to run into than it sounds — `age(a, b)` comes back as `1 year 7 mons 15 days`, and even a plain `a - b` between two timestamps counts in days. Keep it for intervals you know are pure time, and reach for `toDurationApproximate()` or `toDateTimePeriod()` wherever calendar units can appear.
+Going the other way, `toDurationExact()` is the one that refuses ordinary values: an interval carrying months or days has no fixed length in absolute time, so it throws `IllegalArgumentException` rather than pick a convention on your behalf. That is easier to run into than it sounds — `age(a, b)` comes back as `1 year 7 mons 15 days`, and even a plain `a - b` between two timestamps counts in days. Keep it for intervals you know are pure time, and reach for `toDurationApproximate()` or `toDateTimePeriod()` wherever calendar units can appear.
 
 If your application consistently wants, say, an approximate `Duration`, a `ResultConverter` registered under `PgInterval::class` intercepts and converts `PgInterval` values everywhere, automatically — `Finite` and both infinities alike, a converter under a sealed class being offered [every class below it](#how-a-converter-gets-chosen).
 
 ### PgTyped
 
-`PgTyped` wraps a value so you can explicitly declare the PostgreSQL type it should be sent as. It matters wherever the driver can't work the type out on its own — an empty collection being the classic case.
+`PgTyped` wraps a value to declare the PostgreSQL type it goes out as, wherever the driver cannot work the type out or
+works out one the server will not take:
 
-Why an empty collection is a problem is worth spelling out, because the blame lies on this side of the wire. When no target OID is known, the array converter infers the element type by looking at the **first non-null element's runtime class**. The JVM erases generics, so an empty `List<Int>` and an empty `List<String>` are the same object at runtime with nothing to inspect — Kotlin's `reified` doesn't help either, since by the time the value reaches the serializer it is an `Any?` in an array of parameters. The driver refuses to guess: the array converter raises `TypeException(TYPE_NOT_FOUND)`, which reaches you as the `cause` of a `MappingException(CONVERSION_ERROR)` — the ordinary wrapping every conversion failure gets. A collection holding only nulls fails identically. An array is the exception the JVM makes: it keeps its component type, so an empty `Array<String>` still says `String`, and the converter falls back to that.
+* an empty collection, or one holding only nulls, whose element type erasure has removed —
+  [Empty collections need their type stated](arrays-ranges-json.md#empty-collections-need-their-type-stated);
+* a `String` bound for `jsonb`, `json`, `inet` or an enum you have not registered, which would otherwise go out as
+  `text` — [One default per Kotlin class](#one-default-per-kotlin-class);
+* a `null` passed to an overloaded routine, so that PostgreSQL can pick the variant —
+  [Typed NULLs](functions-procedures.md#typed-nulls-for-overloaded-routines);
+* a range its element class does not settle: one over a subtype that also has a custom range type
+  ([Ranges](arrays-ranges-json.md#ranges-and-multiranges)), or one over a composite
+  ([`Range<Tribute>`](composites-reflection.md#getdefaulttypename-is-not-for-the-composite)).
 
 Wrap any value with the `.withPgType(...)` extension functions:
 * `value.withPgType(PgStandardType.INT4_ARRAY)`
 * `value.withPgType("legio_status")` — a custom enum type, say, for a legion's current campaign status
 * `value.withPgType("legio_status", schema = "imperium", isArray = true)` — pinned to a schema, as an array
 
-The wrapped name is resolved through the session's search path while the parameter is serialized, and the resulting OID is what the driver declares in `Parse` — which is why `PgTyped` is the right escape hatch for ambiguous parameters and `::cast` in the SQL usually isn't necessary.
+The name is resolved through the session's search path while the parameter is serialized, and the resulting OID is what
+the driver declares in `Parse`. That OID also selects the **codec that encodes the value**, so it has to be a type that
+codec can produce from the class you are actually holding, and `withPgType` is not a cast:
 
-That OID also selects the **codec that encodes the value**, which bounds what you can usefully name: it has to be a type that codec can produce from the class you are actually holding. `PgTyped` resolves an ambiguity, it does not convert — `listOf(1, 2, 3).withPgType(PgStandardType.INT8_ARRAY)` asks the `int8` codec for `Int` values and fails with `MappingException(NO_CONVERTER_FOUND)` before anything is sent, naming the element index in its `path`. Converting what you sent into something else is what a SQL cast does, on the server, afterwards. Nesting one `PgTyped` inside another throws — the wrapper is meant to be the outermost layer. Data classes registered with `registerAutoComposite` get their type attached automatically, so wrapping them by hand is unnecessary.
+|               | Says                         | Where it acts                      |
+|:--------------|:-----------------------------|:-----------------------------------|
+| `withPgType`  | "this is what I am sending"  | Client, before anything is written |
+| A cast in SQL | "turn what I sent into this" | Server, on the value it received   |
 
-## Basic converters
+`PgTyped` resolves an ambiguity and does not convert: a `List<Int>` named `INT8_ARRAY`
+[fails before anything is sent](arrays-ranges-json.md#writing), because the `int8` codec encodes `Long`. Converting what
+you sent into something else is what a SQL cast does, on the server. Nesting one `PgTyped` inside another throws — the
+wrapper is meant to be the outermost layer. Data classes registered with `registerAutoComposite` get their type attached
+automatically, so wrapping them by hand is unnecessary.
 
-Converters, in the `io.github.octaviusframework.driver.converter` package, split into those deserializing query results (`ResultConverter`) and those preparing query parameters (`ParameterConverter`).
-
-### ResultConverters (Reading from DB to objects)
-
-These fire when you pull data out of a row (e.g. `row.get(TargetClass::class)`) — they decide what Kotlin shape comes back based on the class you asked for.
-
-| Converter Class                                              | Returns (Output Type)                  | When Used (Target Class in `get`)                                                       | Description                                                                                                     |
-|:-------------------------------------------------------------|:---------------------------------------|:----------------------------------------------------------------------------------------|:----------------------------------------------------------------------------------------------------------------|
-| `ReflectionRowConverter` <br> `ReflectionCompositeConverter` | Kotlin Data Class                      | Data classes (e.g., `Senator::class`)                                                   | Maps result rows (`Row`) and complex DB types (`PgComposite`) directly onto Kotlin data classes via reflection. |
-| `MapRowConverter` <br> `MapCompositeConverter`               | `Map<String, Any?>`                    | `Map::class`                                                                            | Decodes straight to a universal dictionary — handy when the schema isn't fully known up front.                  |
-| `MapRecordConverter`                                         | `Map<String, Any?>`                    | `Map::class`, `Any::class`                                                              | Handles anonymous PostgreSQL `record` types, decoded into a dictionary.                                         |
-| `CollectionArrayConverter`                                   | `Collection<T>` <br> (e.g., `List<T>`) | Anything an `ArrayList` or a `LinkedHashSet` is (e.g., `List::class`, `HashSet::class`) | Turns binary PostgreSQL arrays (`PgArray`) into ordinary Kotlin collections.                                    |
-| `ObjectArrayConverter`                                       | `Array<T>`                             | `Array<T>` of any non-primitive `T` (e.g., `Array<String>`)                             | Turns binary PostgreSQL arrays into Kotlin `Array<T>`.                                                          |
-| `PrimitiveArrayConverter`                                    | Kotlin Array                           | Primitive arrays (e.g., `IntArray::class`, `CharArray::class`)                          | Turns binary PostgreSQL arrays into primitive Kotlin arrays.                                                    |
-| `JsonElementConverter`                                       | `JsonElement`                          | `JsonElement::class`, `JsonObject::class`, `JsonArray::class`, `Any::class`             | Passes `JSON`/`JSONB` data up as Kotlinx Serialization JSON elements.                                           |
-| `RangeResultConverter` <br> `MultiRangeResultConverter`      | `Range<T>`, `MultiRange<T>`            | `Range::class`, `MultiRange::class`                                                     | Deserializes PostgreSQL range and multirange types.                                                             |
-
-### ParameterConverters (Writing objects to DB)
-
-These translate your Kotlin objects into a shape the codec layer can serialize.
-
-| Converter Class                                               | Accepted Input Type         | Description                                                                                                           |
-|:--------------------------------------------------------------|:----------------------------|:----------------------------------------------------------------------------------------------------------------------|
-| `ReflectionCompositeParameterConverter`                       | Kotlin Data Class           | Turns a data class into a logical `PgComposite` structure, ready to pass through the codec layer as a composite type. |
-| `CollectionArrayParameterConverter`                           | `Collection<T>`, `Array<T>` | Packs a Kotlin collection into structures for database array serialization.                                           |
-| `PrimitiveArrayParameterConverter`                            | Primitive arrays            | Packs a primitive Kotlin array into structures for database array serialization.                                      |
-| `JsonElementParameterConverter`                               | `JsonElement`               | Adapts Kotlinx JSON elements for serialization to PostgreSQL `JSON`/`JSONB`.                                          |
-| `RangeParameterConverter` <br> `MultiRangeParameterConverter` | `PgRange`, `PgMultirange`   | Converts Kotlin range wrappers into PostgreSQL range/multirange types.                                                |
-
-### How a converter gets chosen
+## How a converter gets chosen
 
 **Result converters** are indexed by `supportedSourceClass` — the runtime class of the *decoded* value, not the class you asked for. A sealed class stands for every class below it, since a decoded value is always one of those: a converter registered under `PgInterval` is offered `PgInterval.Finite`, `PgInterval.Infinity` and `PgInterval.MinusInfinity`. A class below an open one is not covered, there being no list of them to read. Lookup goes:
 
@@ -586,74 +509,74 @@ as [composites](composites-reflection.md#composites-onto-data-classes) do.
 ```kotlin
 data class Address(val city: String, val street: String)
 
-data class SenatorProfile(
-    val fullName: String,                     // -> full_name
-    @PgName("cognomen_officiale")
-    val cognomen: String,                     // -> cognomen_officiale
-    val residence: Address?                   // nested composite, mapped recursively
-)
-
 session.typeManager.registerAutoComposite<Address>()
-session.typeManager.registerAutoComposite<SenatorProfile>("senator_profile", schema = "imperium")
 ```
 
-Notes:
-
-* The type name defaults to the class name in `snake_case`, exactly like enums.
-* Attribute names default to each property name converted `camelCase` → `snake_case`; `@PgName` overrides an individual property.
-* Attributes are matched **by name**, not by position, and the reflection metadata is cached on registration.
-* A composite attribute that is missing from the class is simply written as `NULL`. Coming the other way, a non-nullable Kotlin property with no matching attribute (or a `NULL` value) raises `MappingException(REQUIRED_ATTRIBUTE_MISSING)` with the offending path — unless the property declares a default, which is used instead, `NULL` included.
-* Registration is bidirectional: the class can be built from a `PgComposite`, and — because the mapping is also keyed by type name — `row.get<Any>("profile")` resolves back to `SenatorProfile`.
-* Nothing is resolved against the catalog at registration time, so the order of `registerAutoComposite` and `reloadTypes()` doesn't matter. The type only has to exist by the time a query uses it.
-
-[Composites and Reflective Mapping](composites-reflection.md) is the page for the rest of it: what the reflective mapper reads off your class, why a row needs no registration when a composite does, the whole missing-value matrix, and what a hand-written converter pair looks like next to this one.
+One call registers both directions, and the type name defaults to the class name in `snake_case`, as with enums.
+[Composites and Reflective Mapping](composites-reflection.md#composites-onto-data-classes) is the page for the rest of
+it: what the reflective mapper reads off your class, why a row needs no registration when a composite does, the whole
+missing-value matrix, and a hand-written converter pair for a composite.
 
 ### Custom converters
 
-When reflection isn't the mapping you want — a legacy column layout, a value class, a JSON payload you want as your own DTO — write the converter explicitly:
+When reflection isn't the mapping you want — a legacy column layout, a value class, a JSON payload you want as your own DTO — write the converter explicitly. A `@Serializable` class stored as `jsonb`:
 
 ```kotlin
-class TributeResultConverter : ResultConverter<PgComposite, Tribute> {
-    override val supportedSourceClass = PgComposite::class
+@Serializable
+data class Dossier(val status: String, val province: Int)
+
+class DossierResultConverter : ResultConverter<String, Dossier> {
+    override val supportedSourceClass = String::class
 
     override fun canConvert(
         sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext
-    ): Boolean = expectedType.classifier == Tribute::class &&
-                 sourceType is PgType.Composite && sourceType.name == "tribute"
+    ): Boolean = (sourceType.name == "json" || sourceType.name == "jsonb") &&
+                 expectedType.classifier == Dossier::class
 
     override fun convert(
-        source: PgComposite, expectedType: KType, sourceType: PgType, context: DeserializationContext
-    ): Tribute = Tribute(source.get("amount"), source.get("currency"))
+        source: String, expectedType: KType, sourceType: PgType, context: DeserializationContext
+    ): Dossier = Json.decodeFromString(source)
 }
 
-class TributeParameterConverter : ParameterConverter<Tribute> {
-    override val supportedClass = Tribute::class
+class DossierParameterConverter : ParameterConverter<Dossier> {
+    override val supportedClass = Dossier::class
 
-    override fun convert(source: Tribute, expectedOid: Int, context: SerializationContext): Any {
-        // Known when the value is nested in a composite/array, or was wrapped in PgTyped
-        val composite = if (expectedOid.isKnownOid) {
-            context.types.containers.createComposite(expectedOid)
-        } else {
-            context.types.containers.createComposite("tribute")
-        }
-        composite["amount"] = source.amount
-        composite["currency"] = source.currency
-        return composite
-    }
+    override fun convert(source: Dossier, expectedOid: Int, context: SerializationContext): Any =
+        Json.encodeToString(source)
 
-    // Not consulted for the composite itself — a PgContainer already carries its own OID.
-    // It is what lets a Range<Tribute> resolve its range type; see the link below.
+    // The String above would go out as text, which a jsonb column refuses.
     override fun getDefaultTypeName(sourceClass: KClass<*>, context: SerializationContext) =
-        QualifiedName("", "tribute")
+        QualifiedName("pg_catalog", "jsonb")
 }
 
-session.typeManager.registerResultConverter(TributeResultConverter())
-session.typeManager.registerParameterConverter(TributeParameterConverter())
+session.typeManager.registerResultConverter(DossierResultConverter())
+session.typeManager.registerParameterConverter(DossierParameterConverter())
+
+session.createNativeQuery("INSERT INTO dossiers (id, data) VALUES ($1, $2)").executeUpdate(1, dossier)
+val loaded: Dossier = session.createNativeQuery("SELECT data FROM dossiers WHERE id = $1").fetchField(1)
 ```
 
-`ContainerFactory` (`types.containers` in a converter, `typeManager.containers` on a session) is the clean way to build containers by name or OID: `createComposite`, `createRange`, `createEmptyRange`, `createMultirange`.
+`getDefaultTypeName` is what makes the `INSERT` work. The converter hands on a plain `String`, which with [no OID
+known](#one-default-per-kotlin-class) would go out as `text`, and a `jsonb` column refuses that with
+`StatementException(DATA_TYPE_ERROR)`. It is asked only while the OID is still unknown and only for output that is not a
+`PgContainer`, which carries its own, so a converter producing a composite, an array or a range never has it consulted.
+[Writing the converters by hand](composites-reflection.md#writing-the-converters-by-hand) has the pair for a composite,
+and [the one place](composites-reflection.md#getdefaulttypename-is-not-for-the-composite) its `getDefaultTypeName` still
+matters.
 
-`getDefaultTypeName` is worth reading carefully, because the composite case is the exception rather than the rule: step 4 of [Writing](#writing-kotlin--database) skips it whenever the converter's output is a `PgContainer`, which a composite converter's always is. [Composites and Reflective Mapping](composites-reflection.md#getdefaulttypename-is-not-for-the-composite) has the one place it still matters.
+The `canConvert` above checks both the PostgreSQL type and the Kotlin type, and each check alone leaks:
+
+* **The PostgreSQL type alone** makes the converter global. Result converters are indexed by the decoded class, `String`
+  for every `json` and `jsonb` value, and the newest registration there is asked first, so this one answers every read of
+  a JSON column in the database, composite attributes included, ahead of the built-in `JsonElementConverter`. It fails
+  loudly at least: the mapper checks what a converter produced against the type asked for, so `row.get<JsonObject>()`,
+  and even `row.get<String>()`, on any JSON column raises `MappingException(CONVERSION_ERROR)`.
+* **The Kotlin type alone** reaches sideways. The converter is offered every column that decodes to a `String` — `text`,
+  `xml`, `inet`, unregistered enums — and a `text` column holding JSON comes back as a `Dossier` without an error.
+  Nothing downstream can catch that, because the converter returns exactly the class requested; only its own predicate
+  knows the column was the wrong one.
+
+The same holds for any source class: `PgComposite` is the bucket of every composite in the database.
 
 ### Custom codecs
 
@@ -724,5 +647,3 @@ Registration is last-wins in both layers, so overriding the defaults means regis
 * **Not every PostgreSQL type has a codec.** `money`, `timetz`, `tsvector`, `tsquery`, `jsonpath` and friends throw `TypeException(MISSING_CODEC)`. Cast them in SQL or write the codec.
 * **`MappingException.path` points at the failure.** For nested composites and arrays, read the path before reading the message.
 * **Thousands of dynamic database URLs?** Call `GlobalCatalogStore.removeCatalog(url)` when tearing down a data source. Otherwise, ignore it.
-
-Plugging in PostGIS support or a custom JSON engine is a matter of registering a codec or a converter, not rewriting the pipeline.

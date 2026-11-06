@@ -108,8 +108,8 @@ Not in threads, and not in coroutines. **The number of connections in your pool 
 
 ## What is shared beyond the connection
 
-The type system is the one piece of global state, and it is deliberately global: registries are cached per **host +
-port + database** across the whole JVM, so every session on that database shares one catalog and one set of converters.
+The type system is the one piece of global state, and it is deliberately global: registries are cached per **servers +
+database name** across the whole JVM, so every session on that database shares one catalog and one set of converters.
 That is why registration is a startup step.
 
 It is built for many readers and rare writers: the dictionaries, the converters and the composite and enum registrations

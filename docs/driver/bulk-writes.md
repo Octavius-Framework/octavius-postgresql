@@ -86,26 +86,16 @@ The other case is the conversion PostgreSQL will not make unasked, and `text` to
 type text"* (`42804`, arriving as `StatementException(DATA_TYPE_ERROR)`). Either say it in the SQL —
 `UNNEST($1::jsonb[])` — or say it on the Kotlin side with [`withPgType`](type-system.md#pgtyped).
 
-What `withPgType` will *not* do is widen. It declares what you are sending, and the OID it names picks the codec that
-encodes your values, so `ids.withPgType(PgStandardType.INT8_ARRAY)` on a `List<Int>` asks the `int8` codec for an `Int`
-and fails with `MappingException(NO_CONVERTER_FOUND)` — `path` naming the element — before anything is sent. Build a
-`List<Long>` if you want `int8` on the wire; cast in SQL if you want the server to convert.
-See [Arrays](arrays-ranges-json.md#writing) for the two layers side by side.
+What `withPgType` will *not* do is widen: it names what you are sending, so `INT8_ARRAY` on a `List<Int>` fails before
+anything is sent. Build a `List<Long>` for `int8` on the wire, or cast in SQL; [Arrays](arrays-ranges-json.md#writing)
+has both side by side.
 
 ### Empty batches need a type
 
-Erasure leaves nothing in an `emptyList()` for the driver to infer an element type from, so an empty batch fails rather than guessing: `TypeException(TYPE_NOT_FOUND)`, arriving as the `cause` of the `MappingException(CONVERSION_ERROR)` that the converter layer wraps everything in. Two ways out, and both are fine:
-
-```kotlin
-// Guard, when an empty batch means there is no work to do
-if (ids.isEmpty()) return 0
-
-// Or state the type, when an empty batch is legitimate
-session.createNativeQuery("INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST($1, $2)")
-    .executeUpdate(ids.withPgType(PgStandardType.INT4_ARRAY), cognomina.withPgType(PgStandardType.TEXT_ARRAY))
-```
-
-`PgStandardType` covers the built-in array types; `withPgType("legio_status", isArray = true)` names one of your own. See [PgTyped](type-system.md#pgtyped) for the whole mechanism.
+An `emptyList()` carries no element type, so an empty batch fails with `TypeException(TYPE_NOT_FOUND)`, wrapped in a
+`MappingException(CONVERSION_ERROR)`. Guard it with `if (ids.isEmpty()) return 0` when it means there is no work, or
+type it as [Empty collections need their type stated](arrays-ranges-json.md#empty-collections-need-their-type-stated)
+shows.
 
 > [!WARNING]
 > **Arrays of unequal length do not fail — they pad with `NULL`.** `UNNEST` produces as many rows as the *longest* array it was given, filling the shorter ones with nulls, so a list that lost an element to a filter somewhere upstream inserts null rows instead of raising anything. PostgreSQL only complains if a null then hits a `NOT NULL` column. Build the parallel lists in one pass over one collection, as above, rather than assembling them separately.

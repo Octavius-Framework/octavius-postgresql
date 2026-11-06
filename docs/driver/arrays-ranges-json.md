@@ -5,21 +5,9 @@ the boundary stone that had to declare whether the line itself belonged to the f
 register could have anticipated. Arrays, ranges and JSON are those same three, and this page is about what each of them
 looks like at the call site.*
 
-[Type System](type-system.md) explains the machinery that maps PostgreSQL types onto Kotlin ones — which converter is
-chosen, how to replace it, what the registry does. This page asks the other question, for three families where the
-machinery is not the interesting part: what does the call site look like.
-
-Arrays and JSON are here because they map onto things you already know — `List`, `Set`, `JsonElement` — in ways with
-enough corners (nullable elements, more than one dimension, empty collections, `json` against `jsonb`) to be worth
-writing down. Ranges are here because they genuinely have no counterpart: `ClosedRange` cannot express an exclusive
-bound, an infinite one, or an empty range, so the driver brings its own `Range<T>`.
-
-Composites belong to the same everyday category and have a page of their own —
-[Composites and Reflective Mapping](composites-reflection.md) — because the registration their story turns on brings the
-reflective mapper with it. They appear on this page only where they sit inside one of the three: as array elements, as
-range bounds, as the holder of a JSON attribute.
-
-Every example here is exercised against PostgreSQL 18, including the ones that fail.
+The machinery behind them is in [Type System](type-system.md). Composites have
+[a page of their own](composites-reflection.md) and appear here only inside one of the three. Ranges come with the
+driver's own `Range<T>`, because `ClosedRange` cannot express an exclusive bound, an infinite one, or an empty range.
 
 Contents:
 * [Arrays](#arrays)
@@ -105,15 +93,8 @@ The element type is inferred from the first non-null element — `List<Int>` goe
 registered. Usually that is the end of it, including when the column is wider than what you sent: a `List<Int>` inserted
 into a `bigint[]` column is widened by PostgreSQL's own assignment cast, with nothing needed on the Kotlin side.
 
-Where you do have to intervene, there are two mechanisms and they are **not** interchangeable:
-
-|                                        | Says                         | Where it acts                      |
-|:---------------------------------------|:-----------------------------|:-----------------------------------|
-| [`withPgType`](type-system.md#pgtyped) | "this is what I am sending"  | Client, before anything is written |
-| A cast in SQL                          | "turn what I sent into this" | Server, on the value it received   |
-
-That distinction has teeth, because the OID `withPgType` names is what selects the **codec that encodes your value**. It
-cannot widen anything:
+Where you do have to intervene, [`withPgType`](type-system.md#pgtyped) is not a cast: it names what you are sending
+and picks the codec by it, so it cannot widen anything:
 
 ```kotlin
 // MappingException(NO_CONVERTER_FOUND), path [0] - it asks the int8 codec to encode Int values
@@ -123,12 +104,9 @@ listOf(1, 2, 3).withPgType(PgStandardType.INT8_ARRAY)
 session.createNativeQuery("SELECT $1::int8[]").fetchRowStrict(listOf(1, 2, 3))
 ```
 
-So reach for `withPgType` when the driver cannot infer a type at all — an empty collection — or infers one the server
-will not take, such as a `String` bound for a `jsonb` column. Reach for a SQL cast when what you sent has to become
-something else on the server: an array compared whole, since `anyarray` takes both sides as one type and coerces
-neither (`varchar[] = text[]` has no operator at all); a conversion PostgreSQL makes only when asked, such as `text`
-to `jsonb`; an overload to disambiguate. [When a cast earns its
-place](bulk-writes.md#when-a-cast-earns-its-place) draws the whole boundary.
+`withPgType` is for a collection the driver cannot type at all, [an empty one](#empty-collections-need-their-type-stated).
+A cast in SQL is for what has to become something else on the server, and [When a cast earns its
+place](bulk-writes.md#when-a-cast-earns-its-place) draws that boundary for arrays.
 
 ### Empty collections need their type stated
 
@@ -163,7 +141,7 @@ shape is not what you want:
 val raw: PgArray = row.get("legions")
 
 raw.elements        // flat List<Any?>, all dimensions concatenated
-raw.dimensions      // List<ArrayDimension>(size, lowerBound) - empty for a 1-D array
+raw.dimensions      // List<ArrayDimension>(size, lowerBound) - one per axis, empty for an empty array
 raw.elementOid      // the OID of the element type
 raw.get<Int>(0)     // one element, type-checked
 ```
@@ -386,56 +364,13 @@ Mark those `@Contextual` and build the `Json` with `octaviusSerializersModule` f
 `dynamic_dto` payloads, and the answer is the same here.
 
 **Everywhere** — register a converter pair once at startup and pass the DTO directly, with `getDefaultTypeName()`
-supplying `jsonb` the same way the built-in one does. [Custom converters](type-system.md#custom-converters) has the full
-shape; a JSON-backed DTO is close to the smallest useful example of one.
-
-> [!WARNING]
-> **`canConvert` has two axes — the Kotlin type asked for and the PostgreSQL type it came from — and a converter this
-specific has to narrow both.** Each half on its own leaks, in opposite directions:
->
-> ```kotlin
-> // Source only: answers for every json/jsonb value, whatever type was requested
-> override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext) =
->     sourceType.name == "json" || sourceType.name == "jsonb"
->
-> // Target only: answers for every column that decodes to String - text, xml, inet, enums…
-> override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext) =
->     expectedType.classifier == Dossier::class
->
-> // Both: what this converter actually handles
-> override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext) =
->     expectedType.classifier == Dossier::class &&
->             (sourceType.name == "json" || sourceType.name == "jsonb")
-> ```
->
-> **Narrow on the source only** and the converter goes *global*. Result converters are indexed by the decoded source
-> class, which for both `json` and `jsonb` is `String`, and the newest registration in that bucket wins — so it displaces
-> the built-in `JsonElementConverter` for every session against that database, taking with it `row.get<JsonObject>("data")`, 
-> the same call on any unrelated JSON column, and `jsonb` attributes nested inside
-> composites, since attribute conversion goes through the same registry.
->
-> **Narrow on the target only** and it reaches sideways instead. It is registered under `String::class`, so it is
-> offered every column that decodes to a `String`: asking for a `Dossier` from a `text`, `xml` or `inet` column produces
-`Dossier(raw=just some text)` — no exception, just a value built from the wrong column. A `float8` column is safe only
-> by accident, because `Double` is a different bucket and the lookup ends in `NO_CONVERTER_FOUND`.
->
-> That second leak is the one to take seriously, because **nothing downstream can catch it**. The mapper does compare
-> what a converter produced against the type you asked for — that is what turns a source-only converter's mistake into a 
-> `MappingException(CONVERSION_ERROR)` naming it, rather than a bare `ClassCastException` from your own line. But a
-> target-only converter returns exactly the class that was requested. It is right about the type and wrong about the data,
-> and only its own predicate can know that.
+supplying `jsonb` the same way the built-in one does. [Custom converters](type-system.md#custom-converters) has the pair
+for this same `Dossier`.
 
 Storing a JSON document inside a composite attribute works in both directions as well, provided the conversion recurses
 through the context rather than being done by hand —
 `context.convert(source.get("metadata"), typeOf<JsonObject>(), source.getAttributeOid("metadata"))` inside a custom
 converter is the shape.
-
-### `json` or `jsonb`
-
-Not a driver question, but the one that follows immediately: `jsonb` is parsed and stored in a binary form — it loses
-key order, duplicate keys and whitespace, and gains indexing, containment operators (`@>`) and much faster access.
-`json` keeps the document byte-for-byte and reparses it on every access. Default to `jsonb` unless you have a reason to
-preserve the exact text; the driver's own default matches that.
 
 ## Practical rules and gotchas
 
@@ -447,9 +382,6 @@ preserve the exact text; the driver's own default matches that.
   by field.
 * **A custom range type over a built-in subtype hijacks unqualified parameters** of that element type, database-wide.
   Pin those with `withPgType`.
-* **Narrow a custom converter's `canConvert` on both axes** — the requested Kotlin type *and* the source PostgreSQL
-  type. Either half alone leaks: one claims every JSON value in the database, the other every column that decodes to the
-  same class.
 * **A JSON `String` needs its type stated; a `JsonElement` does not.** The converter declares `jsonb` on its own.
 * **`= ANY($1)` is how a list reaches an `IN` clause** — one parameter, one plan, any length.
   See [Bulk Writes](bulk-writes.md#deleting-and-the-in-clause).

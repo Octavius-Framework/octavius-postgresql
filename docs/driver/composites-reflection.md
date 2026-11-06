@@ -6,12 +6,7 @@ of — that had to be written at the head of the tablet before the first name wa
 same way: attributes and properties find each other by name, in any order, and the one thing the driver cannot infer is
 which PostgreSQL type your class is meant to be.*
 
-[Type System](type-system.md) explains the machinery — which converter is chosen, what the registry does, how a value
-travels. This page asks what the call site looks like, the same question
-[Arrays, Ranges and JSON](arrays-ranges-json.md) asks of its own three families: what reflective mapping reads off the
-class you hand it, where a composite differs from a row, and what to write when reflection is not the mapping you want.
-
-Every example here is exercised against PostgreSQL 18, including the ones that fail.
+The machinery behind it — which converter is chosen, what the registry does — is in [Type System](type-system.md).
 
 Contents:
 * [Two reflective mappers, one asymmetry](#two-reflective-mappers-one-asymmetry)
@@ -452,18 +447,14 @@ row.get<Any>("some_other_composite")             // still PgComposite - untouche
 ```
 
 Order matters in that predicate. Testing `sourceType` first and returning early is what keeps the `Any::class` clause
-from turning into the source-only leak described just above — a converter that answered `Any` for *every* composite
-would displace the reflective one database-wide.
+from turning into the source-only leak [described below](#canconvert-has-to-narrow-on-both-axes) — a converter that
+answered `Any` for *every* composite would displace the reflective one database-wide.
 
 ### `canConvert` has to narrow on both axes
 
 A result converter is indexed by the class the codec produced — `PgComposite` for *every* composite in the database, not
-just yours. Narrowing only on the expected Kotlin type leaves the converter offered every composite value there is, and
-narrowing only on the source type claims every request against that PostgreSQL type. The `sourceType.name == "tribute"`
-and `expectedType.classifier == Tribute::class` halves above are both load-bearing.
-[Arrays, Ranges and JSON](arrays-ranges-json.md#your-own-dtos) works this failure through in detail for a JSON DTO; the
-same two leaks apply here, and the target-only one is the dangerous half, because it returns exactly the class that was
-asked for and nothing downstream can tell it was built from the wrong column.
+just yours — so the `sourceType.name == "tribute"` and `expectedType.classifier == Tribute::class` halves above are both
+load-bearing. [Custom converters](type-system.md#custom-converters) shows what each half alone does.
 
 ### `getDefaultTypeName` is not for the composite
 
@@ -604,7 +595,8 @@ This is the practical bridge for a composite you have chosen not to register: re
   `PgComposite` needs `registerAutoComposite` before it becomes one.
 * **Register every class in the graph.** Registration is per class; a nested data class needs its own call, and the
   `path` on the failure names it.
-* **Two classes under one type name collide silently**, and the loser is the `row.get<Any>` direction.
+* **One type name, one class.** A second class under a taken name, or a registered class under another name, is
+  refused with `InvalidOperationException(INVALID_ARGUMENT)`.
 * **Data classes only, and only their primary constructor.** `registerAutoComposite` rejects anything else outright;
   properties declared in the class body are invisible in both directions.
 * **A default replaces an absent column, never a value.** `NULL` is a value, so nullability — not a default — is what
