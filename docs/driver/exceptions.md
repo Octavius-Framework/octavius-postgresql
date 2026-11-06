@@ -361,9 +361,8 @@ falsified — a defect in the database code, as a `fetch*Strict` finding no row 
 
 ### 12. `PermissionDeniedException`
 
-`42501`, with no reason enum. Core PostgreSQL names the refused object only in `dbMessage` —
-`permission denied for table senators` — and leaves `schema`, `table`, `column` and `datatype` `null`; `routine` is the
-server's own C function that refused, not one of yours.
+`42501`, with no reason enum. The refused object is named only in `dbMessage` —
+`permission denied for table senators` — and where the server explains the refusal, `dbDetail` and `hint` carry it.
 
 ### 13. `InvalidOperationException`
 

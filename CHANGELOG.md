@@ -7,7 +7,16 @@
 - `TypeDictionary.getBaseType(oid)` returns the type under a domain, through every domain stacked on another, and
   the type itself for anything else: what a converter is shown for an OID read out of a `PgContainer`.
 
+- `PermissionDeniedException.dbDetail` and `hint` carry the server's detail and hint, and the exception's log block
+  prints them. A refusal that explains itself - `Only roles with privileges of the "pg_write_server_files" role may COPY
+  to a file.` - had that explanation only in `serverErrorMessage`.
+
 #### Changed
+
+- **[BREAKING]** `PermissionDeniedException` has no `schema`, `table`, `column`, `datatype` or `routine`. PostgreSQL
+  fills none of the first four on a `42501`, naming the refused object only in `dbMessage`, and `routine` was the
+  server's own C function, never one of the application's. A `RAISE … USING ERRCODE = '42501'` that names the object
+  leaves it in `serverErrorMessage`. Code reading any of the five stops compiling.
 
 - **[BREAKING]** A statement the transaction does not allow where it arrived raises
   `TransactionStateException(MISPLACED_STATEMENT)`, which replaces `NO_ACTIVE_TRANSACTION` and `ACTIVE_TRANSACTION`:

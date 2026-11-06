@@ -3,9 +3,12 @@ package io.github.octaviusframework.driver.exception
 import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 /**
- * The user lacks a privilege the statement needs. The object refused is named where the server names it.
+ * The user lacks a privilege the statement needs. The server names what it refused in [dbMessage] and, where it
+ * says what the privilege takes, in [dbDetail].
  *
  * @property dbMessage The server's message.
+ * @property dbDetail The server's detail.
+ * @property hint The server's hint.
  */
 class PermissionDeniedException(
     sqlState: String,
@@ -16,17 +19,11 @@ class PermissionDeniedException(
     serverErrorMessage = serverErrorMessage
 ) {
     val dbMessage: String get() = serverErrorMessage!!.message
-    val schema: String? get() = serverErrorMessage!!.schema
-    val table: String? get() = serverErrorMessage!!.table
-    val column: String? get() = serverErrorMessage!!.column
-    val datatype: String? get() = serverErrorMessage!!.datatype
-    val routine: String? get() = serverErrorMessage!!.routine
+    val dbDetail: String? get() = serverErrorMessage!!.detail
+    val hint: String? get() = serverErrorMessage!!.hint
     override fun getDetailedMessage(): String = buildString {
         appendLine("Database message: $dbMessage")
-        if (schema != null) appendLine("Schema: $schema")
-        if (table != null) appendLine("Table: $table")
-        if (column != null) appendLine("Column: $column")
-        if (datatype != null) appendLine("Datatype: $datatype")
-        if (routine != null) appendLine("Routine: $routine")
+        if (dbDetail != null) appendLine("Detail: $dbDetail")
+        if (hint != null) appendLine("Hint: $hint")
     }
 }
