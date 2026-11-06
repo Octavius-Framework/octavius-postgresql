@@ -83,7 +83,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [`TypeManager`](type-system.md#typemanager--the-entry-point) — The entry point, and what it exposes
 - [Scope: a Session Handle over Global State](type-system.md#scope-a-session-handle-over-global-state) — Per-database, JVM-wide registry
 - [Basic Codecs](type-system.md#basic-codecs) — The full PostgreSQL ↔ Kotlin table
-- [Basic Converters](type-system.md#basic-converters) — Result and parameter converters, and how one is chosen
+- [How a Converter Gets Chosen](type-system.md#how-a-converter-gets-chosen) — Indexed by the decoded class, newest registration first
 - [Registering Your Own Mappings](type-system.md#registering-your-own-mappings) — Enums, composites, custom converters and codecs
 
 ### Arrays, Ranges and JSON
@@ -94,7 +94,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 
 ### Composites and Reflection
 - [Two Reflective Mappers, One Asymmetry](composites-reflection.md#two-reflective-mappers-one-asymmetry) — Rows need no registration, composite values do
-- [Rows onto Data Classes](composites-reflection.md#rows-onto-data-classes) — And why `fetchObjects<T>()` is not `row.get<T>(0)`
+- [Rows onto Data Classes](composites-reflection.md#rows-onto-data-classes) — Columns found by property name, with nothing registered
 - [Composites onto Data Classes](composites-reflection.md#composites-onto-data-classes) — `registerAutoComposite`, and what a composite reads as without it
 - [Writing a Whole Object as One Parameter](composites-reflection.md#writing-a-whole-object-as-one-parameter) — Entity in and out via `SELECT (@row).*` and `RETURNING *`, and why a nested `emptyList()` needs no `withPgType`
 - [What Reflection Reads](composites-reflection.md#what-reflection-reads-and-what-it-ignores) — The primary constructor, and everything it ignores
@@ -124,7 +124,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [SQLSTATE Routing](exceptions.md#sqlstate-routing) — Which code becomes which class
 - [Exception Reference](exceptions.md#exception-reference) — All eighteen types, one by one
 - [Catching at the Right Altitude](exceptions.md#catching-at-the-right-altitude) — Including retrying concurrency failures
-- [Crossing into JDBC and Spring](exceptions.md#crossing-into-jdbc-and-spring) — `SQLExceptionWrapper`, Spring, and unwrapping a pool's own exception
+- [Crossing into JDBC and Spring](exceptions.md#crossing-into-jdbc-and-spring) — Which exception each entry point throws, and `SQLExceptionWrapper`
 
 ### Logging
 - [You Supply the Backend](logging.md#you-supply-the-backend) — SLF4J with nothing behind it discards every line

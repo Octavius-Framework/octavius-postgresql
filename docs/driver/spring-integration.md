@@ -277,7 +277,7 @@ None of these is a `DataAccessException`, so a `catch` or an `@ExceptionHandler`
 
 Spring's `spring.sql.init` runs its scripts itself, and a failing `schema.sql` or `data.sql` arrives as its own `ScriptStatementFailedException`, naming the statement, with the driver's exception in its cause chain, where `findOctaviusCause()` finds it.
 
-The full hierarchy, the reason enums worth branching on, and a longer `@ControllerAdvice` example are in [Error Handling](exceptions.md#crossing-into-jdbc-and-spring).
+The full hierarchy and the reason enums worth branching on are in [Error Handling](exceptions.md#exception-reference).
 
 ### When the connection dies mid-transaction
 
