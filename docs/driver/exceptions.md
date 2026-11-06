@@ -189,7 +189,7 @@ The statement survives, which is usually what makes the entry worth keeping; onl
 | 3  | `28*`                      | `InitializationException(SERVER_REJECTED_CREDENTIALS)`                 |
 | 4  | `21*`, `0A*`, `3D*`, `3F*` | `StatementException(INVALID_DEFINITION)`                               |
 | 5  | `23*`                      | `ConstraintViolationException` — reason per code                       |
-| 6  | `25*`                      | `TransactionStateException` — reason per code                          |
+| 6  | `25*`, `3B*`               | `TransactionStateException` — reason per code                          |
 | 7  | `40002`                    | `ConstraintViolationException(UNKNOWN)`                                |
 | 8  | `40*` (everything else)    | `ConcurrencyException` — `40001`, `40P01`, else `UNKNOWN`              |
 | 9  | `42501`                    | `PermissionDeniedException`                                            |
@@ -331,13 +331,12 @@ The statement is fine and the transaction it arrived in is not, which is why thi
 server refuses before looking at the SQL, so there is no `position`. `IN_FAILED_TRANSACTION` is a consequence, and the
 failure worth reading is the earlier one — see [Transaction state](transactions.md#transaction-state).
 
-| Reason (`TransactionStateExceptionReason`) | SQLSTATE    | Note                                                                                                     |
-|:-------------------------------------------|:------------|:---------------------------------------------------------------------------------------------------------|
-| `IN_FAILED_TRANSACTION`                    | `25P02`     | An earlier error doomed the transaction                                                                  |
-| `READ_ONLY_TRANSACTION`                    | `25006`     |                                                                                                          |
-| `NO_ACTIVE_TRANSACTION`                    | `25P01`     |                                                                                                          |
-| `ACTIVE_TRANSACTION`                       | `25001`     |                                                                                                          |
-| `UNKNOWN`                                  | other `25*` | Two-phase commit among them; `25P03` and `25P04` end the session, see [8](#8-sessionterminatedexception) |
+| Reason (`TransactionStateExceptionReason`) | SQLSTATE                  | Note                                                                                                       |
+|:-------------------------------------------|:--------------------------|:-----------------------------------------------------------------------------------------------------------|
+| `IN_FAILED_TRANSACTION`                    | `25P02`                   | An earlier error doomed the transaction                                                                    |
+| `READ_ONLY_TRANSACTION`                    | `25006`                   |                                                                                                            |
+| `MISPLACED_STATEMENT`                      | `25P01`, `25001`, `3B001` | Needs a transaction block, refuses one or comes too late in it, or names a savepoint the transaction lacks |
+| `UNKNOWN`                                  | other `25*` and `3B*`     | Two-phase commit among them; `25P03` and `25P04` end the session, see [8](#8-sessionterminatedexception)   |
 
 ### 10. `RoutineRaiseException`
 

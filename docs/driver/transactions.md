@@ -143,6 +143,8 @@ try {
 
 An unnamed savepoint answers `getSavepointId()` and throws on `getSavepointName()`; a named one does the reverse, both with `InvalidOperationException(INVALID_SAVEPOINT)`.
 
+A savepoint the server no longer has — released, or set after one that was released or rolled back to — is refused by the server instead, as `TransactionStateException(MISPLACED_STATEMENT)`, and like any server error it leaves the transaction [aborted](#transaction-state).
+
 ## Transaction state
 
 `session.transactionState` reports what the *server* thinks, taken from the status flag PostgreSQL attaches to every completed exchange — not from a client-side guess. The one addition is the `BEGIN` still waiting for a statement: with auto-commit off, the session answers `IN_TRANSACTION` from the moment it was turned off, not from the first statement.

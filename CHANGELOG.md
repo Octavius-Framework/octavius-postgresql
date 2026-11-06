@@ -1,4 +1,4 @@
-## Version 2.9.1 (v2.9.1)
+## Version 2.10.0 (v2.10.0)
 
 ### Driver
 
@@ -6,6 +6,16 @@
 
 - `TypeDictionary.getBaseType(oid)` returns the type under a domain, through every domain stacked on another, and
   the type itself for anything else: what a converter is shown for an OID read out of a `PgContainer`.
+
+#### Changed
+
+- **[BREAKING]** A statement the transaction does not allow where it arrived raises
+  `TransactionStateException(MISPLACED_STATEMENT)`, which replaces `NO_ACTIVE_TRANSACTION` and `ACTIVE_TRANSACTION`:
+  one that needs a transaction block outside one (`25P01`), one that refuses a block, a subtransaction or a query
+  before it (`25001`), and one naming a savepoint the transaction does not have (`3B001`). The server's message
+  names the rule. `3B001` raised `UncategorizedDatabaseException`; `rollback(savepoint)` and
+  `releaseSavepoint(savepoint)` reach it with a savepoint that was released, or set after one that was released or
+  rolled back to.
 
 #### Fixed
 

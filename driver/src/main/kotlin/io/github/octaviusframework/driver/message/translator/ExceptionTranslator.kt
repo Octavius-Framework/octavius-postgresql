@@ -72,13 +72,12 @@ internal object ExceptionTranslator {
                 ConstraintViolationException(reason, state, serverErrorMessage)
             }
 
-            // Class 25 — Invalid Transaction State
-            state.startsWith("25") -> {
+            // Class 25 — Invalid Transaction State, Class 3B — Savepoint Exception
+            state.startsWith("25") || state.startsWith("3B") -> {
                 val reason = when (state) {
                     "25P02" -> TransactionStateExceptionReason.IN_FAILED_TRANSACTION
                     "25006" -> TransactionStateExceptionReason.READ_ONLY_TRANSACTION
-                    "25P01" -> TransactionStateExceptionReason.NO_ACTIVE_TRANSACTION
-                    "25001" -> TransactionStateExceptionReason.ACTIVE_TRANSACTION
+                    "25P01", "25001", "3B001" -> TransactionStateExceptionReason.MISPLACED_STATEMENT
                     else -> TransactionStateExceptionReason.UNKNOWN
                 }
                 TransactionStateException(reason, state, serverErrorMessage)
