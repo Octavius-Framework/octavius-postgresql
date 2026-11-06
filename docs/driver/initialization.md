@@ -137,7 +137,7 @@ val session = pool.getOctaviusSession() // borrows a session
 ```
 
 > [!NOTE]
-> Constructing the pool opens a connection to check the configuration, so a driver failure surfaces there as HikariCP's own `PoolInitializationException` — you called their constructor, you get their exception. The driver's exception is its cause, one `findOctaviusCause()` away; see [Digging it out yourself](exceptions.md#digging-it-out-yourself). Borrowing (`getOctaviusSession()`) needs none of that: a refusal there already arrives as `InitializationException`.
+> Constructing the pool opens a connection to check the configuration, so a driver failure surfaces there as HikariCP's own `PoolInitializationException` — you called their constructor, you get their exception. The driver's exception is its cause: `e.findOctaviusCause() ?: e` gets it, unwrapping a `SQLExceptionWrapper` where it finds one. Borrowing (`getOctaviusSession()`) needs none of that: a refusal there already arrives as `InitializationException`.
 
 ### Via `OctaviusDataSource`
 
