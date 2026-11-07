@@ -315,11 +315,18 @@ session.createNamedQuery("INSERT INTO dossiers (id, data) VALUES (@id, @data)")
     .executeUpdate("id" to 1, "data" to dossier)
 ```
 
-That goes out as **`jsonb`**, which is the right default for a column of either type. When you specifically need
-`json` — preserving key order, duplicate keys and whitespace — say so:
+That goes out as **`jsonb`**, which is the right default for a column of either type. `jsonb` does not keep an
+object's key order; where the order the `JsonObject` was built in has to survive, declare `json`:
 
 ```kotlin
-data.withPgType(PgStandardType.JSON)
+dossier.withPgType(PgStandardType.JSON)
+```
+
+Key order is all `json` keeps of a `JsonElement`: it is written compact, and a `JsonObject` is a map, so it has no
+duplicate keys. Whitespace and duplicates reach a `json` column only as text, in a `String` declared `json`:
+
+```kotlin
+Json { prettyPrint = true }.encodeToString(dossier).withPgType(PgStandardType.JSON)
 ```
 
 A `List<JsonObject>` becomes a `jsonb[]` by the ordinary array inference, and reads back as `List<JsonObject>`.
