@@ -1,3 +1,25 @@
+## Version 2.9.1 (v2.9.1)
+
+### Driver
+
+#### Added
+
+- `TypeDictionary.getBaseType(oid)` returns the type under a domain, through every domain stacked on another, and
+  the type itself for anything else: what a converter is shown for an OID read out of a `PgContainer`.
+
+#### Fixed
+
+- A value inside an array or a composite whose type is a domain is converted as the type under it, as a column over
+  a domain already was. An enum under a domain reads as its registered class, `jsonb` under one as a `JsonElement`
+  under `Any`, and a composite under one as its registered class, where they came back as
+  `MappingException(CONVERSION_ERROR)`, a `String` and a raw `PgComposite`. A converter's `sourceType` is never a
+  `PgType.Domain`, at any depth.
+
+- A collection, a range or a registered composite declared through `withPgType` as a domain over its type is built
+  as that type and goes out declared as the domain, where it failed with `MappingException(CONVERSION_ERROR)`. A
+  composite attribute over a domain of a composite is written the same way. A `PgContainer` built by hand and
+  wrapped in `withPgType` goes out as the type named, where it went out as its own whatever the name.
+
 ## Version 2.9.0 (v2.9.0) (2026-11-04)
 
 ### Driver

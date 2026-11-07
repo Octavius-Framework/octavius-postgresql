@@ -181,7 +181,8 @@ either - and failing on the description makes it fail the same way every time.
 > **A domain column is described by the type underneath it.** PostgreSQL resolves a domain to its base type before
 > describing a column - for a plain reference, an explicit cast and a function's result alike - so `type` is never a
 > `PgType.Domain`. A column declared over a domain of `numeric` arrives as `numeric`, and only `origin` still says
-> which column it was. A domain does survive one level down, as an array's element type or a composite's attribute.
+> which column it was. Inside an array or a composite, converters see a domain
+> [the same way](type-system.md#how-a-converter-gets-chosen).
 
 ## Nullability and the Strict variants
 

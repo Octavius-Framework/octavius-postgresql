@@ -159,20 +159,20 @@ session.typeManager.registerEnum<LegioStatus>()
 
 ### What it exposes
 
-| Member                                  | Purpose                                                                                        |
-|:----------------------------------------|:-----------------------------------------------------------------------------------------------|
-| `resolveOid(typeName, schema, isArray)` | Resolves a type name to its OID, honoring this session's `search_path`.                        |
-| `registerCodec(codec)`                  | Binary-level mapping for a PostgreSQL type.                                                    |
-| `registerResultConverter(converter)`    | Database → Kotlin object mapping.                                                              |
-| `registerParameterConverter(converter)` | Kotlin object → database parameter mapping.                                                    |
-| `registerEnum<T>(...)`                  | Registers both directions for a Kotlin enum in one call.                                       |
-| `registerAutoComposite<T>(...)`         | Maps a data class to a PostgreSQL composite type reflectively.                                 |
-| `attach(type) { }`                      | Keeps a layer's own value per database, read back as `catalog.attachment(type)`.               |
-| `dictionary`                            | The types the catalog describes — `getPgType(oid)`, `getArrayType(...)`, `forEachType { }`.    |
-| `codecs`                                | Codec lookups — `getCodecByOid(...)`, `getCodecByClass(...)`.                                  |
-| `catalog`                               | The dictionaries, converters, registrations and attachments, as one immutable value.           |
-| `containers`                            | `ContainerFactory` — builds `PgComposite`, `PgRange`, `PgMultirange` instances by name or OID. |
-| `detached()`                            | A `TypeLookup` with no session behind it, for something outliving the session it came from.    |
+| Member                                  | Purpose                                                                                                         |
+|:----------------------------------------|:----------------------------------------------------------------------------------------------------------------|
+| `resolveOid(typeName, schema, isArray)` | Resolves a type name to its OID, honoring this session's `search_path`.                                         |
+| `registerCodec(codec)`                  | Binary-level mapping for a PostgreSQL type.                                                                     |
+| `registerResultConverter(converter)`    | Database → Kotlin object mapping.                                                                               |
+| `registerParameterConverter(converter)` | Kotlin object → database parameter mapping.                                                                     |
+| `registerEnum<T>(...)`                  | Registers both directions for a Kotlin enum in one call.                                                        |
+| `registerAutoComposite<T>(...)`         | Maps a data class to a PostgreSQL composite type reflectively.                                                  |
+| `attach(type) { }`                      | Keeps a layer's own value per database, read back as `catalog.attachment(type)`.                                |
+| `dictionary`                            | The types the catalog describes — `getPgType(oid)`, `getBaseType(oid)`, `getArrayType(...)`, `forEachType { }`. |
+| `codecs`                                | Codec lookups — `getCodecByOid(...)`, `getCodecByClass(...)`.                                                   |
+| `catalog`                               | The dictionaries, converters, registrations and attachments, as one immutable value.                            |
+| `containers`                            | `ContainerFactory` — builds `PgComposite`, `PgRange`, `PgMultirange` instances by name or OID.                  |
+| `detached()`                            | A `TypeLookup` with no session behind it, for something outliving the session it came from.                     |
 
 Everything but the `register*` and `attach` rows reads. They are separate types, not a convention: `TypeLookup`
 carries `catalog`, `dictionary`, `codecs`, `containers` and `resolveOid`, and **no `register*` or `attach` at
@@ -446,6 +446,9 @@ you sent into something else is what a SQL cast does, on the server. Nesting one
 wrapper is meant to be the outermost layer. Data classes registered with `registerAutoComposite` get their type attached
 automatically, so wrapping them by hand is unnecessary.
 
+A domain is named like any other type, one over an array, a composite or a range included, and the value goes out
+declared as the domain.
+
 ## How a converter gets chosen
 
 **Result converters** are indexed by `supportedSourceClass` — the runtime class of the *decoded* value, not the class you asked for. A sealed class stands for every class below it, since a decoded value is always one of those: a converter registered under `PgInterval` is offered `PgInterval.Finite`, `PgInterval.Infinity` and `PgInterval.MinusInfinity`. A class below an open one is not covered, there being no list of them to read. Lookup goes:
@@ -458,6 +461,9 @@ automatically, so wrapping them by hand is unnecessary.
 **Parameter converters** live in one flat list, newest first, and the first whose `canConvert(sourceClass, expectedOid, context)` returns `true` wins. The default `canConvert` accepts exact class matches and subclasses, so a converter for a sealed base type covers its subclasses.
 
 Because `canConvert` receives both the expected Kotlin type *and* the source `PgType`, a converter can be as narrow as you like — matching only `tribute` composites in the `imperium` schema, for example — and simply decline everything else.
+
+The source `PgType` is never a `PgType.Domain`: a value of one comes as the type under it, inside an array or a
+composite as well as in a column.
 
 **Keep converters out of the walk.** Every converter ahead of the one that claims a value is asked about that value, and
 the question is per value rather than per row or per query — a nested composite is several values, each walking the list
@@ -580,7 +586,7 @@ The same holds for any source class: `PgComposite` is the bucket of every compos
 
 ### Custom codecs
 
-Reach for a codec only when you need to change how the **bytes** are read or written — a PostGIS type, a domain you want decoded to a value class, or replacing a built-in.
+Reach for a codec only when you need to change how the **bytes** are read or written — a PostGIS type, or replacing a built-in.
 
 ```kotlin
 class CircleCodec : TypeCodec<Circle> {

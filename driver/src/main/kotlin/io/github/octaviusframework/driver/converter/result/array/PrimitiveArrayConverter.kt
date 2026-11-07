@@ -48,7 +48,7 @@ internal object PrimitiveArrayConverter : ResultConverter<PgArray, Any> {
             )
         }
 
-        val pgElementType = context.types.dictionary.getPgType(source.elementOid)
+        val pgElementType = context.types.dictionary.getBaseType(source.elementOid)
         val elements = source.elements
         val size = elements.size
 

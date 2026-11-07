@@ -128,6 +128,18 @@ class TypeDictionary private constructor(
     fun getPgType(oid: Int): PgType = types[oid]
         ?: throw TypeException(TypeExceptionReason.TYPE_NOT_FOUND, oid = oid, details = "Type with OID $oid not found")
 
+    /**
+     * The type whose OID is [oid], or for a domain the type under it, through every domain stacked on another. The
+     * server describes a column this way; an OID inside an array or a composite can still name a domain.
+     *
+     * @throws TypeException `TYPE_NOT_FOUND` if there is none.
+     */
+    fun getBaseType(oid: Int): PgType {
+        var type = getPgType(oid)
+        while (type is PgType.Domain) type = getPgType(type.baseTypeOid)
+        return type
+    }
+
     /** Whether this dictionary describes [oid]. */
     internal fun describes(oid: Int): Boolean = types[oid] != null
 

@@ -23,7 +23,7 @@ internal object PrimitiveArrayParameterConverter : ParameterConverter<Any> {
     override fun convert(source: Any, expectedOid: Int, context: SerializationContext): Any {
 
         val arrayType = if (expectedOid.isKnownOid) {
-            context.types.dictionary.getPgType(expectedOid) as? PgType.Array
+            context.types.dictionary.getBaseType(expectedOid) as? PgType.Array
         } else {
             context.defaultOidForClass(source.javaClass.componentType.kotlin)
                 ?.let { context.types.dictionary.getArrayType(it) }

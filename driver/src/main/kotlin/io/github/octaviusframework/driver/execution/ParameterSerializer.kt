@@ -19,8 +19,8 @@ import io.github.octaviusframework.driver.type.isKnownOid
 private const val MAX_PARAMETER_LENGTH = 1073741819
 
 /**
- * Turns bound values, once converted, into the bytes of a `Bind` and reports the OID each went out as: a [PgTyped]
- * or a [PgContainer] carries its own, anything else is its codec's. One per execution, over its pinned catalog.
+ * Turns bound values, once converted, into the bytes of a `Bind` and reports the OID each went out as: the one a
+ * [PgTyped] declares, else a [PgContainer]'s own, else its codec's. One per execution, over its pinned catalog.
  */
 internal class ParameterSerializer(
     private val types: TypeLookup,
@@ -62,7 +62,7 @@ internal class ParameterSerializer(
         }
 
         if (value != null && value is PgContainer) {
-            return writeKnown(value, value.containerOid, writer, marker)
+            return writeKnown(value, if (oid.isKnownOid) oid else value.containerOid, writer, marker)
         }
 
         value = parameterMapper.convert(value, oid)
@@ -78,14 +78,10 @@ internal class ParameterSerializer(
             return oid
         }
 
-        if (value is PgContainer) {
-            return writeKnown(value, value.containerOid, writer, marker)
-        }
-
-        return if (oid.isKnownOid) {
-            writeKnown(value, oid, writer, marker)
-        } else {
-            writeStandard(value, writer, marker)
+        return when {
+            oid.isKnownOid -> writeKnown(value, oid, writer, marker)
+            value is PgContainer -> writeKnown(value, value.containerOid, writer, marker)
+            else -> writeStandard(value, writer, marker)
         }
     }
 

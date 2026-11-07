@@ -18,6 +18,9 @@ internal fun conversionErrorAt(segment: String, details: String): MappingExcepti
  * what converts the values inside.
  */
 interface PgContainer {
-    /** OID of the container's own type: the array type rather than its element type. A parameter goes out as it. */
+    /**
+     * OID of the container's own type: the array type rather than its element type. A parameter goes out as it,
+     * unless `withPgType` named its type.
+     */
     val containerOid: Int
 }

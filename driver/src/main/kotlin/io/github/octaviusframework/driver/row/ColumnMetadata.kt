@@ -7,7 +7,7 @@ import io.github.octaviusframework.driver.type.PgType
  *
  * @property name The name the column came back under: its alias, or the source column's name.
  * @property type The column's type. Never a [PgType.Domain]: the server describes a column over a domain as the
- *   base type. A domain inside an array or a composite stays one.
+ *   base type.
  * @property typeModifier The raw `atttypmod`, carrying what a `numeric(10,2)` or a `varchar(64)` declares; `-1`
  *   where the type takes none.
  * @property origin The column of a relation this one reads, or `null` for an expression, a literal or a function.
