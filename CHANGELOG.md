@@ -26,6 +26,11 @@
   `releaseSavepoint(savepoint)` reach it with a savepoint that was released, or set after one that was released or
   rolled back to.
 
+- **[BREAKING]** `JsonElement`, `JsonObject`, `JsonArray` and `JsonPrimitive` are read only from `json`, `jsonb` and a
+  domain over either, where any value decoding to a `String` was parsed as JSON: `text`, `varchar`, `xml`, an
+  unregistered enum. JSON held in a `text` column, or an untyped literal, now raises
+  `MappingException(NO_CONVERTER_FOUND)`; cast it to `jsonb` in the SQL, or read it as a `String`. `Any` is unchanged.
+
 #### Fixed
 
 - A value inside an array or a composite whose type is a domain is converted as the type under it, as a column over

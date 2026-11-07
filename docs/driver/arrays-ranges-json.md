@@ -293,10 +293,10 @@ val data: JsonObject = row.get("data")
 val status = (data["status"] as JsonPrimitive).content
 ```
 
-`JsonElement`, `JsonObject`, `JsonArray` and `JsonPrimitive` are all accepted targets; ask for the one the column
-actually holds, since a `JsonObject` request against a stored array cannot be satisfied. `row.get<Any>("data")` on a
-`json`/`jsonb` column also yields a `JsonElement`, which is what makes a jsonb attribute inside a `Map<String, Any?>`
-come out usable.
+`JsonElement`, `JsonObject`, `JsonArray` and `JsonPrimitive` are all accepted targets, read from `json` and `jsonb`
+only; JSON kept in `text` needs a `::jsonb` cast in the SQL. Ask for the one the column holds, since a `JsonObject`
+cannot come out of a stored array. Asked for `Any`, a `json`/`jsonb` column yields a `JsonElement` too, which is
+what makes a jsonb attribute inside a `Map<String, Any?>` usable.
 
 The raw text is always available too — the codec decodes both types to `String` before any converter runs, so
 `row.get<String>("data")` hands you the document verbatim for feeding to a parser of your own.
