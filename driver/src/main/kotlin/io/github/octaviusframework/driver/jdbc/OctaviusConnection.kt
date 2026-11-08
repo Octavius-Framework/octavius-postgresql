@@ -35,6 +35,10 @@ internal class OctaviusConnection(
         logParameterValues
     )
 
+    /** The backend process id every log line carries, as `pg_stat_activity` and the server's log show it. */
+    private val pid: String get() = "[PID: ${stream.processId}]"
+
+    //---------------------------------------------------ABORT/CLOSE----------------------------------------------------
     @Volatile
     var isClosedFlag: Boolean = false
 
@@ -44,12 +48,6 @@ internal class OctaviusConnection(
      */
     @Volatile
     private var closeRequested: Boolean = false
-
-    private var cachedSearchPath: SearchPath? = null
-
-
-    /** The backend process id every log line carries, as `pg_stat_activity` and the server's log show it. */
-    private val pid: String get() = "[PID: ${stream.processId}]"
 
     /**
      * Raises unless this connection is usable. A broken stream latches [isClosedFlag].
@@ -71,16 +69,6 @@ internal class OctaviusConnection(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> unwrap(iface: Class<T>): T = wrapSqlException {
-        if (iface.isInstance(this)) return@wrapSqlException this as T
-        throw InvalidOperationException(InvalidOperationExceptionReason.UNWRAP_ERROR, details = "Cannot unwrap to ${iface.name}")
-    }
-
-    override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
-
-    override fun nativeSQL(sql: String?): String = sql?.let { SqlParameterParser.parse(sql).transformedSql } ?: ""
-
     override fun close() {
         if (!closeRequested) {
             closeRequested = true
@@ -95,12 +83,31 @@ internal class OctaviusConnection(
         return isClosedFlag
     }
 
-    override fun getMetaData(): DatabaseMetaData = OctaviusDatabaseMetaData // required by Spring
+    override fun abort(executor: Executor?) = wrapSqlException {
+        if (executor == null) throw InvalidOperationException(
+            InvalidOperationExceptionReason.INVALID_ARGUMENT,
+            details = "Executor cannot be null"
+        )
 
-    override fun getWarnings(): SQLWarning? = null
-    override fun clearWarnings() {} // required by Hikari
+        // Not isClosedFlag, which a broken stream latches too; see closeRequested.
+        if (closeRequested) return@wrapSqlException
+        closeRequested = true
+        isClosedFlag = true
 
+        logger.debug { "$pid Connection aborted" }
 
+        executor.execute {
+            stream.close()
+        }
+        // Signal for Hikari to evict Connection
+        throw NetworkException(
+            NetworkExceptionReason.CONNECTION_ABORTED,
+            details = "Connection explicitly aborted by Octavius",
+            sqlState = "08000"
+        )
+    }
+
+    //----------------------------------------------------VALIDATION----------------------------------------------------
     override fun isValid(timeout: Int): Boolean = wrapSqlException { // required by Hikari
         if (timeout < 0) throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
@@ -144,36 +151,7 @@ internal class OctaviusConnection(
         }
     }
 
-    override fun setClientInfo(name: String?, value: String?) = unsupported()
-    override fun setClientInfo(properties: Properties?) = unsupported()
-    override fun getClientInfo(name: String?): String = unsupported()
-    override fun getClientInfo(): Properties = Properties()
-
-
-    override fun abort(executor: Executor?) = wrapSqlException {
-        if (executor == null) throw InvalidOperationException(
-            InvalidOperationExceptionReason.INVALID_ARGUMENT,
-            details = "Executor cannot be null"
-        )
-
-        // Not isClosedFlag, which a broken stream latches too; see closeRequested.
-        if (closeRequested) return@wrapSqlException
-        closeRequested = true
-        isClosedFlag = true
-
-        logger.debug { "$pid Connection aborted" }
-
-        executor.execute {
-            stream.close()
-        }
-        // Signal for Hikari to evict Connection
-        throw NetworkException(
-            NetworkExceptionReason.CONNECTION_ABORTED,
-            details = "Connection explicitly aborted by Octavius",
-            sqlState = "08000"
-        )
-    }
-
+    //-------------------------------------------------NETWORK TIMEOUT--------------------------------------------------
     override fun setNetworkTimeout(executor: Executor?, milliseconds: Int) = wrapSqlException { // required by Hikari
         checkClosed()
         if (milliseconds < 0) throw InvalidOperationException(
@@ -188,6 +166,7 @@ internal class OctaviusConnection(
         return@wrapSqlException stream.networkTimeout
     }
 
+    //------------------------------------------------------CANCEL------------------------------------------------------
     /**
      * Asks the server, over a second connection, to cancel what this one is running, without waiting for the
      * outcome. A cancelled statement raises
@@ -225,7 +204,8 @@ internal class OctaviusConnection(
         }
     }
 
-    //------------------------------------------SEARCH PATH-------------------------------------------------------------
+    //---------------------------------------------------SEARCH PATH----------------------------------------------------
+    private var cachedSearchPath: SearchPath? = null
 
     /**
      * The search path the server last reported, with the `session_authorization` its `$user` stands for. Parsed
@@ -250,7 +230,7 @@ internal class OctaviusConnection(
         return currentSearchPath().typeLookupOrder
     }
 
-    //--------------------------------------------READ ONLY-------------------------------------------------------------
+    //----------------------------------------------------READ ONLY-----------------------------------------------------
     private var readOnlyFlag: Boolean = false
 
     override fun setReadOnly(readOnly: Boolean) = wrapSqlException { // required by Hikari
@@ -276,8 +256,7 @@ internal class OctaviusConnection(
         return@wrapSqlException readOnlyFlag
     }
 
-    //-----------------------------------------TRANSACTIONS-------------------------------------------------------------
-
+    //---------------------------------------------------TRANSACTIONS---------------------------------------------------
     private var autoCommitFlag: Boolean = true
 
     private var transactionIsolationLevel: Int = Connection.TRANSACTION_READ_COMMITTED
@@ -398,7 +377,7 @@ internal class OctaviusConnection(
         return@wrapSqlException transactionIsolationLevel
     }
 
-    //-------------------------------------------------SAVEPOINTS-------------------------------------------------------
+    //----------------------------------------------------SAVEPOINTS----------------------------------------------------
     private var savepointIdCounter: Int = 1
 
     override fun setSavepoint(): Savepoint = wrapSqlException {
@@ -436,7 +415,7 @@ internal class OctaviusConnection(
         logger.debug { "$pid Savepoint ${savepoint.pgName} released" }
     }
 
-    //--------------------------STATEMENT (SUPPORTED ONLY UPDATE AND EXECUTE)-------------------------------------------
+    //----------------------------------STATEMENT (SUPPORTED ONLY UPDATE AND EXECUTE)-----------------------------------
     // Support for basic Statement is needed for connection pools (e.g., HikariCP connectionInitSql)
     override fun createStatement(): Statement = wrapSqlException {
         checkClosed()
@@ -453,7 +432,30 @@ internal class OctaviusConnection(
         return@wrapSqlException OctaviusStatement(this)
     }
 
-    //-------------------------------------NOT IMPLEMENTED--------------------------------------------------------------
+    override fun nativeSQL(sql: String?): String = sql?.let { SqlParameterParser.parse(sql).transformedSql } ?: ""
+
+    //-----------------------------------------------------WRAPPER------------------------------------------------------
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> unwrap(iface: Class<T>): T = wrapSqlException {
+        if (iface.isInstance(this)) return@wrapSqlException this as T
+        throw InvalidOperationException(InvalidOperationExceptionReason.UNWRAP_ERROR, details = "Cannot unwrap to ${iface.name}")
+    }
+
+    override fun isWrapperFor(iface: Class<*>): Boolean = iface.isInstance(this)
+
+    //----------------------------------------------METADATA AND WARNINGS-----------------------------------------------
+    override fun getMetaData(): DatabaseMetaData = OctaviusDatabaseMetaData // required by Spring
+
+    override fun getWarnings(): SQLWarning? = null
+    override fun clearWarnings() {} // required by Hikari
+
+    //---------------------------------------------------CLIENT INFO----------------------------------------------------
+    override fun setClientInfo(name: String?, value: String?) = unsupported()
+    override fun setClientInfo(properties: Properties?) = unsupported()
+    override fun getClientInfo(name: String?): String = unsupported()
+    override fun getClientInfo(): Properties = Properties()
+
+    //-------------------------------------------------NOT IMPLEMENTED--------------------------------------------------
     private fun unsupported(): Nothing =
         throw InvalidOperationException(InvalidOperationExceptionReason.FEATURE_NOT_SUPPORTED)
 
