@@ -93,7 +93,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Practical Rules and Gotchas](arrays-ranges-json.md#practical-rules-and-gotchas) — The corners collected in one place
 
 ### Composites and Reflection
-- [Two Reflective Mappers, One Asymmetry](composites-reflection.md#two-reflective-mappers-one-asymmetry) — Rows need no registration, composite values do
+- [Reading Needs a Class, Writing Needs a Type](composites-reflection.md#reading-needs-a-class-writing-needs-a-type) — A row, a composite and a `ROW(...)` read into a class with nothing registered
 - [Rows onto Data Classes](composites-reflection.md#rows-onto-data-classes) — Columns found by property name, with nothing registered
 - [Composites onto Data Classes](composites-reflection.md#composites-onto-data-classes) — `registerAutoComposite`, and what a composite reads as without it
 - [Writing a Whole Object as One Parameter](composites-reflection.md#writing-a-whole-object-as-one-parameter) — Entity in and out via `SELECT (@row).*` and `RETURNING *`, and why a nested `emptyList()` needs no `withPgType`
@@ -101,7 +101,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [When a Value Is Missing](composites-reflection.md#when-a-value-is-missing) — Absent, `NULL`, nullable, defaulted — the whole matrix
 - [Reading Them All as Maps](composites-reflection.md#reading-them-all-as-maps) — `compositesAsMaps()` for one query, subtree and all, without touching a registration
 - [Writing the Converters by Hand](composites-reflection.md#writing-the-converters-by-hand) — Replacing reflection, and what `getDefaultTypeName` is really for
-- [`PgComposite` and `PgRecord`](composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord) — The raw forms, and why `ROW(...)` is not a row
+- [`PgComposite` and `PgRecord`](composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord) — The raw forms, and why `ROW(...)` is not a row but a structure of keys
 - [`toDataObject` and `toDataMap`](composites-reflection.md#maps-in-and-out-todataobject-and-todatamap) — The same matching, without a database
 
 ### Bulk Writes

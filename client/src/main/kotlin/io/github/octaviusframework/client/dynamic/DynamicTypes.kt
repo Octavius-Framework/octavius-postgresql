@@ -332,9 +332,9 @@ private class DynamicDtoParameterConverter(overrideJson: Json?) : ParameterConve
 }
 
 /**
- * Turns a `dynamic_dto` composite into the registered class its `type_name` names. [canConvert] goes by the
- * column's type alone, the discriminator being in the value; [convert] refuses the rest with the value in hand to
- * name in its message.
+ * Turns a `dynamic_dto` composite into the registered class its `type_name` names. On that type [canConvert] also
+ * claims every data class no registration fits, which the driver would otherwise build from `type_name` and
+ * `data_payload`; [convert] refuses it with the value in hand to name in its message.
  */
 private class DynamicDtoResultConverter(overrideJson: Json?) : ResultConverter<PgComposite, Any> {
 
@@ -351,7 +351,7 @@ private class DynamicDtoResultConverter(overrideJson: Json?) : ResultConverter<P
     ): Boolean {
         if (sourceType.name != DYNAMIC_DTO_NAME || sourceType.schema != DYNAMIC_DTO_SCHEMA) return false
         val kClass = expectedType.classifier as? KClass<*> ?: return false
-        if (kClass == DynamicDto::class) return true
+        if (kClass == DynamicDto::class || kClass.isData) return true
         return context.types.catalog.attachment(DynamicRegistry::class)?.anyFits(kClass) ?: false
     }
 

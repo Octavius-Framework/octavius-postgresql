@@ -12,6 +12,10 @@ import kotlin.reflect.KType
 import io.github.octaviusframework.driver.util.reflection.MissingToken
 import io.github.octaviusframework.driver.util.reflection.instantiateDataObject
 
+/**
+ * Builds the data class asked for from a composite, each property from the attribute of its name, with nothing
+ * registered. Under `Any` it builds the class registered for the composite's type, and declines where there is none.
+ */
 internal object ReflectionCompositeConverter : ResultConverter<PgComposite, Any> {
 
     override val supportedSourceClass = PgComposite::class
@@ -19,8 +23,7 @@ internal object ReflectionCompositeConverter : ResultConverter<PgComposite, Any>
     override fun canConvert(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext): Boolean {
         val kClass = expectedType.classifier as? KClass<*> ?: return false
         if (kClass == Any::class) return context.types.catalog.compositeClassFor(sourceType) != null
-        if (!kClass.isData) return false
-        return context.types.catalog.registeredComposites.containsKey(kClass)
+        return kClass.isData
     }
 
     override fun convert(source: PgComposite, expectedType: KType, sourceType: PgType, context: DeserializationContext): Any {

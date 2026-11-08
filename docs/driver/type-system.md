@@ -518,9 +518,10 @@ data class Address(val city: String, val street: String)
 session.typeManager.registerAutoComposite<Address>()
 ```
 
-One call registers both directions, and the type name defaults to the class name in `snake_case`, as with enums.
+The registration is what writes the class as that type and what the type read as `Any` becomes; reading it into the
+class asked for needs none. The type name defaults to the class name in `snake_case`, as with enums.
 [Composites and Reflective Mapping](composites-reflection.md#composites-onto-data-classes) is the page for the rest of
-it: what the reflective mapper reads off your class, why a row needs no registration when a composite does, the whole
+it: what the reflective mapper reads off your class, why reading needs no registration when writing does, the whole
 missing-value matrix, and a hand-written converter pair for a composite.
 
 ### Custom converters

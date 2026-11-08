@@ -9,7 +9,7 @@ which PostgreSQL type your class is meant to be.*
 The machinery behind it — which converter is chosen, what the registry does — is in [Type System](type-system.md).
 
 Contents:
-* [Two reflective mappers, one asymmetry](#two-reflective-mappers-one-asymmetry)
+* [Reading needs a class, writing needs a type](#reading-needs-a-class-writing-needs-a-type)
 * [Rows onto data classes](#rows-onto-data-classes)
 * [Composites onto data classes](#composites-onto-data-classes)
 * [Writing a whole object as one parameter](#writing-a-whole-object-as-one-parameter)
@@ -21,29 +21,30 @@ Contents:
 * [Maps in and out: `toDataObject` and `toDataMap`](#maps-in-and-out-todataobject-and-todatamap)
 * [Practical rules and gotchas](#practical-rules-and-gotchas)
 
-## Two reflective mappers, one asymmetry
+## Reading needs a class, writing needs a type
 
-Two converters do reflective work, they look alike, and they do **not** have the same prerequisites:
+Three converters read reflectively, and none of them needs anything registered. The class asked for says what to build,
+and the source supplies the names:
 
-| Source                       | Converter                      | Needs registration | Reached by                      |
-|:-----------------------------|:-------------------------------|:-------------------|:--------------------------------|
-| a whole result `Row`         | `ReflectionRowConverter`       | **no**             | `fetchObjects<T>()` and its kin |
-| a `PgComposite` in one value | `ReflectionCompositeConverter` | **yes**            | `row.get<T>(...)` on that value |
+| Source                          | Converter                      | Names from     | Reached by                      |
+|:--------------------------------|:-------------------------------|:---------------|:--------------------------------|
+| a whole result `Row`            | `ReflectionRowConverter`       | the columns    | `fetchObjects<T>()` and its kin |
+| a `PgComposite` in one value    | `ReflectionCompositeConverter` | the attributes | `row.get<T>(...)` on that value |
+| a `PgRecord` of keys and values | `ReflectionRecordConverter`    | the keys       | `row.get<T>(...)` on that value |
 
-A row can be mapped onto any data class the moment you ask for it. A composite value cannot, until the class has been
-through `registerAutoComposite`. The distinction is not arbitrary — a registration is what carries the PostgreSQL
-*type name* for a class, which both the write direction and the `row.get<Any>` direction need — but it is the first
-thing to trip over:
+What a class does not say is which PostgreSQL type it is. `registerAutoComposite` carries that, and two directions
+need it: writing the class, where the parameter has to go out declared as some type, and reading a composite as
+`Any`, where nothing on this side names a class:
 
 ```kotlin
 data class Address(val city: String, val street: String)
 
 // Fine, with nothing registered
 session.createNativeQuery("SELECT city, street FROM senators").fetchObjects<Address>()
-
-// MappingException(NO_CONVERTER_FOUND)
-//   "No converter found for source class PgComposite and expected type Address"
 session.createNativeQuery("SELECT residence FROM senators").fetchRowStrict().get<Address>("residence")
+
+// TypeException(MISSING_CODEC), until Address is registered
+session.createNativeQuery("UPDATE senators SET residence = $1").executeUpdate(Address("Roma", "Via Sacra"))
 ```
 
 ## Rows onto data classes
@@ -81,10 +82,11 @@ session.typeManager.registerAutoComposite<Address>()
 session.typeManager.registerAutoComposite<SenatorProfile>("senator_profile", schema = "imperium")
 ```
 
-The type name defaults to the class name in `snake_case`, `schema` pins it, and registration is **bidirectional** — the
-class is built from a `PgComposite` on the way in and turned back into one on the way out. Nothing is resolved against
-the catalog at registration time, so the order of `registerAutoComposite` and `reloadTypes()` does not matter; the type
-only has to exist by the time a query uses it. Registration is global for the database, so do it once at startup — see
+The type name defaults to the class name in `snake_case`, and `schema` pins it. Reading the composite into a class
+asked for by name needs none of this: registration is what turns the class back into the composite on the way out,
+and what the composite becomes when it is read as `Any`. Nothing is resolved against the catalog at registration
+time, so the order of `registerAutoComposite` and `reloadTypes()` does not matter; the type only has to exist by the
+time a query uses it. Registration is global for the database, so do it once at startup — see
 [Scope](type-system.md#scope-a-session-handle-over-global-state).
 
 A type name is registered for one class and a class under one type name. A second class under a taken name, or a
@@ -98,19 +100,17 @@ back to the shared one.
 
 ### What you can ask a composite column for
 
-Registration changes what a composite value can become, but it is not the only way to read one:
+Registration changes one row of what a composite value can become:
 
-| `row.get<...>("residence")` | Registered     | Not registered       |
-|:----------------------------|:---------------|:---------------------|
-| `Address`                   | `Address`      | `NO_CONVERTER_FOUND` |
-| `Map<String, Any?>`         | the attributes | the attributes       |
-| `PgComposite`               | the raw value  | the raw value        |
-| `Any`                       | `Address`      | `PgComposite`        |
+| `row.get<...>("residence")` | Registered     | Not registered |
+|:----------------------------|:---------------|:---------------|
+| `Address`                   | `Address`      | `Address`      |
+| `Map<String, Any?>`         | the attributes | the attributes |
+| `PgComposite`               | the raw value  | the raw value  |
+| `Any`                       | `Address`      | `PgComposite`  |
 
-So a composite is never unreadable — worst case you get a `Map` or the raw `PgComposite` and map it yourself.
-`registerAutoComposite` is what buys you the class, in both directions, plus the `Any` row: that last one is how a
-composite nested inside a `Map<String, Any?>` or a `ROW(...)` comes out as your own type rather than a container. A
-hand-written converter can cover every row of this table too — see
+The `Any` row is how a composite nested inside a `Map<String, Any?>`, a `ROW(...)` read as a map among them, comes out
+as your own type rather than a container. A hand-written converter can cover every row of this table too — see
 [Claim `Any` as well as the class](#claim-any-as-well-as-the-class).
 
 The table is what one column answers. To move the whole column — and everything under it — to the `Map` row for one
@@ -119,8 +119,8 @@ query, without touching what the class is registered as anywhere else, see
 
 ### Registration is per class, not per graph
 
-Every data class that appears anywhere in the structure needs its own registration, including ones that only ever appear
-as an attribute of another:
+Every data class a write reaches needs its own registration, including ones that only ever appear as an attribute of
+another:
 
 ```kotlin
 data class Tribute(val amount: Int, val currency: String)
@@ -129,13 +129,13 @@ data class Assessment(val label: String, val payload: Tribute)
 session.typeManager.registerAutoComposite<Assessment>()
 // Tribute NOT registered
 
-// Reading:  MappingException(NO_CONVERTER_FOUND), path = payload
+// Reading:  fine, Tribute being the class of the payload property
 // Writing:  MappingException(NO_CONVERTER_FOUND), path = payload
 ```
 
-Both directions report it the same way, and the `path` names the offending attribute — the fastest way to find the
-class you forgot. A class registered nowhere at all and passed at top level has no attribute to name, so it says so
-directly instead: `TypeException(MISSING_CODEC)` — *"Codec not found for: Tribute"*.
+The `path` names the offending attribute — the fastest way to find the class you forgot. A class registered nowhere
+at all and passed at top level has no attribute to name, so it says so directly instead: `TypeException(MISSING_CODEC)`
+— *"Codec not found for: Tribute"*.
 
 ## Writing a whole object as one parameter
 
@@ -257,13 +257,13 @@ argument for it as much as against.
 
 ## What reflection reads, and what it ignores
 
-Both reflective mappers use the same metadata, computed once per class and cached for the lifetime of the JVM:
+Every reflective mapper uses the same metadata, computed once per class and cached for the lifetime of the JVM:
 
 * **The primary constructor is the whole contract.** Only its parameters are read. A property declared in the class body
   is invisible in both directions — it is never populated from the database and never written to it.
 * **A data class is required.** Reflective mapping reads every primary constructor parameter back as a property, which
   is exactly what a data class guarantees. `registerAutoComposite` rejects anything else with
-  `InvalidOperationException(INVALID_ARGUMENT)` at registration time rather than at query time, and both reflective
+  `InvalidOperationException(INVALID_ARGUMENT)` at registration time rather than at query time, and the reflective
   converters only answer for data classes. Any other shape wants a converter pair of its own.
 * **Names are matched, positions are not.** Column and attribute order never matters.
 * **Extra columns and attributes are ignored.** A `SELECT *` that returns more than your class declares is fine.
@@ -521,9 +521,9 @@ attributes are the table's columns.
 
 ### `PgRecord` — anonymous `ROW(...)`
 
-An anonymous record carries no attribute names on the wire, so it does not map onto a data class — `row.get<Tribute>`
-against a `ROW(...)` value throws `NO_CONVERTER_FOUND`. What it is for is the shape it *does* have: an **ad-hoc keyed
-structure**, assembled in SQL and read as a `Map`, with the fields taken as alternating key/value pairs.
+An anonymous record carries no attribute names on the wire. What it is for is the shape it *does* have: an **ad-hoc
+keyed structure**, assembled in SQL, with the fields taken as alternating key/value pairs — read as a `Map`, or as a
+data class whose properties the keys name.
 
 ```kotlin
 session.createNativeQuery("SELECT ROW('status', 'active', 'province', 7) AS r")
@@ -549,11 +549,32 @@ SELECT ROW(
 
 That is the shape to reach for when a query needs to return something keyed that no declared type covers.
 
-Three shapes are refused with `MappingException(CONVERSION_ERROR)` rather than guessed at, each of them one that would
-otherwise leave the map holding fewer fields than the record did: an odd number of fields — *"Record fields must be in
+Asked for a data class instead, the keys are the names, matched as a row's columns are: `snake_case` or `@PgName`, a
+key with no property ignored, a property with no key taking its default. Each value is converted against its
+property's type, so nothing has to be registered at any depth, and a parent comes back with its children from one
+query:
+
+```kotlin
+data class LandGrant(val province: String, val iugera: Int, val grantedOn: LocalDate)
+data class Veteran(val cognomen: String, val grants: List<LandGrant>)
+
+session.createNativeQuery(
+    """
+    SELECT v.cognomen,
+           ARRAY(SELECT ROW('province', g.province, 'iugera', g.iugera, 'granted_on', g.granted_on)
+                 FROM grants g WHERE g.veteran_id = v.id) AS grants
+    FROM veterans v
+    """
+).fetchObjects<Veteran>()
+```
+
+`granted_on` is a `date` the whole way and arrives as a `LocalDate`, with no type declared for the child anywhere.
+
+Three shapes are refused with `MappingException(CONVERSION_ERROR)` rather than guessed at, whichever way the record is
+read, each of them one that would otherwise drop a field: an odd number of fields — *"Record fields must be in
 key-value pairs"* — a `NULL` key, and a key equal to one already read. A key that converts to none of what was asked for
-fails where it is met instead, `NO_CONVERTER_FOUND` at the field's position, which is how an `int4` key under
-`Map<String, Any?>` arrives.
+fails where it is met instead, `NO_CONVERTER_FOUND` at the field's position. That is how an `int4` key arrives under
+`Map<String, Any?>`, and under a data class, whose keys are read as `String`.
 
 The raw container is there when you want the positional view instead:
 
@@ -586,23 +607,21 @@ missing-value rules as [the table above](#when-a-value-is-missing) and adds a ru
 as `MappingException(CONVERSION_ERROR)` — *"Incompatible type. Expected kotlin.String but got class kotlin.Int"* — with
 the offending key in `path`.
 
-This is the practical bridge for a composite you have chosen not to register: read it as a `Map<String, Any?>` and call
-`toDataObject<T>()`. It also works on any class with a primary constructor, data class or not.
+It works on any class with a primary constructor, data class or not.
 
 ## Practical rules and gotchas
 
-* **Rows need no registration; composite values do.** `fetchObjects<T>()` maps any data class as it stands, but a
-  `PgComposite` needs `registerAutoComposite` before it becomes one.
-* **Register every class in the graph.** Registration is per class; a nested data class needs its own call, and the
-  `path` on the failure names it.
+* **Reading into a class needs no registration; writing one does.** A row, a composite and a `ROW(...)` of keys and
+  values all map onto the data class asked for. `registerAutoComposite` is what a class needs to be written, and what
+  a composite read as `Any` becomes.
+* **Register every class the write reaches.** Registration is per class; a nested data class needs its own call, and
+  the `path` on the failure names it.
 * **One type name, one class.** A second class under a taken name, or a registered class under another name, is
   refused with `InvalidOperationException(INVALID_ARGUMENT)`.
 * **Data classes only, and only their primary constructor.** `registerAutoComposite` rejects anything else outright;
   properties declared in the class body are invisible in both directions.
 * **A default replaces an absent column, never a value.** `NULL` is a value, so nullability — not a default — is what
   makes `NULL` acceptable. A property may carry both.
-* **An unregistered composite is still readable** as `Map<String, Any?>` or `PgComposite` — pair the map with
-  `toDataObject<T>()` when you want the class without the registration.
 * **Passing a whole object as one composite parameter dodges the empty-collection problem.** A nested `emptyList()`
   takes its element OID from the attribute definition, so it needs no `withPgType`.
 * **`OVERRIDING USER VALUE` only affects identity columns.** It is the price of `(@row).*` with a key-carrying class,
@@ -616,5 +635,5 @@ This is the practical bridge for a composite you have chosen not to register: re
   nested inside a `Map` or a `ROW(...)` — to resolve to your class. Narrow on `sourceType` first.
 * **`getDefaultTypeName` is skipped for container-returning converters.** Override it only for the `Range<T>` case, or
   pin the range with `withPgType`.
-* **`ROW(...)` is a keyed structure, not a row.** No names on the wire and no data class mapping; read as a `Map` it is
-  alternating key/value pairs.
+* **`ROW(...)` is a keyed structure, not a row.** No names on the wire: its fields are alternating key/value pairs,
+  read as a `Map` or into a data class by its keys.

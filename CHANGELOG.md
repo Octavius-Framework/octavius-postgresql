@@ -11,7 +11,20 @@
   prints them. A refusal that explains itself - `Only roles with privileges of the "pg_write_server_files" role may COPY
   to a file.` - had that explanation only in `serverErrorMessage`.
 
+- An anonymous `ROW(...)` of alternating keys and values reads into the data class asked for, each property from the
+  value under its name, as a row's columns are read: `snake_case` or `@PgName`, a key with no property ignored, a
+  property with no key taking its default. Nothing is registered at any depth and each value keeps its own type, so
+  `ARRAY(SELECT ROW('province', g.province, 'granted_on', g.granted_on) FROM grants g WHERE …)` reads as a
+  `List<LandGrant>` with the `date` a `LocalDate`. The fields are refused as the map reading refuses them: an odd
+  number, a `NULL` key, a repeated key. A `ROW(...)` asked for as a class raised `MappingException(NO_CONVERTER_FOUND)`.
+
 #### Changed
+
+- A composite reads into the data class asked for with nothing registered, at any depth, where it raised
+  `MappingException(NO_CONVERTER_FOUND)` until the class went through `registerAutoComposite`. Writing the class and
+  reading the composite as `Any` still need the registration. A composite asked for as a class its attributes do not
+  fit goes by the missing-value rules, as a row does: a non-nullable property with no attribute raises
+  `REQUIRED_ATTRIBUTE_MISSING` with the property in the path, where the whole read raised `NO_CONVERTER_FOUND`.
 
 - **[BREAKING]** `PermissionDeniedException` has no `schema`, `table`, `column`, `datatype` or `routine`. PostgreSQL
   fills none of the first four on a `42501`, naming the refused object only in `dbMessage`, and `routine` was the

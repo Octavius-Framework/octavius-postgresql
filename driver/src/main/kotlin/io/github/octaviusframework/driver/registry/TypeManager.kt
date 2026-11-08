@@ -89,9 +89,10 @@ class TypeManager internal constructor(
         holder.update { it.withAttachment(type, transform(it.attachment(type))) }
 
     /**
-     * Registers the composite [typeName] for mapping onto the data class [T] through reflection, both ways. Each
-     * property is matched to the attribute named after it in `snake_case`, or by its
-     * [PgName][io.github.octaviusframework.annotation.PgName].
+     * Registers the data class [T] as the composite [typeName]: a [T] is written as that type, and a value of that
+     * type read as `Any` comes back as a [T]. Each property is matched to the attribute named after it in
+     * `snake_case`, or by its [PgName][io.github.octaviusframework.annotation.PgName]. Reading the composite into a
+     * [T] asked for by name needs no registration.
      *
      * @param typeName Defaults to the class name in `snake_case`.
      * @param schema Empty for the search path.

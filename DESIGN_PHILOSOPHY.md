@@ -22,6 +22,7 @@ the one that does.
 * [Why registration order is the override mechanism](#why-registration-order-is-the-override-mechanism)
 * [Why nothing is created behind your back](#why-nothing-is-created-behind-your-back)
 * [Why `Map<String, Any?>` and not data classes everywhere](#why-mapstring-any-and-not-data-classes-everywhere)
+* [Why the class asked for is enough to read but not to write](#why-the-class-asked-for-is-enough-to-read-but-not-to-write)
 * [Why blocking, and not coroutines-first](#why-blocking-and-not-coroutines-first)
 * [Why exceptions, and `DataResult` when you ask for it](#why-exceptions-and-dataresult-when-you-ask-for-it)
 * [Why `@name` and not `:name`](#why-name-and-not-name)
@@ -56,8 +57,9 @@ Supporting PostgreSQL alone, the driver needs no such model, because the databas
 every value is: a composite and its attributes, an enum and its labels, a domain and the type under it, a range
 and its subtype. The driver reads the catalog and decodes each value by it, binary and as deeply nested as it
 comes, so a composite, enum, domain or range created by a migration needs no codec written for it. A class is
-registered only to read a composite or an enum as that class rather than as a map or a string. What a value is,
-the database says; what it is read as, the call does.
+registered only to write it as a composite or an enum, to read an enum as that class rather than as a string, and
+to say what a composite read as `Any` becomes. What a value is, the database says; what it is read as, the call
+does.
 
 The rest follows from that choice rather than adding to it. The driver speaks PostgreSQL's wire protocol instead
 of wrapping a portable interface, which is open only to a driver with one engine to speak to. The client's
@@ -243,6 +245,30 @@ assembled in SQL, nested arrays and all, is a `Map<String, Any?>` on this side w
 `LocalDate` in it. No type to declare, no class to write, and nothing registered: the query decided the shape
 and the driver carried it. See
 [the raw forms](docs/driver/composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord).
+
+## Why the class asked for is enough to read but not to write
+
+A row, a composite and a `ROW(...)` of keys and values read into the data class the call asks for, with nothing
+registered. The source brings the names and each field's own type, the class brings the shape, and nothing is
+left to say. A write is missing something: the parameter goes out declared as some type, and a class does not
+say which. `registerAutoComposite` pairs the class with that type, and read the other way the same pairing names
+the class where the call names none, which is how a composite read as `Any`, or as a value in a
+`Map<String, Any?>`, comes back as that class.
+
+Whether the class asked for can be trusted on a read depends on where the shape comes from:
+
+| Source              | Its shape is set by                           |
+|:--------------------|:----------------------------------------------|
+| a row, a `ROW(...)` | the query that reads it                       |
+| a composite         | the DDL, which every stored value obeys       |
+| a `jsonb` column    | whatever wrote it, perhaps for an older class |
+
+The first two are why a read needs no registration, and the third is why a `jsonb` value does not read into the
+class asked for. A stored document has to say what it is itself, and
+[`dynamic_dto`](docs/client/dynamic-dto.md) is that: its class comes from the `type_name` in the value, not from
+the call. Where a class is wanted from a plain `jsonb` column anyway, read it as a `JsonElement` and decode it
+with the application's own `Json`, which is one line. See
+[Reading needs a class, writing needs a type](docs/driver/composites-reflection.md#reading-needs-a-class-writing-needs-a-type).
 
 ## Why blocking, and not coroutines-first
 
