@@ -57,6 +57,9 @@
   composite attribute over a domain of a composite is written the same way. A `PgContainer` built by hand and
   wrapped in `withPgType` goes out as the type named, where it went out as its own whatever the name.
 
+- An error or a notice that carries no non-localized severity, as the ones PgBouncer writes itself do, is read with
+  the severity it has, where it failed with a `NullPointerException`.
+
 ## Version 2.9.0 (v2.9.0) (2026-11-04)
 
 ### Driver

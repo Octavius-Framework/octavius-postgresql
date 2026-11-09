@@ -26,7 +26,11 @@ internal class ErrorOrNoticeMessage(val fields: Map<Char, String>) : BackendMess
 
     val localizedSeverity: String get() = fields[SEVERITY_LOCALIZED]!!
 
-    val severity: String get() = fields[SEVERITY_NON_LOCALIZED]!!
+    /**
+     * The `V` field, or `S` where there is no `V`. PostgreSQL always sends `V`, but PgBouncer leaves it out of the
+     * errors it raises itself, and since PgBouncer translates nothing, its `S` is already in English.
+     */
+    val severity: String get() = fields[SEVERITY_NON_LOCALIZED] ?: fields[SEVERITY_LOCALIZED]!!
 
     /** Whether this ends the session: a `FATAL` or `PANIC`, after which only the close follows. */
     val isFatal: Boolean get() = severity == "FATAL" || severity == "PANIC"
