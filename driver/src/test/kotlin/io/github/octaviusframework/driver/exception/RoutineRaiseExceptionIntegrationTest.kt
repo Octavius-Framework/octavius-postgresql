@@ -73,4 +73,22 @@ class RoutineRaiseExceptionIntegrationTest : AbstractIntegrationTest() {
             assertEquals("23505", exception.sqlState)
         }
     }
+
+    // The server sends class 28 only as a FATAL at login, so in an open session it is a routine's own code.
+    @Test
+    fun `a raise carrying a class 28 code is not a refused login`() {
+        openSession().use { session ->
+            val exception = assertFailsWith<UncategorizedDatabaseException> {
+                session.createNativeQuery("""
+                    DO $$
+                    BEGIN
+                        RAISE EXCEPTION 'The tessera does not match' USING ERRCODE = 'invalid_password';
+                    END;
+                    $$;
+                """).execute()
+            }
+            logger.error(exception) { "" }
+            assertEquals("28P01", exception.sqlState)
+        }
+    }
 }

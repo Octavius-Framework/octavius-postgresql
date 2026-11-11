@@ -43,14 +43,6 @@ internal object ExceptionTranslator {
                 )
             }
 
-            // Class 28 - Invalid Authorization Specification
-            state.startsWith("28") -> InitializationException(
-                InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS,
-                details = serverErrorMessage.message,
-                sqlState = state,
-                serverErrorMessage = serverErrorMessage
-            )
-
             state.startsWith("21") || state.startsWith("0A") || state.startsWith("3D") || state.startsWith("3F") -> StatementException(
                 StatementExceptionReason.INVALID_DEFINITION,
                 details = serverErrorMessage.message,

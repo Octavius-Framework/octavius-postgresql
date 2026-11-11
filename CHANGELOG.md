@@ -44,6 +44,12 @@
   unregistered enum. JSON held in a `text` column, or an untyped literal, now raises
   `MappingException(NO_CONVERTER_FOUND)`; cast it to `jsonb` in the SQL, or read it as a `String`. `Any` is unchanged.
 
+- **[BREAKING]** An `ERROR` with a class `28` SQLSTATE is `UncategorizedDatabaseException`, where it was
+  `InitializationException(SERVER_REJECTED_CREDENTIALS)`. The server sends class `28` only as a `FATAL` at login,
+  which stays `InitializationException`, so in an open session the code is a routine's own
+  `RAISE … USING ERRCODE = 'invalid_password'`, raised on a session that is alive. A `catch` of
+  `InitializationException` around a query no longer sees it.
+
 #### Fixed
 
 - A value inside an array or a composite whose type is a domain is converted as the type under it, as a column over
