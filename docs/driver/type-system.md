@@ -421,7 +421,7 @@ works out one the server will not take:
 * a `String` bound for `jsonb`, `json`, `inet` or an enum you have not registered, which would otherwise go out as
   `text` — [One default per Kotlin class](#one-default-per-kotlin-class);
 * a `null` passed to an overloaded routine, so that PostgreSQL can pick the variant —
-  [Typed NULLs](functions-procedures.md#typed-nulls-for-overloaded-routines);
+  [Functions and procedures](queries.md#functions-and-procedures);
 * a range its element class does not settle: one over a subtype that also has a custom range type
   ([Ranges](arrays-ranges-json.md#ranges-and-multiranges)), or one over a composite
   ([`Range<Tribute>`](composites-reflection.md#getdefaulttypename-is-not-for-the-composite)).

@@ -14,7 +14,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 | [Quickstart](quickstart.md)                         | Dependency, connection, first query — from an empty project to a returned row                             |
 | [Octavius vs Legacy JDBC](octavius-vs-jdbc.md)      | Which JDBC surface is kept and why, what is unsupported, what answers quietly, migration map              |
 | [Session Initialization](initialization.md)         | Entry points, `OctaviusProperties`, HikariCP pooling, startup parameters, notices, property reference     |
-| [Executing Queries](queries.md)                     | Positional and named parameters, the `fetch*` family, streaming, cancellation, per-query converters       |
+| [Executing Queries](queries.md)                     | Parameters, the `fetch*` family, streaming, functions and procedures, cancellation, per-query converters  |
 | [Transaction Management](transactions.md)           | Block API, manual control, savepoints, transaction state, isolation levels and read-only mode             |
 | [Type System & Mapping](type-system.md)             | Catalog loading, the 2-layer architecture, codecs and converters, registering enums, composites and more  |
 | [Arrays, Ranges and JSON](arrays-ranges-json.md)    | Nullable elements, multiple dimensions, inclusive and exclusive bounds, multiranges, JSON DTOs            |
@@ -24,7 +24,6 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 | [Logging](logging.md)                               | Logger names, what each level says, what never reaches the log, and what tracing costs                    |
 | [Spring Integration](spring-integration.md)         | `OctaviusTemplate`, autoconfiguration, `application.yml`, transaction manager, the driver's exceptions    |
 | [Concurrency and Virtual Threads](concurrency.md)   | What one connection serializes, pinning, `OctaviusDispatchers`, cancellation, where the real limit is     |
-| [Functions and Procedures](functions-procedures.md) | `SELECT` against `CALL`, OUT and INOUT parameters, overload resolution, no `CallableStatement`            |
 | [COPY Protocol](copy.md)                            | COPY IN and COPY OUT, data formats, operation lifecycle, cancelling, transactions                         |
 | [Listen & Notify](listen-notify.md)                 | Subscribing and emitting, when delivery actually happens, receiving as a flow, listener loops             |
 | [Large Objects](large-objects.md)                   | Creating, reading, seeking, resizing and deleting data beyond what `bytea` can hold                       |
@@ -63,6 +62,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Streaming Large Results](queries.md#streaming-large-results) — `forEach*` for results too large to hold
 - [Do Not Re-Enter the Session While Reading](queries.md#do-not-re-enter-the-session-while-rows-are-being-read) — The one rule streaming imposes
 - [`execute()` Takes a Whole Script](queries.md#execute-takes-a-whole-script) — Several statements, one round trip, all or nothing
+- [Functions and Procedures](queries.md#functions-and-procedures) — `SELECT` and `CALL`, `OUT` parameters as columns, overloads
 - [Cancelling a Query in Flight](queries.md#cancelling-a-query-in-flight) — Out-of-band cancellation requests
 - [Per-Query Converters](queries.md#per-query-converters) — Overriding mapping for a single call
 
@@ -158,13 +158,6 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [What Is Shared Beyond the Connection](concurrency.md#what-is-shared-beyond-the-connection) — The type registry, and what a reload promises
 - [What Can Cross a Thread Boundary](concurrency.md#what-can-cross-a-thread-boundary) — Sessions, rows, managers
 - [Cancelling a Query in Flight](concurrency.md#cancelling-a-query-in-flight) — And why a cancel can hit the wrong statement
-
-### Functions and Procedures
-- [Sending Parameters In](functions-procedures.md#sending-parameters-in) — Including how argument types pick the overload
-- [Getting Values Back](functions-procedures.md#getting-values-back) — Scalars, rows, sets, and void
-- [OUT and INOUT Parameters in a `CALL`](functions-procedures.md#out-and-inout-parameters-in-a-call) — Procedures that return values
-- [When a Routine Fails](functions-procedures.md#when-a-routine-fails) — A routine deciding, and a routine turning out to be wrong
-- [Summary](functions-procedures.md#summary) — Function against procedure, side by side
 
 ### COPY Protocol
 - [Two Levels of API](copy.md#two-levels-of-api) — Stream-based, or chunks you control

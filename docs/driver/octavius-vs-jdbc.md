@@ -43,7 +43,7 @@ A further handful of methods neither work nor throw. They [answer quietly](#what
 ### 1. `PreparedStatement` and `CallableStatement`
 No index-based binding (`stmt.setString(1, "value")`). Octavius replaces both with `createNativeQuery` and `createNamedQuery`, removing the statement lifecycle entirely and making parameter binding harder to get wrong.
 
-JDBC escape syntax goes with them: `{call proc(?)}`, `{fn now()}`, `{d '2026-08-15'}` are never rewritten, and `setEscapeProcessing()` throws. Calling a routine is [an ordinary `SELECT` or `CALL`](functions-procedures.md).
+JDBC escape syntax goes with them: `{call proc(?)}`, `{fn now()}`, `{d '2026-08-15'}` are never rewritten, and `setEscapeProcessing()` throws. Calling a routine is [an ordinary `SELECT` or `CALL`](queries.md#functions-and-procedures).
 
 ### 2. `ResultSet`
 There's no mutable cursor to walk with `.next()`. Octavius hydrates results straight into memory — as `List<Row>`, a single typed field via `fetchField<T>()`, or fully-formed Kotlin data classes via `fetchObject<T>()`. Results too large to hold are [streamed with `forEach*`](queries.md#streaming-large-results) instead of tuned with `setFetchSize()`.
@@ -112,7 +112,7 @@ Coming from `pgjdbc`, this is where each habit lands:
 | `RETURN_GENERATED_KEYS` + `getGeneratedKeys()`  | `RETURNING id`, read with `fetchFieldStrict<Long>()`                                                                                                                                                                        |
 | `setQueryTimeout(s)`                            | `statementTimeout` on [`transaction.required`](transactions.md#terms-for-one-transaction), or `statement_timeout` as a [startup parameter](initialization.md#startup-parameters); `session.cancelQuery()` for one in flight |
 | `addBatch()` / `executeBatch()`                 | [`UNNEST` inserts](bulk-writes.md), or [`COPY`](copy.md)                                                                                                                                                                    |
-| `prepareCall("{call proc(?)}")`                 | [`CALL proc($1)`](functions-procedures.md) as an ordinary statement                                                                                                                                                         |
+| `prepareCall("{call proc(?)}")`                 | [`CALL proc($1)`](queries.md#functions-and-procedures) as an ordinary statement                                                                                                                                             |
 | `conn.unwrap(PGConnection).getLargeObjectAPI()` | `session.largeObjects` — [Large Objects](large-objects.md)                                                                                                                                                                  |
 | `conn.unwrap(PGConnection).getCopyAPI()`        | `session.copy` — [COPY](copy.md)                                                                                                                                                                                            |
 | `createArrayOf(…)` / `createStruct(…)`          | Pass the Kotlin `List` or data class; [the registry](type-system.md) encodes it                                                                                                                                             |

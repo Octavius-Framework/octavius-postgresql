@@ -15,6 +15,7 @@ Contents:
 * [Streaming large results](#streaming-large-results)
 * [Do not re-enter the session while rows are being read](#do-not-re-enter-the-session-while-rows-are-being-read)
 * [Statements that return nothing](#statements-that-return-nothing)
+* [Functions and procedures](#functions-and-procedures)
 * [Cancelling a query in flight](#cancelling-a-query-in-flight)
 * [Per-query converters](#per-query-converters)
 
@@ -53,9 +54,6 @@ session.createNamedQuery("SELECT * FROM t WHERE data @> @filter AND tsv @@ to_ts
 What is not safe is an `@` written straight against a name, because that is what a parameter looks like: PostgreSQL
 reads `@x` as the absolute value of `x` and `a <@b` as `a <@ b`, and here both are parameters. Put a space after the
 `@` — `@ x`, `a <@ b` — and PostgreSQL reads them as it would anywhere else.
-
-> [!NOTE]
-> Parameters are sent in binary under a concrete type, which is what makes a bare `null` ambiguous and can make PostgreSQL pick the wrong overload of a function. [Functions and Procedures](functions-procedures.md#argument-types-decide-which-routine-runs) covers that in detail, and `withPgType` is the way out.
 
 ### Quoting a name that comes from outside
 
@@ -305,6 +303,41 @@ session.createNativeQuery("""
 PostgreSQL wraps a script like that in an implicit transaction, so it is all or nothing: a statement failing halfway takes the ones before it down with it and nothing is left half-applied. Called inside `transaction.required { }` it simply joins the transaction already open, where the usual rollback rules apply instead. The ban on rows covers every statement in the script rather than only the first — one stray `SELECT` anywhere in it and the whole call is an `InvalidOperationException(UNEXPECTED_RESULT)`, unless it was called as `execute(ignoreRows = true)`. A script that came out of `pg_dump` is the usual reason to: it emits `SELECT pg_catalog.setval(...)` for every sequence it carries.
 
 The `fetch*` family and `executeUpdate()` cannot do the same. They send one statement to `Parse`, where PostgreSQL permits exactly one, so `SELECT 1; SELECT 2` comes back as `StatementException(SYNTAX_ERROR)`. Nor can a script bind anything: a `$1` inside one is `StatementException(UNDEFINED_OBJECT)`, there being no `Bind` step to give it a value. Whatever varies belongs in a statement of its own, run through `executeUpdate()`.
+
+## Functions and procedures
+
+A routine is called with ordinary SQL and read with an ordinary terminal. There is no `CallableStatement`: nothing
+is registered as an output before the call, and nothing is read out of the statement after it. A function goes
+through `SELECT` and a procedure through `CALL`, and their `OUT` and `INOUT` parameters come back as the columns of
+the row the call returns, named after the parameters. `CALL` wants a value in every argument position, so an `OUT`
+one takes a `NULL` in the SQL:
+
+```kotlin
+// CREATE FUNCTION province_census(uid int, OUT population int, OUT taxes numeric)
+val census = session.createNativeQuery("SELECT * FROM province_census($1)").fetchRowStrict(3)
+val taxes: BigDecimal = census.get("taxes")
+
+// CREATE PROCEDURE count_legion(legion_id int, OUT strength int)
+val strength = session.createNativeQuery("CALL count_legion($1, NULL)").fetchFieldStrict<Int>(7)
+```
+
+A procedure with no `OUT` parameter returns no row and runs through `executeUpdate()`. A function returning `void`
+returns one row with one `void` column, read as `Unit`. A `LANGUAGE sql` function puts `NULL` in it where PL/pgSQL
+and the built-ins put a value, so `fetchField<Unit?>()` reads either.
+
+PostgreSQL picks a function's overload by the types of its arguments, and a value goes out under the type its Kotlin
+class maps to, so the class is what picks it. A `Double` passed to a function taking `numeric` finds no function at
+all, which is `StatementException(UNDEFINED_OBJECT)`: pass a `BigDecimal`. Declaring the `Double` with
+`withPgType("numeric")` does not convert it and raises `MappingException(NO_CONVERTER_FOUND)`.
+
+A `null` has no class to go by, so it goes out with no type and leaves the choice to the server. Between `int` and
+`bigint` the server refuses with `StatementException(AMBIGUOUS_OBJECT)`, and between `int` and `text` it takes
+`text`. A `null` declared with `withPgType` names the overload meant:
+
+```kotlin
+// CREATE FUNCTION levy(legion_id int, amount int) RETURNS text, and the same with amount bigint
+session.createNativeQuery("SELECT levy($1, $2)").fetchField<String>(7, null.withPgType("int8"))
+```
 
 ## Cancelling a query in flight
 

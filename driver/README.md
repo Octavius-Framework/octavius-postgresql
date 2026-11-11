@@ -167,7 +167,7 @@ shortlist.
 **Specialized**
 - [Concurrency and Virtual Threads](../docs/driver/concurrency.md) — what one connection serializes, and where
   the real limit is.
-- [Functions and Procedures](../docs/driver/functions-procedures.md) — no `CallableStatement` required.
+- [Functions and Procedures](../docs/driver/queries.md#functions-and-procedures) — no `CallableStatement` required.
 - [COPY Protocol](../docs/driver/copy.md) — bulk import and export.
 - [Listen & Notify](../docs/driver/listen-notify.md) — asynchronous events as a flow.
 - [Large Objects](../docs/driver/large-objects.md) — beyond what `bytea` can hold.
