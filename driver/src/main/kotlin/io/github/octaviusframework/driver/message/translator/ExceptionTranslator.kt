@@ -43,14 +43,6 @@ internal object ExceptionTranslator {
                 )
             }
 
-            // Class 28 - Invalid Authorization Specification
-            state.startsWith("28") -> InitializationException(
-                InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS,
-                details = serverErrorMessage.message,
-                sqlState = state,
-                serverErrorMessage = serverErrorMessage
-            )
-
             state.startsWith("21") || state.startsWith("0A") || state.startsWith("3D") || state.startsWith("3F") -> StatementException(
                 StatementExceptionReason.INVALID_DEFINITION,
                 details = serverErrorMessage.message,
@@ -72,13 +64,12 @@ internal object ExceptionTranslator {
                 ConstraintViolationException(reason, state, serverErrorMessage)
             }
 
-            // Class 25 — Invalid Transaction State
-            state.startsWith("25") -> {
+            // Class 25 — Invalid Transaction State, Class 3B — Savepoint Exception
+            state.startsWith("25") || state.startsWith("3B") -> {
                 val reason = when (state) {
                     "25P02" -> TransactionStateExceptionReason.IN_FAILED_TRANSACTION
                     "25006" -> TransactionStateExceptionReason.READ_ONLY_TRANSACTION
-                    "25P01" -> TransactionStateExceptionReason.NO_ACTIVE_TRANSACTION
-                    "25001" -> TransactionStateExceptionReason.ACTIVE_TRANSACTION
+                    "25P01", "25001", "3B001" -> TransactionStateExceptionReason.MISPLACED_STATEMENT
                     else -> TransactionStateExceptionReason.UNKNOWN
                 }
                 TransactionStateException(reason, state, serverErrorMessage)
@@ -151,8 +142,7 @@ internal object ExceptionTranslator {
             // Class P0 — PL/pgSQL Error: a failed assertion is a defect, a RAISE a decision.
             state.startsWith("P0") -> {
                 val assertionReason = when (state) {
-                    "P0002" -> RoutineAssertionExceptionReason.NO_DATA_FOUND
-                    "P0003" -> RoutineAssertionExceptionReason.TOO_MANY_ROWS
+                    "P0002", "P0003" -> RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE
                     "P0004" -> RoutineAssertionExceptionReason.ASSERT_FAILURE
                     else -> null
                 }

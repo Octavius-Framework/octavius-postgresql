@@ -33,36 +33,56 @@ internal object MapRecordConverter : ResultConverter<PgRecord, Map<Any, Any?>> {
         val keyType = (if (asMap) expectedType.arguments.getOrNull(0)?.type else null) ?: typeOf<Any>()
         val valueType = (if (asMap) expectedType.arguments.getOrNull(1)?.type else null) ?: typeOf<Any?>()
 
-        if (source.fields.size % 2 != 0) throw MappingException(
-            MappingExceptionReason.CONVERSION_ERROR,
-            details = "Record fields must be in key-value pairs (even number of fields expected), " +
-                "got ${source.fields.size}"
-        )
+        val valueIndexes = valueIndexByKey(source, keyType, context)
+        val result = LinkedHashMap<Any, Any?>(valueIndexes.size)
 
-        val result = LinkedHashMap<Any, Any?>(source.fields.size)
-
-        for (i in source.fields.indices step 2) {
-            // A key's path names its position; a value's names its key.
-            val keyRaw = source.fields[i] ?: throw conversionErrorAt(
-                "[$i]",
-                "A record read as a map cannot carry a NULL key: the field at index $i is null"
-            )
-
-            val key: Any = context.convert(keyRaw, keyType, source.getAttributeOid(i), "[$i]")
-
-            if (result.containsKey(key)) throw conversionErrorAt(
-                "[$i]",
-                "Duplicate key '$key': the field at index ${i + 1} would replace the one already read under it"
-            )
-
-            val valueRaw = source.fields[i + 1]
+        for ((key, index) in valueIndexes) {
+            // A value's path names its key.
+            val valueRaw = source.fields[index]
             result[key] = if (valueRaw == null) {
                 null
             } else {
-                context.convert(valueRaw, valueType, source.getAttributeOid(i + 1), key.toString())
+                context.convert(valueRaw, valueType, source.getAttributeOid(index), key.toString())
             }
         }
 
         return result
     }
+}
+
+/**
+ * The fields of [record] taken as alternating keys and values: each key converted to [keyType], in the order read,
+ * mapped to the index of the value after it.
+ *
+ * @throws MappingException `CONVERSION_ERROR` for an odd number of fields, a `NULL` key or a repeated key; whatever
+ *   converting a key raises, with its position as the path.
+ */
+internal fun valueIndexByKey(record: PgRecord, keyType: KType, context: DeserializationContext): LinkedHashMap<Any, Int> {
+    val fields = record.fields
+
+    if (fields.size % 2 != 0) throw MappingException(
+        MappingExceptionReason.CONVERSION_ERROR,
+        details = "Record fields must be in key-value pairs (even number of fields expected), got ${fields.size}"
+    )
+
+    val result = LinkedHashMap<Any, Int>(fields.size)
+
+    for (i in fields.indices step 2) {
+        // A key's path names its position.
+        val keyRaw = fields[i] ?: throw conversionErrorAt(
+            "[$i]",
+            "A record read by its keys cannot carry a NULL key: the field at index $i is null"
+        )
+
+        val key: Any = context.convert(keyRaw, keyType, record.getAttributeOid(i), "[$i]")
+
+        if (result.containsKey(key)) throw conversionErrorAt(
+            "[$i]",
+            "Duplicate key '$key': the field at index ${i + 1} would replace the one already read under it"
+        )
+
+        result[key] = i + 1
+    }
+
+    return result
 }

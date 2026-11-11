@@ -9,6 +9,8 @@ import io.github.octaviusframework.driver.converter.result.mapper.ResultConverte
 import io.github.octaviusframework.driver.type.PgStandardType
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.container.PgComposite
+import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.type.withPgType
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlinx.serialization.json.JsonElement
@@ -17,12 +19,18 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import kotlin.test.assertFailsWith
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
 class JsonElementIntegrationTest : AbstractIntegrationTest() {
 
     data class Dispatch(
+        val id: Int,
+        val report: JsonObject
+    )
+
+    data class SealedDispatch(
         val id: Int,
         val report: JsonObject
     )
@@ -74,6 +82,8 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
     override val schema = """
         CREATE TABLE dispatches (id int PRIMARY KEY, data jsonb);
         CREATE TYPE dispatch AS (id int, report jsonb);
+        CREATE DOMAIN report_json AS jsonb;
+        CREATE TYPE sealed_dispatch AS (id int, report report_json);
     """.trimIndent()
 
     @Test
@@ -168,5 +178,35 @@ class JsonElementIntegrationTest : AbstractIntegrationTest() {
             conn.close()
         }
     }
-}
 
+    @Test
+    fun `a JsonObject is not parsed out of a text column`() {
+        openSession().use { session ->
+            val exception = assertFailsWith<MappingException> {
+                session.createNativeQuery("""SELECT '{"legio": "X Equestris"}'::text""").fetchFieldStrict<JsonObject>()
+            }
+            assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, exception.reason)
+
+            // The same text cast to jsonb reads.
+            val cast = session.createNativeQuery("""SELECT '{"legio": "X Equestris"}'::text::jsonb""")
+                .fetchFieldStrict<JsonObject>()
+            assertEquals("X Equestris", (cast["legio"] as JsonPrimitive).content)
+        }
+    }
+
+    @Test
+    fun `a JsonObject reads from a domain over jsonb inside a composite and an array`() {
+        openSession().use { session ->
+            session.reloadTypes()
+            session.typeManager.registerAutoComposite<SealedDispatch>()
+
+            val dispatch = session.createNativeQuery("""SELECT ROW(1, '{"outcome": "victoria"}')::sealed_dispatch""")
+                .fetchFieldStrict<SealedDispatch>()
+            assertEquals("victoria", (dispatch.report["outcome"] as JsonPrimitive).content)
+
+            val reports = session.createNativeQuery("""SELECT ARRAY['{"outcome": "victoria"}'::report_json]""")
+                .fetchFieldStrict<List<JsonObject>>()
+            assertEquals("victoria", (reports.single()["outcome"] as JsonPrimitive).content)
+        }
+    }
+}

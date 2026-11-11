@@ -23,7 +23,7 @@ internal object ReflectionCompositeParameterConverter : ParameterConverter<Any> 
         val registration = context.types.catalog.registeredComposites[source::class] ?: error("Missing registration for composite")
 
         val type = if (expectedOid.isKnownOid) {
-            context.types.dictionary.getPgType(expectedOid) as PgType.Composite
+            context.types.dictionary.getBaseType(expectedOid) as PgType.Composite
         } else {
             val qName = registration
             context.types.dictionary.getPgType(context.types.resolveOid(qName.name, qName.schema)) as PgType.Composite

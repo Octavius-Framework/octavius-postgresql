@@ -21,7 +21,7 @@ the one that does.
 * [Why the type registry is global per database](#why-the-type-registry-is-global-per-database)
 * [Why registration order is the override mechanism](#why-registration-order-is-the-override-mechanism)
 * [Why nothing is created behind your back](#why-nothing-is-created-behind-your-back)
-* [Why `Map<String, Any?>` and not data classes everywhere](#why-mapstring-any-and-not-data-classes-everywhere)
+* [Why the class asked for is enough to read but not to write](#why-the-class-asked-for-is-enough-to-read-but-not-to-write)
 * [Why blocking, and not coroutines-first](#why-blocking-and-not-coroutines-first)
 * [Why exceptions, and `DataResult` when you ask for it](#why-exceptions-and-dataresult-when-you-ask-for-it)
 * [Why `@name` and not `:name`](#why-name-and-not-name)
@@ -56,8 +56,9 @@ Supporting PostgreSQL alone, the driver needs no such model, because the databas
 every value is: a composite and its attributes, an enum and its labels, a domain and the type under it, a range
 and its subtype. The driver reads the catalog and decodes each value by it, binary and as deeply nested as it
 comes, so a composite, enum, domain or range created by a migration needs no codec written for it. A class is
-registered only to read a composite or an enum as that class rather than as a map or a string. What a value is,
-the database says; what it is read as, the call does.
+registered only to write it as a composite or an enum, to read an enum as that class rather than as a string, and
+to say what a composite read as `Any` becomes. What a value is, the database says; what it is read as, the call
+does.
 
 The rest follows from that choice rather than adding to it. The driver speaks PostgreSQL's wire protocol instead
 of wrapping a portable interface, which is open only to a driver with one engine to speak to. The client's
@@ -90,20 +91,20 @@ value at a time, remembers nothing, and is the only thing between the row and yo
 
 ## Why speak the protocol rather than wrap a driver
 
-The previous generation of this project sat on pgjdbc, and most of its complexity was there to work around
-what that cost: composites arriving over the text protocol with their per-field OIDs already gone, enums the
-library had to be taught about separately, a stateful `ResultSet`, no named parameters, and a type map that
-could only be registered per physical connection — which is a difficult thing to arrange behind a pool.
-
-Every one of those is a consequence of the same thing: the layer that knows the types is not the layer you can
-reach. Wrapping a driver means inheriting its model of what a value is, and then building the model you wanted
-on top of a lossy version of it.
+The previous generation of this project sat on pgjdbc, and much of its type handling was there to work around
+what that cost: composites arriving over the text protocol with their attributes' OIDs already gone, and a type
+map that could only be registered per physical connection, which is a difficult thing to arrange behind a pool.
+Both come from the same place: the layer that knows the types is not the layer you can reach. Wrapping a driver
+means inheriting its model of what a value is, and then building the model you wanted on top of a lossy version
+of it.
 
 Speaking the wire protocol directly removes the intermediary rather than working around it. Values arrive in
-binary with their OIDs in the row description, so a decoded value knows what it is without anything being
-declared twice. Named parameters are rewritten to `$1` on the way out, so there is no second escaping rule to
-remember. And the pieces that used to be workarounds are simply gone — see
-[where each of them went](README.md#relation-to-octavius-database).
+binary, a composite with the OID of every attribute inside it, so a decoded value knows what it is without
+anything being declared twice.
+
+The placeholder comes with it. Named parameters go out as `$1`, which is PostgreSQL's own, where over JDBC they
+would go out as `?`. That is also a `jsonb` operator, as are `?|` and `?&`, and pgjdbc has them written `??` to
+tell them apart. Here `?` is never a placeholder, so those operators need no escaping rule.
 
 ## One standard, no fallback
 
@@ -195,10 +196,13 @@ Converters are consulted newest-first and the first one whose `canConvert` says 
 no priority number, no `@Order`, and no way to remove a converter once registered — a later registration simply
 shadows an earlier one.
 
-The alternative is explicit priorities, and it fails in a specific way: a number is meaningful only against
-every other number in the system, so the moment two libraries both register at priority 100 you are reading
-someone else's source to find out what happens. Registration order is a total ordering that nobody has to
-agree on in advance, and it is visible in the one place it matters — the block where you register.
+The previous generation settled overrides by rule instead: a custom handler replaced the built-in one for its
+type, a handler could be marked the default for its Kotlin class, and two custom handlers for one type, or two
+defaults for one class, were refused at startup. Every override meant knowing those rules and which side of them
+each handler sat on. A priority number would be no better: it needs an annotation to carry it, a rule for how it
+ranks against a converter registered by hand, and renumbering whenever a new one goes between two others.
+Registration order needs none of that. It is a total order nobody has to agree on in advance, visible in the one
+place it matters, the block where you register.
 
 Two consequences follow, and both are deliberate. A query's own converters are consulted entirely before the
 session's, which is what makes
@@ -210,39 +214,41 @@ would make priority differ between builds — see
 ## Why nothing is created behind your back
 
 The library issues no DDL you did not ask for. `dynamic_dto` is a type you install — in a migration, which is
-the reading this project prefers, or through an explicit `install()` call. No type is created on first use, no
-table appears to hold metadata, and no schema is inspected and quietly corrected.
+the reading this project prefers, or through an explicit `install()` call. No type is created on first use, and
+no schema is inspected and quietly corrected. The one table the library creates is the migrator's history, when
+you call `migrate()`.
 
 The reason is that a library which writes to your schema has taken a decision that belongs to whoever owns the
 migration history — and it takes it at a moment nobody is watching, on whichever connection happened to be
 first, possibly in production, possibly concurrently with a deploy. The failure modes of that are not worth the
 line of setup it saves.
 
-It has a cost, and the cost is real: there is no moment that belongs to the library. You hand it a
-`DataSource` you built, `install()` is a call you make, the scan runs when you run it, and the migrator is a
-library you embed rather than a command you run. Nothing is left where a framework would print its banner.
-That is the same property, seen from the other side.
+What it costs is that every setup step is a call you make: `install()`, the scan, and the migrator, which is a
+library you embed rather than a command that runs itself.
 
-## Why `Map<String, Any?>` and not data classes everywhere
+## Why the class asked for is enough to read but not to write
 
-A `data class` is the right answer when the shape is known and stable. It is the wrong answer for a report
-assembled at runtime, an admin tool that renders whatever it is given, or a projection that exists for one
-query — and defining a class per projection is how a codebase ends up with forty of them, each used once.
+A row, a composite and a `ROW(...)` of keys and values read into the data class the call asks for, with nothing
+registered. The source brings the names and each field's own type, the class brings the shape, and nothing is
+left to say. A write is missing something: the parameter goes out declared as some type, and a class does not
+say which. `registerAutoComposite` pairs the class with that type, and read the other way the same pairing names
+the class where the call names none, which is how a composite read as `Any`, or as a value in a
+`Map<String, Any?>`, comes back as that class.
 
-So every row is readable as a map without any registration at all, and a composite too. That is not a fallback
-for when mapping fails; it is a first-class way to read, and it is why
-[`compositesAsMaps()`](docs/driver/composites-reflection.md#reading-them-all-as-maps) exists to collapse a
-whole subtree for one query without touching what those classes are registered as anywhere else.
+Whether the class asked for can be trusted on a read depends on where the shape comes from:
 
-Where a map is not enough, `toDataObject<T>()` maps one into a class by the same rules, with no database in the
-picture — so the choice between the two is made at the call site rather than at the schema.
+| Source              | Its shape is set by                           |
+|:--------------------|:----------------------------------------------|
+| a row, a `ROW(...)` | the query that reads it                       |
+| a composite         | the DDL, which every stored value obeys       |
+| a `jsonb` column    | whatever wrote it, perhaps for an older class |
 
-The furthest version of this is that the shape need not exist anywhere but in the query. An anonymous
-`ROW(...)` comes back as a `PgRecord` and reads as a map, keeping each field's own type — so a projection
-assembled in SQL, nested arrays and all, is a `Map<String, Any?>` on this side with a `LocalDate` still a
-`LocalDate` in it. No type to declare, no class to write, and nothing registered: the query decided the shape
-and the driver carried it. See
-[the raw forms](docs/driver/composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord).
+The first two are why a read needs no registration, and the third is why a `jsonb` value does not read into the
+class asked for. A stored document has to say what it is itself, and
+[`dynamic_dto`](docs/client/dynamic-dto.md) is that: its class comes from the `type_name` in the value, not from
+the call. Where a class is wanted from a plain `jsonb` column anyway, read it as a `JsonElement` and decode it
+with the application's own `Json`, which is one line. See
+[Reading needs a class, writing needs a type](docs/driver/composites-reflection.md#reading-needs-a-class-writing-needs-a-type).
 
 ## Why blocking, and not coroutines-first
 
@@ -326,16 +332,15 @@ Spring's outside it, and some forty classes still put a `NOT NULL` and a `CHECK`
 
 Named parameters are `@name`, not the `:name` that Spring's `NamedParameterJdbcTemplate` made familiar.
 
-`:` is already PostgreSQL's, in array slice syntax: `array[1:5]`, `array[:n]`, `array[m:]`. That is a genuine
-ambiguity rather than a theoretical one — tooling cannot reliably tell `:name` inside brackets from a slice
-bound, and under `:param` you simply cannot use a parameter *as* a slice bound:
+`:` is already PostgreSQL's, in array slice syntax: `array[1:5]`, `array[:n]`, `array[m:]`. Under `:name` the two
+collide in a way no parser can settle: `service_record[:tours]` is a slice up to the column `tours` and the
+element at the parameter `tours`, and the statement does not say which. With `@` each reading has a spelling of
+its own:
 
 ```sql
--- :param — ambiguous inside brackets, and the index cannot be one
-SELECT service_record[:index] FROM legionnaires WHERE name = :name;
-
--- @param — unambiguous, and it can
-SELECT service_record[@index] FROM legionnaires WHERE name = @name;
+SELECT service_record[:tours]  FROM legionnaires;  -- a slice up to the column tours
+SELECT service_record[@tours]  FROM legionnaires;  -- the element at the parameter tours
+SELECT service_record[:@tours] FROM legionnaires;  -- a slice up to the parameter tours
 ```
 
 `@` is PostgreSQL's too — the absolute-value operator, and part of `@>`, `<@`, `@@`, `@?` and a handful more —
@@ -345,23 +350,22 @@ and `a <@ b` are PostgreSQL's absolute value and containment. Everything Postgre
 written the second way — `@>`, `@@` and `@?` cannot be written any other way to begin with — so none of it is
 out of reach, and no statement is left open to two readings.
 
-It also means `?` is never a placeholder here, so the `jsonb` operators that use it — `?`, `?|`, `?&` — need
-no escaping rule.
-
 ## Dynamic queries are just strings
 
-A filter that appears only when a parameter is present, a sort key chosen at runtime, a `WHERE` assembled from
-four optional conditions — these are the cases a criteria API exists for, and the reason to not have one is
-that a criteria API is a second query language that is worse at the job.
+A filter that appears only when a parameter is present, a sort key chosen at runtime, a statement assembled from
+parts: these are the cases a criteria API or a type-safe DSL exists for, and there is neither here.
 
-`QueryFragment` is the whole of what is offered: a piece of SQL text with its parameters attached, composable
-with `join`, and absent when its condition is null. Clauses that receive null disappear rather than producing
-`WHERE true`. See [`QueryFragment`](docs/client/queries.md#queryfragment).
+Such a DSL is a second query language. It has to be learned on top of SQL, which every query still ends up as,
+and a query written in it is debugged through the SQL it generates. It also covers only what has been mirrored
+in Kotlin. PostgreSQL is extended inside the database: an extension brings its own types, functions and
+operators, and `CREATE OPERATOR` adds one in a single statement. Each would have to be mirrored in the DSL before
+a query could use it, by its maintainers or by you, or else dropped into it as a raw string, which is where this
+library starts.
 
-The line worth being careful about is that a *value* is never part of the statement — the builders write the
-placeholder themselves — but a *name* has nowhere else to go, so a column or table name taken from outside is
-SQL text and has to be treated as such. That is stated where it can be acted on, in
-[A name that comes from outside](docs/client/queries.md#a-name-that-comes-from-outside).
+So a dynamic query is SQL text assembled in Kotlin. A
+[`QueryFragment`](docs/client/queries.md#queryfragment) carries a piece of it with the parameters it names, and
+the builders take the pieces as they are, so whatever the database understands can be written the day it
+exists.
 
 ## Why the version number is not semver
 
@@ -396,8 +400,6 @@ happen here:
   else means tracking, and tracking is the thing being avoided.
 * **Lazy anything.** A row is decoded when it arrives; a value is converted when you ask for it. Nothing is
   fetched later, so nothing can fail later, in a frame that no longer knows why.
-* **Guessing a type nobody declared.** Where the destination's type is known it decides; where it is not, the
-  ambiguity is settled by a policy you chose or refused by name. It is never resolved by picking the likeliest.
 * **A full JDBC implementation.** The `Connection`, `DataSource` and `Statement` exist so that HikariCP and
   Spring recognise this as a driver and manage it as one. They are not there to run JDBC tooling, and
   `executeQuery` is unimplemented rather than emulated — half a `ResultSet` would be worse than none.

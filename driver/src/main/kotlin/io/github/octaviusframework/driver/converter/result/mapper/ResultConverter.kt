@@ -11,7 +11,8 @@ import kotlin.reflect.KType
  * or on one query.
  *
  * A converter is offered only values of its [supportedSourceClass], newest registration first. Those under
- * `Any::class` are offered a value only after every converter of its own class declined.
+ * `Any::class` are offered a value only after every converter of its own class declined. The `sourceType` it is
+ * shown is never a [PgType.Domain]: a value of one, at any depth, comes as the type under it.
  *
  * Under `fetchObject*`, `fetchField*` and `forEach*` a converter runs while the result is still arriving, so a
  * query on the same session is refused with `CONNECTION_BUSY`. Through `Row.get` after `fetchRows` it may query.

@@ -14,7 +14,7 @@ class RoutineAssertionExceptionIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `should throw NO_DATA_FOUND`() {
+    fun `INTO STRICT finding no row is INCORRECT_RESULT_SIZE`() {
         openSession().use { session ->
             val exception = assertFailsWith<RoutineAssertionException> {
                 session.createNativeQuery("""
@@ -30,14 +30,14 @@ class RoutineAssertionExceptionIntegrationTest : AbstractIntegrationTest() {
             }
             logger.error(exception) { "" }
             assertEquals("P0002", exception.sqlState)
-            assertEquals(RoutineAssertionExceptionReason.NO_DATA_FOUND, exception.reason)
+            assertEquals(RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE, exception.reason)
             assertNotNull(exception.where)
             assertTrue(exception.where!!.isNotEmpty())
         }
     }
 
     @Test
-    fun `should throw TOO_MANY_ROWS`() {
+    fun `INTO STRICT finding two rows is INCORRECT_RESULT_SIZE`() {
         openSession().use { session ->
             val exception = assertFailsWith<RoutineAssertionException> {
                 session.createNativeQuery("""
@@ -53,7 +53,7 @@ class RoutineAssertionExceptionIntegrationTest : AbstractIntegrationTest() {
             }
             logger.error(exception) { "" }
             assertEquals("P0003", exception.sqlState)
-            assertEquals(RoutineAssertionExceptionReason.TOO_MANY_ROWS, exception.reason)
+            assertEquals(RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE, exception.reason)
             assertNotNull(exception.where)
             assertTrue(exception.where!!.isNotEmpty())
         }

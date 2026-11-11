@@ -220,7 +220,7 @@ class ClientIntegrationTest : AbstractClientIntegrationTest() {
                 ).execute()
             }
         }
-        assertEquals(RoutineAssertionExceptionReason.NO_DATA_FOUND, thrown.reason)
+        assertEquals(RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE, thrown.reason)
     }
 
     @Test

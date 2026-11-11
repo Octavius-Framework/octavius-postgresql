@@ -14,6 +14,7 @@ import io.github.octaviusframework.driver.converter.result.composite.ReflectionC
 import io.github.octaviusframework.driver.converter.result.range.MultiRangeResultConverter
 import io.github.octaviusframework.driver.converter.result.range.RangeResultConverter
 import io.github.octaviusframework.driver.converter.result.record.MapRecordConverter
+import io.github.octaviusframework.driver.converter.result.record.ReflectionRecordConverter
 import io.github.octaviusframework.driver.converter.result.row.MapRowConverter
 import io.github.octaviusframework.driver.converter.result.row.ReflectionRowConverter
 import io.github.octaviusframework.driver.converter.result.standard.JsonElementConverter
@@ -46,6 +47,7 @@ internal fun builtinCatalog(): TypeCatalog {
         ReflectionRowConverter,
         MapRowConverter,
         MapRecordConverter,
+        ReflectionRecordConverter,
         JsonElementConverter,
         RangeResultConverter,
         MultiRangeResultConverter

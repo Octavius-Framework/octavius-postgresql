@@ -186,22 +186,21 @@ The statement survives, which is usually what makes the entry worth keeping; onl
 |:---|:---------------------------|:-----------------------------------------------------------------------|
 | 1  | `08*`                      | `NetworkException(CONNECTION_ERROR)`                                   |
 | 2  | `22*`                      | `DataException` — reason per code, see [2](#2-dataexception)           |
-| 3  | `28*`                      | `InitializationException(SERVER_REJECTED_CREDENTIALS)`                 |
-| 4  | `21*`, `0A*`, `3D*`, `3F*` | `StatementException(INVALID_DEFINITION)`                               |
-| 5  | `23*`                      | `ConstraintViolationException` — reason per code                       |
-| 6  | `25*`                      | `TransactionStateException` — reason per code                          |
-| 7  | `40002`                    | `ConstraintViolationException(UNKNOWN)`                                |
-| 8  | `40*` (everything else)    | `ConcurrencyException` — `40001`, `40P01`, else `UNKNOWN`              |
-| 9  | `42501`                    | `PermissionDeniedException`                                            |
-| 10 | `42*` (everything else)    | `StatementException` — reason per code, see [3](#3-statementexception) |
-| 11 | `54*`                      | `StatementException(SYNTAX_ERROR)`                                     |
-| 12 | `55P03`                    | `ConcurrencyException(LOCK_NOT_AVAILABLE)`                             |
-| 13 | `55*` (everything else)    | `DatabaseSystemException`                                              |
-| 14 | `57014`                    | `ExecutionAbortedException`                                            |
-| 15 | `57*`, `53*`, `58*`, `XX*` | `DatabaseSystemException`                                              |
-| 16 | `P0002`, `P0003`, `P0004`  | `RoutineAssertionException` — reason per code                          |
-| 17 | `P0*` (everything else)    | `RoutineRaiseException`                                                |
-| 18 | anything else              | `UncategorizedDatabaseException`                                       |
+| 3  | `21*`, `0A*`, `3D*`, `3F*` | `StatementException(INVALID_DEFINITION)`                               |
+| 4  | `23*`                      | `ConstraintViolationException` — reason per code                       |
+| 5  | `25*`, `3B*`               | `TransactionStateException` — reason per code                          |
+| 6  | `40002`                    | `ConstraintViolationException(UNKNOWN)`                                |
+| 7  | `40*` (everything else)    | `ConcurrencyException` — `40001`, `40P01`, else `UNKNOWN`              |
+| 8  | `42501`                    | `PermissionDeniedException`                                            |
+| 9  | `42*` (everything else)    | `StatementException` — reason per code, see [3](#3-statementexception) |
+| 10 | `54*`                      | `StatementException(SYNTAX_ERROR)`                                     |
+| 11 | `55P03`                    | `ConcurrencyException(LOCK_NOT_AVAILABLE)`                             |
+| 12 | `55*` (everything else)    | `DatabaseSystemException`                                              |
+| 13 | `57014`                    | `ExecutionAbortedException`                                            |
+| 14 | `57*`, `53*`, `58*`, `XX*` | `DatabaseSystemException`                                              |
+| 15 | `P0002`, `P0003`, `P0004`  | `RoutineAssertionException` — reason per code                          |
+| 16 | `P0*` (everything else)    | `RoutineRaiseException`                                                |
+| 17 | anything else              | `UncategorizedDatabaseException`                                       |
 
 ## Exception reference
 
@@ -331,13 +330,12 @@ The statement is fine and the transaction it arrived in is not, which is why thi
 server refuses before looking at the SQL, so there is no `position`. `IN_FAILED_TRANSACTION` is a consequence, and the
 failure worth reading is the earlier one — see [Transaction state](transactions.md#transaction-state).
 
-| Reason (`TransactionStateExceptionReason`) | SQLSTATE    | Note                                                                                                     |
-|:-------------------------------------------|:------------|:---------------------------------------------------------------------------------------------------------|
-| `IN_FAILED_TRANSACTION`                    | `25P02`     | An earlier error doomed the transaction                                                                  |
-| `READ_ONLY_TRANSACTION`                    | `25006`     |                                                                                                          |
-| `NO_ACTIVE_TRANSACTION`                    | `25P01`     |                                                                                                          |
-| `ACTIVE_TRANSACTION`                       | `25001`     |                                                                                                          |
-| `UNKNOWN`                                  | other `25*` | Two-phase commit among them; `25P03` and `25P04` end the session, see [8](#8-sessionterminatedexception) |
+| Reason (`TransactionStateExceptionReason`) | SQLSTATE                  | Note                                                                                                       |
+|:-------------------------------------------|:--------------------------|:-----------------------------------------------------------------------------------------------------------|
+| `IN_FAILED_TRANSACTION`                    | `25P02`                   | An earlier error doomed the transaction                                                                    |
+| `READ_ONLY_TRANSACTION`                    | `25006`                   |                                                                                                            |
+| `MISPLACED_STATEMENT`                      | `25P01`, `25001`, `3B001` | Needs a transaction block, refuses one or comes too late in it, or names a savepoint the transaction lacks |
+| `UNKNOWN`                                  | other `25*` and `3B*`     | Two-phase commit among them; `25P03` and `25P04` end the session, see [8](#8-sessionterminatedexception)   |
 
 ### 10. `RoutineRaiseException`
 
@@ -354,17 +352,15 @@ there is nothing to tell apart: `P0000` is reachable only by asking for it with
 Separate from `RoutineRaiseException` because a `RAISE` is the routine deciding, while these are a claim the data
 falsified — a defect in the database code, as a `fetch*Strict` finding no row is one in Kotlin.
 
-| Reason (`RoutineAssertionExceptionReason`) | SQLSTATE | Note                                     |
-|:-------------------------------------------|:---------|:-----------------------------------------|
-| `NO_DATA_FOUND`                            | `P0002`  | `SELECT INTO STRICT` found no row        |
-| `TOO_MANY_ROWS`                            | `P0003`  | `SELECT INTO STRICT` found more than one |
-| `ASSERT_FAILURE`                           | `P0004`  | An `ASSERT` did not hold                 |
+| Reason (`RoutineAssertionExceptionReason`) | SQLSTATE         | Note                                                |
+|:-------------------------------------------|:-----------------|:----------------------------------------------------|
+| `INCORRECT_RESULT_SIZE`                    | `P0002`, `P0003` | `SELECT INTO STRICT` found no row, or more than one |
+| `ASSERT_FAILURE`                           | `P0004`          | An `ASSERT` did not hold                            |
 
 ### 12. `PermissionDeniedException`
 
-`42501`, with no reason enum. Core PostgreSQL names the refused object only in `dbMessage` —
-`permission denied for table senators` — and leaves `schema`, `table`, `column` and `datatype` `null`; `routine` is the
-server's own C function that refused, not one of yours.
+`42501`, with no reason enum. The refused object is named only in `dbMessage` —
+`permission denied for table senators` — and where the server explains the refusal, `dbDetail` and `hint` carry it.
 
 ### 13. `InvalidOperationException`
 

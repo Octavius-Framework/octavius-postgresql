@@ -1,3 +1,76 @@
+## Version 2.10.0 (v2.10.0)
+
+### Driver
+
+#### Added
+
+- `TypeDictionary.getBaseType(oid)` returns the type under a domain, through every domain stacked on another, and
+  the type itself for anything else: what a converter is shown for an OID read out of a `PgContainer`.
+
+- `PermissionDeniedException.dbDetail` and `hint` carry the server's detail and hint, and the exception's log block
+  prints them. A refusal that explains itself - `Only roles with privileges of the "pg_write_server_files" role may COPY
+  to a file.` - had that explanation only in `serverErrorMessage`.
+
+- An anonymous `ROW(...)` of alternating keys and values reads into the data class asked for, each property from the
+  value under its name, as a row's columns are read: `snake_case` or `@PgName`, a key with no property ignored, a
+  property with no key taking its default. Nothing is registered at any depth and each value keeps its own type, so
+  `ARRAY(SELECT ROW('province', g.province, 'granted_on', g.granted_on) FROM grants g WHERE …)` reads as a
+  `List<LandGrant>` with the `date` a `LocalDate`. The fields are refused as the map reading refuses them: an odd
+  number, a `NULL` key, a repeated key. A `ROW(...)` asked for as a class raised `MappingException(NO_CONVERTER_FOUND)`.
+
+#### Changed
+
+- A composite reads into the data class asked for with nothing registered, at any depth, where it raised
+  `MappingException(NO_CONVERTER_FOUND)` until the class went through `registerAutoComposite`. Writing the class and
+  reading the composite as `Any` still need the registration. A composite asked for as a class its attributes do not
+  fit goes by the missing-value rules, as a row does: a non-nullable property with no attribute raises
+  `REQUIRED_ATTRIBUTE_MISSING` with the property in the path, where the whole read raised `NO_CONVERTER_FOUND`.
+
+- **[BREAKING]** `PermissionDeniedException` has no `schema`, `table`, `column`, `datatype` or `routine`. PostgreSQL
+  fills none of the first four on a `42501`, naming the refused object only in `dbMessage`, and `routine` was the
+  server's own C function, never one of the application's. A `RAISE … USING ERRCODE = '42501'` that names the object
+  leaves it in `serverErrorMessage`. Code reading any of the five stops compiling.
+
+- **[BREAKING]** A statement the transaction does not allow where it arrived raises
+  `TransactionStateException(MISPLACED_STATEMENT)`, which replaces `NO_ACTIVE_TRANSACTION` and `ACTIVE_TRANSACTION`:
+  one that needs a transaction block outside one (`25P01`), one that refuses a block, a subtransaction or a query
+  before it (`25001`), and one naming a savepoint the transaction does not have (`3B001`). The server's message
+  names the rule. `3B001` raised `UncategorizedDatabaseException`; `rollback(savepoint)` and
+  `releaseSavepoint(savepoint)` reach it with a savepoint that was released, or set after one that was released or
+  rolled back to.
+
+- **[BREAKING]** `JsonElement`, `JsonObject`, `JsonArray` and `JsonPrimitive` are read only from `json`, `jsonb` and a
+  domain over either, where any value decoding to a `String` was parsed as JSON: `text`, `varchar`, `xml`, an
+  unregistered enum. JSON held in a `text` column, or an untyped literal, now raises
+  `MappingException(NO_CONVERTER_FOUND)`; cast it to `jsonb` in the SQL, or read it as a `String`. `Any` is unchanged.
+
+- **[BREAKING]** A `SELECT INTO STRICT` that found no row (`P0002`) or several (`P0003`) is
+  `RoutineAssertionException(INCORRECT_RESULT_SIZE)`, which replaces `NO_DATA_FOUND` and `TOO_MANY_ROWS`, as a
+  `fetch*Strict` finding either is `INCORRECT_RESULT_SIZE` in Kotlin. `sqlState` and `dbMessage` say which. Code
+  naming either constant stops compiling.
+
+- **[BREAKING]** An `ERROR` with a class `28` SQLSTATE is `UncategorizedDatabaseException`, where it was
+  `InitializationException(SERVER_REJECTED_CREDENTIALS)`. The server sends class `28` only as a `FATAL` at login,
+  which stays `InitializationException`, so in an open session the code is a routine's own
+  `RAISE … USING ERRCODE = 'invalid_password'`, raised on a session that is alive. A `catch` of
+  `InitializationException` around a query no longer sees it.
+
+#### Fixed
+
+- A value inside an array or a composite whose type is a domain is converted as the type under it, as a column over
+  a domain already was. An enum under a domain reads as its registered class, `jsonb` under one as a `JsonElement`
+  under `Any`, and a composite under one as its registered class, where they came back as
+  `MappingException(CONVERSION_ERROR)`, a `String` and a raw `PgComposite`. A converter's `sourceType` is never a
+  `PgType.Domain`, at any depth.
+
+- A collection, a range or a registered composite declared through `withPgType` as a domain over its type is built
+  as that type and goes out declared as the domain, where it failed with `MappingException(CONVERSION_ERROR)`. A
+  composite attribute over a domain of a composite is written the same way. A `PgContainer` built by hand and
+  wrapped in `withPgType` goes out as the type named, where it went out as its own whatever the name.
+
+- An error or a notice that carries no non-localized severity, as the ones PgBouncer writes itself do, is read with
+  the severity it has, where it failed with a `NullPointerException`.
+
 ## Version 2.9.0 (v2.9.0) (2026-11-04)
 
 ### Driver

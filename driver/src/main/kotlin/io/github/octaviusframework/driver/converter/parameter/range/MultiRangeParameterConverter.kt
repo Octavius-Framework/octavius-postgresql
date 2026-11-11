@@ -15,7 +15,7 @@ internal object MultiRangeParameterConverter : ParameterConverter<MultiRange<*>>
 
     override fun convert(source: MultiRange<*>, expectedOid: Int, context: SerializationContext): Any {
         val pgType = if (expectedOid.isKnownOid) {
-            context.types.dictionary.getPgType(expectedOid) as? PgType.Multirange
+            context.types.dictionary.getBaseType(expectedOid) as? PgType.Multirange
         } else {
             val elementOid = context.defaultOidForClass(source.elementClass)
 

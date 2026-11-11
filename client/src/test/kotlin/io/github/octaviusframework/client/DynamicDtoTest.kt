@@ -78,6 +78,9 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
 
     data class Archived(val id: Int, val record: Benefit)
 
+    /** Registered as nothing, and every property can go without a value, so a reflective read would succeed. */
+    data class Colonia(val province: String? = null, val iugera: Int = 0)
+
     override val schema = "CREATE TYPE public.magistrature AS ENUM ('QUAESTOR', 'AEDILE', 'PRAETOR', 'CONSUL')"
 
     @BeforeAll
@@ -610,6 +613,16 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         }
         assertTrue(thrown.details.contains("MilitaryPension"))
         assertTrue(thrown.details.contains("LandGrant"))
+    }
+
+    @Test
+    fun `a data class registered as nothing is refused, not built from the composite's own attributes`() {
+        val thrown = assertFailsWith<MappingException> {
+            db.rawQuery("SELECT dynamic_dto('land_grant', jsonb_build_object('province', 'Gallia', 'iugera', 7))")
+                .fetchFieldStrict<Colonia>()
+        }
+        assertTrue(thrown.details.contains("LandGrant"))
+        assertTrue(thrown.details.contains("Colonia"))
     }
 
     @Test

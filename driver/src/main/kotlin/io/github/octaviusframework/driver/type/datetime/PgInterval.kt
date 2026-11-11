@@ -28,7 +28,11 @@ sealed interface PgInterval {
     data object MinusInfinity : PgInterval
 }
 
-/** This interval as a [DateTimePeriod]. */
+/**
+ * This interval as a [DateTimePeriod].
+ *
+ * @throws IllegalArgumentException if the time overflows the period's nanoseconds, past about 2.5 million hours.
+ */
 fun PgInterval.toDateTimePeriod(): DateTimePeriod = when (this) {
     Infinity -> DateTimePeriod.INFINITY
     MinusInfinity -> DateTimePeriod.MINUS_INFINITY

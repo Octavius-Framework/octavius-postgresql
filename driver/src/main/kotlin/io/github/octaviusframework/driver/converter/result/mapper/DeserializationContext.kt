@@ -21,11 +21,11 @@ interface DeserializationContext {
     fun findConverter(sourceClass: KClass<*>, expectedType: KType, sourceType: PgType): ResultConverter<Any, *>?
 
     /**
-     * [convert] for a value given by its type's OID.
+     * [convert] for a value given by its type's OID, a domain converted as the type under it.
      *
      * @throws io.github.octaviusframework.driver.exception.TypeException if [sourceOid] names no known type.
      */
     fun <T> convert(source: Any?, expectedType: KType, sourceOid: Int, pathSegment: String? = null): T {
-        return convert(source, expectedType, types.dictionary.getPgType(sourceOid), pathSegment)
+        return convert(source, expectedType, types.dictionary.getBaseType(sourceOid), pathSegment)
     }
 }

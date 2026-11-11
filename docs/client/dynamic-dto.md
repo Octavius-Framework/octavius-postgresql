@@ -43,9 +43,9 @@ discriminator to keep honest, and no document for the server to walk into before
 The margin is narrowest where the composite is nested and mapped by
 [`registerAutoComposite`](../driver/composites-reflection.md), which matches attributes to constructor
 parameters afresh at every level, where a JSON payload is one parse however deep it goes. Reflection took 1.7×
-the allocation of a hand-written `ResultConverter` on a two-level row, against 1.5× on a flat one, in the same
-time. A converter that names the attributes instead of discovering them writes faster than everything else here
-at either depth, and reads as fast as reflection with less garbage.
+the allocation of a hand-written `ResultConverter` on a two-level row, against 1.5× on a flat one, and more time at
+both depths. A converter that names the attributes instead of discovering them is the fastest encoding here, writing and
+reading, at either depth.
 
 ## Where It Goes
 

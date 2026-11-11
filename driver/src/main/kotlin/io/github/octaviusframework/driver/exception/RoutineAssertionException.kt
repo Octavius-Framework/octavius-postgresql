@@ -4,11 +4,8 @@ import io.github.octaviusframework.driver.message.ServerErrorMessage
 
 /** Which assertion of a PL/pgSQL routine failed. */
 enum class RoutineAssertionExceptionReason {
-    /** `SELECT INTO STRICT` found no row (P0002). */
-    NO_DATA_FOUND,
-
-    /** `SELECT INTO STRICT` found several rows (P0003). */
-    TOO_MANY_ROWS,
+    /** `SELECT INTO STRICT` found no row (P0002) or several (P0003). */
+    INCORRECT_RESULT_SIZE,
 
     /** An `ASSERT` failed (P0004). */
     ASSERT_FAILURE
@@ -45,7 +42,6 @@ class RoutineAssertionException(
 
 private fun generateDeveloperMessage(reason: RoutineAssertionExceptionReason): String =
     when (reason) {
-        RoutineAssertionExceptionReason.NO_DATA_FOUND -> "A query intended to return a single row returned no data."
-        RoutineAssertionExceptionReason.TOO_MANY_ROWS -> "A query intended to return a single row returned multiple rows."
+        RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE -> "A SELECT INTO STRICT found no row or several. The DB message says which."
         RoutineAssertionExceptionReason.ASSERT_FAILURE -> "An assertion failed during routine execution."
     }

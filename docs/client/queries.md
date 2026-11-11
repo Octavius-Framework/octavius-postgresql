@@ -378,7 +378,7 @@ val population = db.rawQuery("CALL province_census(@uid, NULL)").fetchFieldStric
 ```
 
 The `NULL` is PostgreSQL's rule rather than anything here — `CALL` wants a value in every argument position,
-outbound ones included. See [Functions and Procedures](../driver/functions-procedures.md#out-and-inout-parameters-in-a-call).
+outbound ones included. See [Functions and procedures](../driver/queries.md#functions-and-procedures).
 
 It also has one terminal nothing else has:
 

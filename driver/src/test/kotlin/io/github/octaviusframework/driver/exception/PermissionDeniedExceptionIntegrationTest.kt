@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 
 class PermissionDeniedExceptionIntegrationTest : AbstractIntegrationTest() {
     companion object {
@@ -46,17 +47,32 @@ class PermissionDeniedExceptionIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `should throw PermissionDeniedException with table and schema details`() {
+    fun `should name the refused table in the message`() {
         peregrinusSession().use { session ->
             val exception = assertFailsWith<PermissionDeniedException> {
                 session.createNativeQuery("SELECT * FROM aerarium").fetchRows()
             }
             logger.error(exception) { "" }
             assertEquals("42501", exception.sqlState)
-            println("errorMessage: " + exception.dbMessage)
-            println("table: " + exception.table)
-            println("schema: " + exception.schema)
             assertTrue(exception.dbMessage.contains("aerarium"))
+        }
+    }
+
+    @Test
+    fun `should carry and log the detail and hint the server gives`() {
+        peregrinusSession().use { session ->
+            // A COPY to a server-side file is refused with both: the role it takes, and what to do instead.
+            val exception = assertFailsWith<PermissionDeniedException> {
+                session.createNativeQuery("COPY aerarium TO '/nowhere/aerarium.csv'").execute()
+            }
+            logger.error(exception) { "" }
+            val detail = assertNotNull(exception.dbDetail)
+            val hint = assertNotNull(exception.hint)
+            assertTrue(detail.contains("pg_write_server_files"), detail)
+
+            val logged = exception.getDetailedMessage()
+            assertTrue(logged.contains(detail), logged)
+            assertTrue(logged.contains(hint), logged)
         }
     }
 }

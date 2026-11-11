@@ -293,10 +293,10 @@ val data: JsonObject = row.get("data")
 val status = (data["status"] as JsonPrimitive).content
 ```
 
-`JsonElement`, `JsonObject`, `JsonArray` and `JsonPrimitive` are all accepted targets; ask for the one the column
-actually holds, since a `JsonObject` request against a stored array cannot be satisfied. `row.get<Any>("data")` on a
-`json`/`jsonb` column also yields a `JsonElement`, which is what makes a jsonb attribute inside a `Map<String, Any?>`
-come out usable.
+`JsonElement`, `JsonObject`, `JsonArray` and `JsonPrimitive` are all accepted targets, read from `json` and `jsonb`
+only; JSON kept in `text` needs a `::jsonb` cast in the SQL. Ask for the one the column holds, since a `JsonObject`
+cannot come out of a stored array. Asked for `Any`, a `json`/`jsonb` column yields a `JsonElement` too, which is
+what makes a jsonb attribute inside a `Map<String, Any?>` usable.
 
 The raw text is always available too — the codec decodes both types to `String` before any converter runs, so
 `row.get<String>("data")` hands you the document verbatim for feeding to a parser of your own.
@@ -315,11 +315,18 @@ session.createNamedQuery("INSERT INTO dossiers (id, data) VALUES (@id, @data)")
     .executeUpdate("id" to 1, "data" to dossier)
 ```
 
-That goes out as **`jsonb`**, which is the right default for a column of either type. When you specifically need
-`json` — preserving key order, duplicate keys and whitespace — say so:
+That goes out as **`jsonb`**, which is the right default for a column of either type. `jsonb` does not keep an
+object's key order; where the order the `JsonObject` was built in has to survive, declare `json`:
 
 ```kotlin
-data.withPgType(PgStandardType.JSON)
+dossier.withPgType(PgStandardType.JSON)
+```
+
+Key order is all `json` keeps of a `JsonElement`: it is written compact, and a `JsonObject` is a map, so it has no
+duplicate keys. Whitespace and duplicates reach a `json` column only as text, in a `String` declared `json`:
+
+```kotlin
+Json { prettyPrint = true }.encodeToString(dossier).withPgType(PgStandardType.JSON)
 ```
 
 A `List<JsonObject>` becomes a `jsonb[]` by the ordinary array inference, and reads back as `List<JsonObject>`.

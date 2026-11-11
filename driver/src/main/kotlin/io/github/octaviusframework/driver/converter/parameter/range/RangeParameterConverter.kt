@@ -15,7 +15,7 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
 
     override fun convert(source: Range<*>, expectedOid: Int, context: SerializationContext): Any {
         val pgType = if (expectedOid.isKnownOid) {
-            context.types.dictionary.getPgType(expectedOid) as? PgType.Range
+            context.types.dictionary.getBaseType(expectedOid) as? PgType.Range
         } else {
             val elementOid = context.defaultOidForClass(source.elementClass)
 

@@ -10,13 +10,10 @@ enum class TransactionStateExceptionReason {
     /** A write was attempted inside a read-only transaction (25006). */
     READ_ONLY_TRANSACTION,
 
-    /** The statement requires a transaction and none is open (25P01). */
-    NO_ACTIVE_TRANSACTION,
+    /** The statement cannot run where it arrived in the transaction (25P01, 25001, 3B001). */
+    MISPLACED_STATEMENT,
 
-    /** The statement refuses to run inside a transaction block, and one is open (25001). */
-    ACTIVE_TRANSACTION,
-
-    /** Another class-25 state, including the two-phase-commit codes the driver does not otherwise touch. */
+    /** Another class-25 or class-3B state, including the two-phase-commit codes the driver does not otherwise touch. */
     UNKNOWN
 }
 
@@ -47,7 +44,6 @@ private fun generateDeveloperMessage(reason: TransactionStateExceptionReason): S
     when (reason) {
         TransactionStateExceptionReason.IN_FAILED_TRANSACTION -> "The transaction was aborted by an earlier error and ignores every statement until it is rolled back. The failure to look for is that earlier one."
         TransactionStateExceptionReason.READ_ONLY_TRANSACTION -> "The transaction is read-only and refuses to write."
-        TransactionStateExceptionReason.NO_ACTIVE_TRANSACTION -> "The statement requires an open transaction and there is none."
-        TransactionStateExceptionReason.ACTIVE_TRANSACTION -> "The statement cannot run inside a transaction block, and one is open."
+        TransactionStateExceptionReason.MISPLACED_STATEMENT -> "The statement cannot run where it arrived in the transaction. See the DB message for why."
         TransactionStateExceptionReason.UNKNOWN -> "The session's transaction state does not permit this statement."
     }

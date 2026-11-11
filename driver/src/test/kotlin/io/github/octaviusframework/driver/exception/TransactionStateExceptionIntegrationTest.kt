@@ -54,7 +54,7 @@ class TransactionStateExceptionIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `should throw ACTIVE_TRANSACTION for a statement that refuses a transaction block`() {
+    fun `should throw MISPLACED_STATEMENT for a statement that refuses a transaction block`() {
         openSession().use { session ->
             session.createNativeQuery("BEGIN").execute()
             try {
@@ -63,7 +63,7 @@ class TransactionStateExceptionIntegrationTest : AbstractIntegrationTest() {
                 }
                 logger.error(exception) { "" }
                 assertEquals("25001", exception.sqlState)
-                assertEquals(TransactionStateExceptionReason.ACTIVE_TRANSACTION, exception.reason)
+                assertEquals(TransactionStateExceptionReason.MISPLACED_STATEMENT, exception.reason)
             } finally {
                 session.createNativeQuery("ROLLBACK").execute()
             }
@@ -71,14 +71,35 @@ class TransactionStateExceptionIntegrationTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `should throw NO_ACTIVE_TRANSACTION for a savepoint rollback outside a transaction`() {
+    fun `should throw MISPLACED_STATEMENT for a savepoint rollback outside a transaction`() {
         openSession().use { session ->
             val exception = assertFailsWith<TransactionStateException> {
                 session.createNativeQuery("ROLLBACK TO SAVEPOINT rubicon").execute()
             }
             logger.error(exception) { "" }
             assertEquals("25P01", exception.sqlState)
-            assertEquals(TransactionStateExceptionReason.NO_ACTIVE_TRANSACTION, exception.reason)
+            assertEquals(TransactionStateExceptionReason.MISPLACED_STATEMENT, exception.reason)
+        }
+    }
+
+    @Test
+    fun `should throw MISPLACED_STATEMENT for a savepoint a rollback to an earlier one removed`() {
+        openSession().use { session ->
+            session.autoCommit = false
+            try {
+                val rubicon = session.setSavepoint()
+                val alesia = session.setSavepoint()
+                session.rollback(rubicon)
+
+                val exception = assertFailsWith<TransactionStateException> {
+                    session.releaseSavepoint(alesia)
+                }
+                logger.error(exception) { "" }
+                assertEquals("3B001", exception.sqlState)
+                assertEquals(TransactionStateExceptionReason.MISPLACED_STATEMENT, exception.reason)
+            } finally {
+                session.rollback()
+            }
         }
     }
 }

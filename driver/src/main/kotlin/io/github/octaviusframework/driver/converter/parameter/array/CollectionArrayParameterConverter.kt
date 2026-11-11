@@ -83,7 +83,7 @@ internal object CollectionArrayParameterConverter : ParameterConverter<Any> {
         val expectedSize = dimensions.fold(1) { acc, dim -> acc * dim.size }
 
         val arrayType = if (expectedOid.isKnownOid) {
-            context.types.dictionary.getPgType(expectedOid) as? PgType.Array
+            context.types.dictionary.getBaseType(expectedOid) as? PgType.Array
         } else {
             val elementOid = findFirstNonNull(source)?.let { elementOidOf(it, context) }
                 ?: elementClassOf(source)?.let { context.defaultOidForClass(it) }

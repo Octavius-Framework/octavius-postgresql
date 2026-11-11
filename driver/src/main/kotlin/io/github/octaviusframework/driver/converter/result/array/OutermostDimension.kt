@@ -37,7 +37,7 @@ internal fun convertOutermostDimension(
         return result
     }
 
-    val pgElementType = context.types.dictionary.getPgType(source.elementOid)
+    val pgElementType = context.types.dictionary.getBaseType(source.elementOid)
     val elements = source.elements
 
     var elementConverter: ResultConverter<Any, *>? = null
