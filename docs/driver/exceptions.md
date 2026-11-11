@@ -352,11 +352,10 @@ there is nothing to tell apart: `P0000` is reachable only by asking for it with
 Separate from `RoutineRaiseException` because a `RAISE` is the routine deciding, while these are a claim the data
 falsified — a defect in the database code, as a `fetch*Strict` finding no row is one in Kotlin.
 
-| Reason (`RoutineAssertionExceptionReason`) | SQLSTATE | Note                                     |
-|:-------------------------------------------|:---------|:-----------------------------------------|
-| `NO_DATA_FOUND`                            | `P0002`  | `SELECT INTO STRICT` found no row        |
-| `TOO_MANY_ROWS`                            | `P0003`  | `SELECT INTO STRICT` found more than one |
-| `ASSERT_FAILURE`                           | `P0004`  | An `ASSERT` did not hold                 |
+| Reason (`RoutineAssertionExceptionReason`) | SQLSTATE         | Note                                                |
+|:-------------------------------------------|:-----------------|:----------------------------------------------------|
+| `INCORRECT_RESULT_SIZE`                    | `P0002`, `P0003` | `SELECT INTO STRICT` found no row, or more than one |
+| `ASSERT_FAILURE`                           | `P0004`          | An `ASSERT` did not hold                            |
 
 ### 12. `PermissionDeniedException`
 

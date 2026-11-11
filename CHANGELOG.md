@@ -44,6 +44,11 @@
   unregistered enum. JSON held in a `text` column, or an untyped literal, now raises
   `MappingException(NO_CONVERTER_FOUND)`; cast it to `jsonb` in the SQL, or read it as a `String`. `Any` is unchanged.
 
+- **[BREAKING]** A `SELECT INTO STRICT` that found no row (`P0002`) or several (`P0003`) is
+  `RoutineAssertionException(INCORRECT_RESULT_SIZE)`, which replaces `NO_DATA_FOUND` and `TOO_MANY_ROWS`, as a
+  `fetch*Strict` finding either is `INCORRECT_RESULT_SIZE` in Kotlin. `sqlState` and `dbMessage` say which. Code
+  naming either constant stops compiling.
+
 - **[BREAKING]** An `ERROR` with a class `28` SQLSTATE is `UncategorizedDatabaseException`, where it was
   `InitializationException(SERVER_REJECTED_CREDENTIALS)`. The server sends class `28` only as a `FATAL` at login,
   which stays `InitializationException`, so in an open session the code is a routine's own

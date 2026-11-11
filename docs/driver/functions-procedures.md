@@ -178,7 +178,7 @@ A failed `ASSERT`, or a `SELECT INTO STRICT` that matched no row or several, is 
 
 ```kotlin
 catch (e: RoutineAssertionException) {
-    e.reason      // NO_DATA_FOUND, TOO_MANY_ROWS, ASSERT_FAILURE
+    e.reason      // INCORRECT_RESULT_SIZE, ASSERT_FAILURE
     e.where       // same call stack, naming the line that asserted
 }
 ```

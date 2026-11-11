@@ -142,8 +142,7 @@ internal object ExceptionTranslator {
             // Class P0 — PL/pgSQL Error: a failed assertion is a defect, a RAISE a decision.
             state.startsWith("P0") -> {
                 val assertionReason = when (state) {
-                    "P0002" -> RoutineAssertionExceptionReason.NO_DATA_FOUND
-                    "P0003" -> RoutineAssertionExceptionReason.TOO_MANY_ROWS
+                    "P0002", "P0003" -> RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE
                     "P0004" -> RoutineAssertionExceptionReason.ASSERT_FAILURE
                     else -> null
                 }
