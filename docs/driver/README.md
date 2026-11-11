@@ -184,10 +184,10 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 
 ### Performance
 - [What Is Measured](performance.md#what-is-measured) — Benchmarks, modes, and the row shape each one fixes
-- [Reading](performance.md#reading) — Rows, objects and arrays against `pgjdbc`
+- [Reading](performance.md#reading) — Rows, objects and arrays against `pgjdbc`, and what each allocates
+- [What Not Preparing Costs](performance.md#what-not-preparing-costs) — A primary-key lookup with server-side prepare on and off
 - [Writing](performance.md#writing) — Single statements, JDBC batching, and `UNNEST`
 - [Reflection or a Hand-Written Converter](performance.md#reflection-or-a-hand-written-converter) — What reflective mapping costs
-- [Memory](performance.md#memory) — Allocation per operation
 - [Summary](performance.md#summary) — The whole table in one place
 
 ## API Reference
