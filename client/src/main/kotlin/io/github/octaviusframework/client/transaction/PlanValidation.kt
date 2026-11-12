@@ -8,8 +8,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
  * query that cannot render, and a handle naming no step ahead of it in this plan. The second can only come from
  * another plan - its handle, merged in the wrong order or not at all.
  *
- * @return Where each step sits, by handle, for naming steps in failures; after [TransactionPlan.addPlan] a
- * handle's own index is not where its step sits.
+ * @return Where each step sits, by handle, for naming steps in failures; a handle has no number of its own.
  * @throws InvalidOperationException `INVALID_ARGUMENT` where a step's query cannot render, or a step binds a
  * parameter to a handle from another plan or to a step that runs after it.
  */
@@ -52,8 +51,9 @@ private fun checkHandles(
             val source = indexByHandle[value.handle]
                 ?: throw InvalidOperationException(
                     InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                    details = "Step $stepIndex binds '$paramName' to ${value.handle}, which is not a step of " +
-                        "this plan. A handle is useful only inside the plan whose add() returned it."
+                    details = "Step $stepIndex binds '$paramName' to a handle that is not a step of this plan. A " +
+                        "handle is useful only inside the plan its step was added to, or a plan that one was " +
+                        "merged into."
                 )
             if (source >= stepIndex) {
                 throw InvalidOperationException(

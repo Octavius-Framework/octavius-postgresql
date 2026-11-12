@@ -39,8 +39,9 @@ does not have to be registered against the whole database, and reaching it does 
 builders. It is also how `dynamic_dto` reads a payload under a different `Json` for the length of one query.
 
 **Transaction plans.** For when the sequence itself is data — built by the layer that knows what has to happen,
-run by another. A step's parameters can point at what an earlier step produced, two plans merge into one
-transaction, and the whole plan is checked before any of it runs rather than partway through.
+which needs no client to do it, and run by another. A step's parameters can point at what an earlier step
+produced, two plans merge into one transaction, and the whole plan is checked before any of it runs rather than
+partway through.
 
 **`dynamic_dto`.** One column holding whichever of several unrelated shapes a row happens to carry, which is
 the case a `COMPOSITE` cannot cover: a composite fixes the shape at schema level, this fixes it per row. Bind a

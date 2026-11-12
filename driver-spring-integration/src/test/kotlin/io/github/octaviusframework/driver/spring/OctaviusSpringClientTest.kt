@@ -122,11 +122,11 @@ class OctaviusSpringClientTest {
     @Test
     fun `a plan whose step fails leaves nothing behind, and dbResult returns the failure`() {
         val plan = TransactionPlan()
-        val name = plan.add(
-            db.rawQuery("INSERT INTO spring_client (name) VALUES (@name) RETURNING name")
+        val name = with(plan) {
+            rawQuery("INSERT INTO spring_client (name) VALUES (@name) RETURNING name")
                 .asStep().fetchFieldStrict<String>("name" to "planned")
-        )
-        plan.add(db.rawQuery("INSERT INTO spring_client (name) VALUES (@name)").asStep().executeUpdate("name" to name.value()))
+        }
+        with(plan) { rawQuery("INSERT INTO spring_client (name) VALUES (@name)").asStep().executeUpdate("name" to name.value()) }
 
         val failure = assertInstanceOf<DataResult.Failure>(dbResult { db.executeTransactionPlan(plan) })
 

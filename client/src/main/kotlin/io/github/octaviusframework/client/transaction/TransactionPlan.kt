@@ -1,36 +1,38 @@
 package io.github.octaviusframework.client.transaction
 
+import io.github.octaviusframework.client.query.DeleteQuery
+import io.github.octaviusframework.client.query.InsertQuery
+import io.github.octaviusframework.client.query.RawQuery
 import io.github.octaviusframework.client.query.RunnableQuery
+import io.github.octaviusframework.client.query.SelectQuery
+import io.github.octaviusframework.client.query.UpdateQuery
+import io.github.octaviusframework.client.session.SessionProvider
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 
 /**
- * Operations to run as one transaction, assembled before any of it runs - for a sequence decided in one place and
- * run in another. Where the sequence is written out where it runs, a `transaction { }` block is simpler.
+ * Operations to run as one transaction, assembled before any of it runs and without a client - by code that
+ * decides what to write, for a caller that runs it. Where the work is decided where it runs, a `transaction { }`
+ * block is simpler.
  *
- * Steps run in the order they were added, and a step uses what an earlier one produced through the [StepHandle]
- * [add] returned:
+ * With the plan as the receiver, its query starters build the statements and [asStep] turns each into a step.
+ * The step's terminal adds it to the plan and returns the [StepHandle] a later step takes its result through:
  *
  * ```kotlin
- * val plan = TransactionPlan()
+ * fun planEdict(edict: Map<String, Any?>, sealedBy: String): Pair<TransactionPlan, StepHandle<Int>> =
+ *     with(TransactionPlan()) {
+ *         val edictId = insertInto("edicts").values(edict).returning("id")
+ *             .asStep().fetchFieldStrict<Int>(edict)
  *
- * val edictId = plan.add(
- *     db.insertInto("edicts").values(edict).returning("id")
- *         .asStep().fetchFieldStrict<Int>(edict)
- * )
+ *         insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
+ *             .asStep().executeUpdate("edict_id" to edictId.value(), "sealed_by" to sealedBy)
  *
- * for (item in levy) {
- *     plan.add(
- *         db.insertInto("edict_items").values(listOf("edict_id", "province_id", "amount"))
- *             .asStep().executeUpdate(
- *                 "edict_id" to edictId.value(),
- *                 "province_id" to item.provinceId,
- *                 "amount" to item.amount
- *             )
- *     )
- * }
+ *         this to edictId
+ *     }
  *
- * val results = db.executeTransactionPlan(plan)
+ * val (plan, edictId) = planEdict(edict, "Augustus")
+ * val id = db.executeTransactionPlan(plan)[edictId]
  * ```
  *
  * Running a plan does not change it, so retrying a serialization failure is a loop around
@@ -47,10 +49,36 @@ class TransactionPlan {
     /** Whether the plan holds no steps at all. */
     fun isEmpty(): Boolean = entries.isEmpty()
 
-    /** Appends [step], built with [RunnableQuery.asStep], and returns the handle later steps refer to it by. */
-    fun <T> add(step: TransactionStep<T>): StepHandle<T> {
-        val handle = StepHandle<T>(entries.size)
-        entries += PlannedStep(handle, step.query, step.params, step.run)
+    /** SQL written by hand, with `@name` parameters, to become a step through [asStep]. */
+    fun rawQuery(sql: String): RawQuery = RawQuery(PlanOnly, sql)
+
+    /** Starts a `SELECT` of [columns], to become a step through [asStep]. */
+    fun select(vararg columns: String): SelectQuery = SelectQuery(PlanOnly, columns.joinToString(", "))
+
+    /** Starts an `INSERT` into [table], to become a step through [asStep]. */
+    fun insertInto(table: String): InsertQuery = InsertQuery(PlanOnly, table)
+
+    /** Starts an `UPDATE` of [table], which renders only with a `WHERE`, to become a step through [asStep]. */
+    fun update(table: String): UpdateQuery = UpdateQuery(PlanOnly, table)
+
+    /** Starts a `DELETE` from [table], which renders only with a `WHERE`, to become a step through [asStep]. */
+    fun deleteFrom(table: String): DeleteQuery = DeleteQuery(PlanOnly, table)
+
+    /**
+     * Turns this query into a step of this plan, which the terminal called on the result adds. A client's query
+     * works too: every step runs on the transaction that executes the plan.
+     */
+    fun RunnableQuery<*>.asStep(): StepBuilder = StepBuilder(this@TransactionPlan, this)
+
+    /** Appends a step and returns the handle later steps refer to it by. */
+    @PublishedApi
+    internal fun <T> addStep(
+        query: RunnableQuery<*>,
+        params: Map<String, Any?>,
+        run: OctaviusSessionOperations.(Map<String, Any?>) -> T
+    ): StepHandle<T> {
+        val handle = StepHandle<T>()
+        entries += PlannedStep(handle, query, params, run)
         return handle
     }
 
@@ -72,16 +100,16 @@ class TransactionPlan {
             )
         }
 
-        val alreadyHere = entries.mapTo(HashSet()) { it.handle }
-        for (step in other.entries) {
-            if (step.handle in alreadyHere) {
-                throw InvalidOperationException(
-                    InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                    details = "${step.handle} is already a step of this plan. A plan merged in twice - " +
-                        "directly, or through two plans that both hold it - would run its steps twice and " +
-                        "leave only the last result of each reachable."
-                )
-            }
+        val indexHere = HashMap<StepHandle<*>, Int>(entries.size)
+        entries.forEachIndexed { index, step -> indexHere[step.handle] = index }
+        for ((index, step) in other.entries.withIndex()) {
+            val here = indexHere[step.handle] ?: continue
+            throw InvalidOperationException(
+                InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                details = "Step $index of the plan being merged is already step $here of this plan. A plan merged " +
+                    "in twice - directly, or through two plans that both hold it - would run its steps twice and " +
+                    "leave only the last result of each reachable."
+            )
         }
 
         entries += other.entries
@@ -119,8 +147,22 @@ class TransactionPlan {
         val handle: StepHandle<*>,
         val query: RunnableQuery<*>,
         val params: Map<String, Any?>,
-        val run: (Map<String, Any?>) -> Any?
+        val run: OctaviusSessionOperations.(Map<String, Any?>) -> Any?
     )
+
+    /** Behind a plan's own queries, which run only as steps, on the session the plan's execution hands them. */
+    private object PlanOnly : SessionProvider {
+
+        override fun <T> execute(action: OctaviusSessionOperations.() -> T): T = throw refusal()
+
+        override fun <T> transaction(definition: TransactionDefinition, block: () -> T): T = throw refusal()
+
+        private fun refusal() = InvalidOperationException(
+            InvalidOperationExceptionReason.INVALID_ARGUMENT,
+            details = "This query was built by a TransactionPlan and runs only as one of its steps: turn it into " +
+                "a step with asStep() and run the plan with executeTransactionPlan."
+        )
+    }
 }
 
 /** What a [TransactionPlan] produced: every step's result, referred to or not. */
@@ -141,7 +183,7 @@ class TransactionPlanResult internal constructor(
         if (!results.containsKey(handle)) {
             throw InvalidOperationException(
                 InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                details = "$handle did not come from the plan that produced this result."
+                details = "The handle did not come from the plan that produced this result."
             )
         }
         return results[handle] as T

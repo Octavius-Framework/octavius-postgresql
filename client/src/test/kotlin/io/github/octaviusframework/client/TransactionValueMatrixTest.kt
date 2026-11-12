@@ -68,10 +68,12 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     }
 
     /** A step over all three probe rows, for the terminals that return many. */
-    private fun probeAll() = db.select("id", "name", "amount").from("tv_probe").orderBy("id").asStep()
+    private fun probeAll(plan: TransactionPlan) =
+        with(plan) { select("id", "name", "amount").from("tv_probe").orderBy("id").asStep() }
 
     /** A step over one probe row, for the terminals that insist on exactly one. */
-    private fun probeOne() = db.select("id", "name", "amount").from("tv_probe").where("id = 1").asStep()
+    private fun probeOne(plan: TransactionPlan) =
+        with(plan) { select("id", "name", "amount").from("tv_probe").where("id = 1").asStep() }
 
     /**
      * Adds a producing step, then a step that binds [use] of it and hands the bound value straight back.
@@ -83,13 +85,13 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
      * reach into the result as ordinary Kotlin.
      */
     private inline fun <reified R, H> throughParameter(
-        producer: (TransactionPlan) -> StepHandle<H>,
+        producer: TransactionPlan.() -> StepHandle<H>,
         sql: String = "SELECT @v AS v",
         use: (StepHandle<H>) -> Any?
     ): R {
         val plan = TransactionPlan()
-        val source = producer(plan)
-        val sink = plan.add(db.rawQuery(sql).asStep().fetchFieldStrict<R>("v" to use(source)))
+        val source = plan.producer()
+        val sink = with(plan) { rawQuery(sql).asStep().fetchFieldStrict<R>("v" to use(source)) }
         return db.executeTransactionPlan(plan)[sink]
     }
 
@@ -98,7 +100,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `value carries a scalar from fetchFieldStrict`() {
         val out: Int = throughParameter(
-            producer = { it.add(db.select("amount").from("tv_probe").where("id = 1").asStep().fetchFieldStrict<Int>()) },
+            producer = { select("amount").from("tv_probe").where("id = 1").asStep().fetchFieldStrict<Int>() },
             use = { it.value() }
         )
         assertEquals(300, out)
@@ -108,10 +110,8 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     fun `value carries the count from executeUpdate`() {
         val out: Long = throughParameter(
             producer = {
-                it.add(
-                    db.update("tv_probe").setValues(listOf("amount")).where("true")
-                        .asStep().executeUpdate("amount" to 1)
-                )
+                update("tv_probe").setValues(listOf("amount")).where("true")
+                    .asStep().executeUpdate("amount" to 1)
             },
             use = { it.value() }
         )
@@ -121,7 +121,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `value carries a list from fetchFields, which binds as an array`() {
         val out: Long = throughParameter(
-            producer = { it.add(db.select("amount").from("tv_probe").orderBy("id").asStep().fetchFields<Int>()) },
+            producer = { select("amount").from("tv_probe").orderBy("id").asStep().fetchFields<Int>() },
             sql = "SELECT count(*) FROM unnest(@v) AS x",
             use = { it.value() }
         )
@@ -132,7 +132,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     fun `value on a row-shaped step resolves to a Row, which nothing can bind`() {
         val thrown = assertFailsWith<OctaviusException> {
             throughParameter<Any?, Row>(
-                producer = { it.add(probeOne().fetchRowStrict()) },
+                producer = { probeOne(this).fetchRowStrict() },
                 use = { it.value() }
             )
         }
@@ -146,7 +146,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     fun `value on a map step is not something to send either, which is what the spread is for`() {
         val thrown = assertFailsWith<OctaviusException> {
             throughParameter<Any?, Map<String, Any?>>(
-                producer = { it.add(probeOne().fetchObjectStrict<Map<String, Any?>>()) },
+                producer = { probeOne(this).fetchObjectStrict<Map<String, Any?>>() },
                 use = { it.value() }
             )
         }
@@ -160,7 +160,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     fun `value on an object step needs the class to be a type the registry knows`() {
         val thrown = assertFailsWith<OctaviusException> {
             throughParameter<Any?, Probe>(
-                producer = { it.add(probeOne().fetchObjectStrict<Probe>()) },
+                producer = { probeOne(this).fetchObjectStrict<Probe>() },
                 use = { it.value() }
             )
         }
@@ -175,7 +175,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         db.execute { typeManager.registerAutoComposite<Probe>("tv_probe_t", "public") }
 
         val out: String = throughParameter(
-            producer = { it.add(probeOne().fetchObjectStrict<Probe>()) },
+            producer = { probeOne(this).fetchObjectStrict<Probe>() },
             sql = "SELECT (@v).name AS v",
             use = { it.value() }
         )
@@ -187,7 +187,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // Which is what Transformed is for: value() reaches the object, map() takes the part that can be sent.
         // The handle carries Probe, so the property is read without a cast anywhere.
         val out: String = throughParameter(
-            producer = { it.add(probeOne().fetchObjectStrict<Probe>()) },
+            producer = { probeOne(this).fetchObjectStrict<Probe>() },
             use = { handle -> handle.value().map { probe -> probe.name } }
         )
         assertEquals("Gallia", out)
@@ -198,7 +198,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `map takes a column of a fetchRowStrict result`() {
         val out: String = throughParameter(
-            producer = { it.add(probeOne().fetchRowStrict()) },
+            producer = { probeOne(this).fetchRowStrict() },
             use = { handle -> handle.value().map { row -> row.get<String>("name") } }
         )
         assertEquals("Gallia", out)
@@ -207,7 +207,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `map takes a column of a fetchRow result, which says in its type that there may be none`() {
         val out: String = throughParameter(
-            producer = { it.add(probeOne().fetchRow()) },
+            producer = { probeOne(this).fetchRow() },
             use = { handle -> handle.value().map { row -> row!!.get<String>("name") } }
         )
         assertEquals("Gallia", out)
@@ -216,7 +216,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `map indexes into a fetchRows result`() {
         val out: String = throughParameter(
-            producer = { it.add(probeAll().fetchRows()) },
+            producer = { probeAll(this).fetchRows() },
             use = { handle -> handle.value().map { rows -> rows[2].get<String>("name") } }
         )
         assertEquals("Britannia", out)
@@ -227,7 +227,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // The column is asked for at Int, so what comes out is a List<Int>, which the driver sends as an
         // int array.
         val out: Long = throughParameter(
-            producer = { it.add(probeAll().fetchRows()) },
+            producer = { probeAll(this).fetchRows() },
             sql = "SELECT count(*) FROM tv_probe WHERE id = ANY(@v)",
             use = { handle -> handle.value().map { rows -> rows.map { row -> row.get<Int>("id") } } }
         )
@@ -237,7 +237,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `map can collapse a result to a scalar`() {
         val out: Int = throughParameter(
-            producer = { it.add(probeAll().fetchRows()) },
+            producer = { probeAll(this).fetchRows() },
             use = { handle -> handle.value().map { rows -> rows.size } }
         )
         assertEquals(3, out)
@@ -246,7 +246,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `map nests`() {
         val out: Int = throughParameter(
-            producer = { it.add(probeAll().fetchRows()) },
+            producer = { probeAll(this).fetchRows() },
             use = { handle -> handle.value().map { rows -> rows.size }.map { size -> size * 10 } }
         )
         assertEquals(30, out)
@@ -257,11 +257,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `spread puts a map's entries into parameters of their own`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchObjectStrict<Map<String, Any?>>())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name", "amount"))
+        val source = probeOne(plan).fetchObjectStrict<Map<String, Any?>>()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name", "amount"))
                 .asStep().executeUpdate("ignored" to source.value().spread())
-        )
+        }
         db.executeTransactionPlan(plan)
 
         assertEquals(
@@ -275,12 +275,12 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // The mark is on the parameter slot rather than on the value in it, so everything ordinary Kotlin
         // does to a map can be done first.
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchObjectStrict<Map<String, Any?>>())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name", "amount")).asStep().executeUpdate(
+        val source = probeOne(plan).fetchObjectStrict<Map<String, Any?>>()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name", "amount")).asStep().executeUpdate(
                 "ignored" to source.value().map { row -> row - "id" + ("amount" to 7) }.spread()
             )
-        )
+        }
         db.executeTransactionPlan(plan)
 
         assertEquals(
@@ -292,11 +292,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `spread comes after map, which is also how a row other than the first is spread`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeAll().fetchObjects<Map<String, Any?>>())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name", "amount"))
+        val source = probeAll(plan).fetchObjects<Map<String, Any?>>()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name", "amount"))
                 .asStep().executeUpdate("ignored" to source.value().map { rows -> rows[2] }.spread())
-        )
+        }
         db.executeTransactionPlan(plan)
 
         assertEquals("Britannia", db.select("name").from("tv_sink").fetchFieldStrict<String>())
@@ -310,13 +310,13 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         db.rawQuery("INSERT INTO tv_shapes (rank, doc) VALUES ('LEGATUS', '{\"a\": 1}')").execute()
 
         val plan = TransactionPlan()
-        val source = plan.add(
-            db.rawQuery("SELECT doc AS name FROM tv_shapes").asStep().fetchObjectStrict<Map<String, String>>()
-        )
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name"))
+        val source = with(plan) {
+            rawQuery("SELECT doc AS name FROM tv_shapes").asStep().fetchObjectStrict<Map<String, String>>()
+        }
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name"))
                 .asStep().executeUpdate("ignored" to source.value().spread())
-        )
+        }
         db.executeTransactionPlan(plan)
 
         assertTrue(
@@ -330,16 +330,16 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `a plain value passes through untouched`() {
         val plan = TransactionPlan()
-        val sink = plan.add(db.rawQuery("SELECT @v AS v").asStep().fetchFieldStrict<Int>("v" to 42))
+        val sink = with(plan) { rawQuery("SELECT @v AS v").asStep().fetchFieldStrict<Int>("v" to 42) }
         assertEquals(42, db.executeTransactionPlan(plan)[sink])
     }
 
     @Test
     fun `a wrapped known value resolves to itself`() {
         val plan = TransactionPlan()
-        val sink = plan.add(
-            db.rawQuery("SELECT @v AS v").asStep().fetchFieldStrict<Int>("v" to 42.toTransactionValue())
-        )
+        val sink = with(plan) {
+            rawQuery("SELECT @v AS v").asStep().fetchFieldStrict<Int>("v" to 42.toTransactionValue())
+        }
         assertEquals(42, db.executeTransactionPlan(plan)[sink])
     }
 
@@ -355,13 +355,13 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         db.rawQuery("INSERT INTO tv_shapes (rank, doc) VALUES ('LEGATUS', '{\"a\": 1}')").execute()
 
         val plan = TransactionPlan()
-        val source = plan.add(
-            db.select("rank", "doc").from("tv_shapes").asStep().fetchObjectStrict<Map<String, Any?>>()
-        )
-        plan.add(
-            db.insertInto("tv_shapes").values(listOf("rank", "doc"))
+        val source = with(plan) {
+            select("rank", "doc").from("tv_shapes").asStep().fetchObjectStrict<Map<String, Any?>>()
+        }
+        with(plan) {
+            insertInto("tv_shapes").values(listOf("rank", "doc"))
                 .asStep().executeUpdate("ignored" to source.value().spread())
-        )
+        }
         db.executeTransactionPlan(plan)
 
         assertEquals(
@@ -380,11 +380,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         db.rawQuery("INSERT INTO tv_shapes (rank, doc) VALUES ('LEGATUS', '{\"a\": 1}')").execute()
 
         val plan = TransactionPlan()
-        val source = plan.add(db.select("doc").from("tv_shapes").asStep().fetchRowStrict())
-        val kind = plan.add(
-            db.rawQuery("SELECT @v AS v").asStep()
+        val source = with(plan) { select("doc").from("tv_shapes").asStep().fetchRowStrict() }
+        val kind = with(plan) {
+            rawQuery("SELECT @v AS v").asStep()
                 .fetchFieldStrict<String>("v" to source.value().map { it.get<Any?>("doc")!!::class.simpleName })
-        )
+        }
 
         assertTrue(
             db.executeTransactionPlan(plan)[kind].contains("Json"),
@@ -398,11 +398,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // type, which is most of them, carrying a value between steps round-trips as it should. Asked for at
         // Any?, so it is the converters' output being sent and not a type the call site imposed.
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        val sink = plan.add(
-            db.rawQuery("SELECT @v + 1 AS v").asStep()
+        val source = probeOne(plan).fetchRowStrict()
+        val sink = with(plan) {
+            rawQuery("SELECT @v + 1 AS v").asStep()
                 .fetchFieldStrict<Int>("v" to source.value().map { it.get<Any?>("amount") })
-        )
+        }
         assertEquals(301, db.executeTransactionPlan(plan)[sink])
     }
 
@@ -411,11 +411,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `a transformation that throws arrives as a MappingException naming the parameter`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("amount"))
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("amount"))
                 .asStep().executeUpdate("amount" to source.value().map { it.get<String>("name").toInt() })
-        )
+        }
 
         val thrown = assertFailsWith<MappingException> { db.executeTransactionPlan(plan) }
 
@@ -429,11 +429,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // The reason wrapping is worth doing at all: dbResult catches OctaviusException and nothing else, so
         // a bare NumberFormatException would travel straight through the boundary instead of being classified.
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("amount"))
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("amount"))
                 .asStep().executeUpdate("amount" to source.value().map { it.get<String>("name").toInt() })
-        )
+        }
 
         // MappingException is a caller bug, so the boundary rethrows it rather than returning it - which is
         // the point: it reaches the classification at all, instead of going round it.
@@ -443,9 +443,9 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `a transformation throwing an OctaviusException is passed through as it is`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("amount")).asStep().executeUpdate(
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("amount")).asStep().executeUpdate(
                 "amount" to source.value().map<Row, Any?> {
                     throw InvalidOperationException(
                         InvalidOperationExceptionReason.INVALID_ARGUMENT,
@@ -453,7 +453,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
                     )
                 }
             )
-        )
+        }
 
         val thrown = assertFailsWith<InvalidOperationException> { db.executeTransactionPlan(plan) }
         assertEquals("raised by the caller's own code", thrown.details)
@@ -466,11 +466,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     fun `a column the row has not got is the driver's failure, and arrives as the driver raised it`() {
         // Row.get raises this one, and it is already an OctaviusException, so it is not wrapped.
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name"))
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name"))
                 .asStep().executeUpdate("name" to source.value().map { it.get<String>("tribute") })
-        )
+        }
 
         val thrown = assertFailsWith<MappingException> { db.executeTransactionPlan(plan) }
         assertEquals(MappingExceptionReason.COLUMN_NOT_FOUND, thrown.reason)
@@ -480,12 +480,12 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `the parameter is named however deep the transformation that threw`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("amount")).asStep().executeUpdate(
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("amount")).asStep().executeUpdate(
                 "amount" to source.value().map { it.get<Int>("amount") }.map { listOf<Int>()[it] }
             )
-        )
+        }
 
         val thrown = assertFailsWith<MappingException> { db.executeTransactionPlan(plan) }
         assertTrue(thrown.details.contains("'amount'"), thrown.details)
@@ -497,13 +497,13 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `a handle from another plan is refused before the transaction is opened`() {
         val other = TransactionPlan()
-        val stranger = other.add(probeOne().fetchRowStrict())
+        val stranger = probeOne(other).fetchRowStrict()
 
         val plan = TransactionPlan()
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name"))
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name"))
                 .asStep().executeUpdate("name" to stranger.value().map { it.get<String>("name") })
-        )
+        }
 
         val thrown = assertFailsWith<OctaviusException> { db.executeTransactionPlan(plan) }
         assertTrue(thrown.getDetailedMessage()!!.contains("not a step of"), thrown.getDetailedMessage()!!)
@@ -515,14 +515,14 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `a foreign handle is found however many transformations wrap it`() {
         val other = TransactionPlan()
-        val stranger = other.add(probeOne().fetchRowStrict())
+        val stranger = probeOne(other).fetchRowStrict()
 
         val plan = TransactionPlan()
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate(
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate(
                 "name" to stranger.value().map { it.get<String>("name") }.map { it.uppercase() }
             )
-        )
+        }
 
         val thrown = assertFailsWith<OctaviusException> { db.executeTransactionPlan(plan) }
         assertTrue(thrown.getDetailedMessage()!!.contains("not a step of"), thrown.getDetailedMessage()!!)
@@ -533,13 +533,13 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // A spread is not a TransactionValue, so validation walks it through a branch of its own - and a
         // handle the plan never held is caught there too, not only where a plain value would have caught it.
         val other = TransactionPlan()
-        val stranger = other.add(probeOne().fetchObjectStrict<Map<String, Any?>>())
+        val stranger = probeOne(other).fetchObjectStrict<Map<String, Any?>>()
 
         val plan = TransactionPlan()
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name", "amount"))
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name", "amount"))
                 .asStep().executeUpdate("ignored" to stranger.value().spread())
-        )
+        }
 
         val thrown = assertFailsWith<OctaviusException> { db.executeTransactionPlan(plan) }
         assertTrue(thrown.getDetailedMessage()!!.contains("not a step of"), thrown.getDetailedMessage()!!)
@@ -548,9 +548,9 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `a step whose query cannot render is refused before anything runs, and says which step`() {
         val plan = TransactionPlan()
-        plan.add(db.insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Gallia"))
+        with(plan) { insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Gallia") }
         // An UPDATE with no WHERE never renders, and until now that surfaced only once step 1 had inserted.
-        plan.add(db.update("tv_sink").setValues(listOf("name")).asStep().executeUpdate("name" to "Roma"))
+        with(plan) { update("tv_sink").setValues(listOf("name")).asStep().executeUpdate("name" to "Roma") }
 
         val thrown = assertFailsWith<OctaviusException> { db.executeTransactionPlan(plan) }
         assertTrue(thrown.getDetailedMessage()!!.contains("Step 1"), thrown.getDetailedMessage()!!)
@@ -570,11 +570,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `a failing transformation names the step, the parameter and which map of the chain it was`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("amount"))
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("amount"))
                 .asStep().executeUpdate("amount" to source.value().map { it.get<String>("name").toInt() })
-        )
+        }
 
         val thrown = assertFailsWith<MappingException> { db.executeTransactionPlan(plan) }
 
@@ -588,11 +588,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // what separates them. Take it out of the message and these two failures read identically.
         fun detailsOf(chain: (StepHandle<Row>) -> TransactionValue<Int>): String {
             val plan = TransactionPlan()
-            val source = plan.add(probeOne().fetchRowStrict())
-            plan.add(
-                db.insertInto("tv_sink").values(listOf("amount"))
+            val source = probeOne(plan).fetchRowStrict()
+            with(plan) {
+                insertInto("tv_sink").values(listOf("amount"))
                     .asStep().executeUpdate("amount" to chain(source))
-            )
+            }
             return assertFailsWith<MappingException> { db.executeTransactionPlan(plan) }.details
         }
 
@@ -608,11 +608,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
         // It is passed through as it was thrown, so the path the driver's own layers write to as they unwind
         // is the only place the step can be recorded without replacing the exception.
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name"))
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name"))
                 .asStep().executeUpdate("name" to source.value().map { it.get<String>("tribute") })
-        )
+        }
 
         val thrown = assertFailsWith<MappingException> { db.executeTransactionPlan(plan) }
         assertEquals(MappingExceptionReason.COLUMN_NOT_FOUND, thrown.reason)
@@ -622,24 +622,23 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     /** A merged plan whose last step maps a result produced by a step of the plan that was merged in. */
     private fun mergedPlan(): TransactionPlan {
         val head = TransactionPlan()
-        head.add(db.insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Roma"))
-        head.add(db.insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Ostia"))
+        with(head) { insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Roma") }
+        with(head) { insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Ostia") }
 
         val tail = TransactionPlan()
-        val source = tail.add(probeOne().fetchRowStrict())
-        tail.add(
-            db.insertInto("tv_sink").values(listOf("amount"))
+        val source = probeOne(tail).fetchRowStrict()
+        with(tail) {
+            insertInto("tv_sink").values(listOf("amount"))
                 .asStep().executeUpdate("amount" to source.value().map { it.get<String>("name").toInt() })
-        )
+        }
 
-        // The handle keeps the index it was created at, which is 0 - and after this merge its step is third.
-        assertTrue(source.toString().contains("step 0"), source.toString())
+        // The source is step 0 of tail; after this merge it is step 2 of head.
         head.addPlan(tail)
         return head
     }
 
     @Test
-    fun `a failure names where a step sits in the merged plan, not where its handle was created`() {
+    fun `a failure names where a step sits in the merged plan`() {
         val thrown = assertFailsWith<MappingException> { db.executeTransactionPlan(mergedPlan()) }
 
         assertTrue(thrown.details.contains("Step 3 of the plan"), thrown.details)
@@ -651,13 +650,13 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `describe gives every step its index, its SQL and where each parameter comes from`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name", "amount")).asStep().executeUpdate(
+        val source = probeOne(plan).fetchRowStrict()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name", "amount")).asStep().executeUpdate(
                 "name" to "Roma",
                 "amount" to source.value().map { it.get<Int>("amount") }.map { it * 2 }
             )
-        )
+        }
 
         val described = plan.describe()
 
@@ -672,11 +671,11 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     @Test
     fun `describe names a spread and says the name it was filed under is dropped`() {
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchObjectStrict<Map<String, Any?>>())
-        plan.add(
-            db.insertInto("tv_sink").values(listOf("name", "amount"))
+        val source = probeOne(plan).fetchObjectStrict<Map<String, Any?>>()
+        with(plan) {
+            insertInto("tv_sink").values(listOf("name", "amount"))
                 .asStep().executeUpdate("anything" to source.value().map { it - "id" }.spread())
-        )
+        }
 
         val described = plan.describe()
 
@@ -684,7 +683,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     }
 
     @Test
-    fun `describe reports where a step sits in the merged plan, not where its handle was created`() {
+    fun `describe reports where a step sits in the merged plan`() {
         val described = mergedPlan().describe()
 
         assertTrue(described.startsWith("TransactionPlan, 4 steps"), described)
@@ -692,12 +691,28 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     }
 
     @Test
+    fun `a value outside any plan names no step number, and describe marks a handle from another plan`() {
+        // One step sits at a different place in every plan merged into another, so a handle has no number to
+        // give: only a plan says where a step is.
+        val other = TransactionPlan()
+        val stray = probeOne(other).fetchRowStrict()
+        val strayAmount = stray.value().map { it.get<Int>("amount") }
+
+        val plan = TransactionPlan()
+        with(plan) { insertInto("tv_sink").values(listOf("amount")).asStep().executeUpdate("amount" to strayAmount) }
+
+        assertEquals("a step.map(#1)", strayAmount.toString())
+        val described = plan.describe()
+        assertTrue(described.contains("@amount <- a step of another plan.map(#1)"), described)
+    }
+
+    @Test
     fun `describe says so where a step's query cannot render, and describes the rest anyway`() {
         // A plan holding one is among the things worth describing, so this is the one place the rendering
         // failure is reported instead of thrown.
         val plan = TransactionPlan()
-        plan.add(db.insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Roma"))
-        plan.add(db.update("tv_sink").setValues(listOf("name")).asStep().executeUpdate("name" to "Ostia"))
+        with(plan) { insertInto("tv_sink").values(listOf("name")).asStep().executeUpdate("name" to "Roma") }
+        with(plan) { update("tv_sink").setValues(listOf("name")).asStep().executeUpdate("name" to "Ostia") }
 
         val described = plan.describe()
 
@@ -716,7 +731,7 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
     fun `a row-shaped step still answers value when nothing needs to bind it`() {
         // value() on a fetchRowStrict is only unusable as a *parameter*; as the plan's own result it is fine.
         val plan = TransactionPlan()
-        val source = plan.add(probeOne().fetchRowStrict())
+        val source = probeOne(plan).fetchRowStrict()
         val results = db.executeTransactionPlan(plan)
 
         val row: Row = results[source]
