@@ -111,6 +111,15 @@ val profile: Senator = row.get("profile")   // any type a converter can produce
 
 Each has a non-reified twin taking a `KType` — `get<T>(index, targetType)` — which is what the reified one delegates to, and the only form reachable from Java.
 
+The whole row comes out through `toObject`, mapped onto `T` the way `fetchObject<T>()` maps a row of a result, so a row already in hand — from `fetchRows()` or `forEachRow()` — can still become a class or a `Map`:
+
+```kotlin
+val senator: Senator           = row.toObject()
+val columns: Map<String, Any?> = row.toObject()
+```
+
+Its twin taking a `KType` is `toObject<T>(targetType)`.
+
 The rest of the surface is metadata, useful when the shape of the result is not known in advance:
 
 | Member                 | Gives                                                                              |

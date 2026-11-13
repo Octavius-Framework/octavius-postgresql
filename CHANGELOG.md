@@ -1,5 +1,12 @@
 ## Version 2.11.0 (v2.11.0)
 
+### Driver
+
+#### Added
+
+- `Row.toObject<T>()` maps a row onto `T` as `fetchObject<T>()` maps one, for a row already in hand from `fetchRow`,
+  `fetchRows` or `forEachRow`.
+
 ### Client
 
 #### Added
