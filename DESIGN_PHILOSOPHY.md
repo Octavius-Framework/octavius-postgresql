@@ -24,7 +24,6 @@ the one that does.
 * [Why the class asked for is enough to read but not to write](#why-the-class-asked-for-is-enough-to-read-but-not-to-write)
 * [Why blocking, and not coroutines-first](#why-blocking-and-not-coroutines-first)
 * [Why exceptions, and `DataResult` when you ask for it](#why-exceptions-and-dataresult-when-you-ask-for-it)
-* [Why `@name` and not `:name`](#why-name-and-not-name)
 * [Dynamic queries are just strings](#dynamic-queries-are-just-strings)
 * [Why the version number is not semver](#why-the-version-number-is-not-semver)
 * [The line this deliberately does not cross](#the-line-this-deliberately-does-not-cross)
@@ -327,28 +326,6 @@ Spring's outside it, and some forty classes still put a `NOT NULL` and a `CHECK`
 `DataIntegrityViolationException`. The `reason`, the `path` and the query context would stay only in the cause, one
 `findOctaviusCause()` away, with little more than a message string on the Spring class itself. See
 [Spring integration](docs/driver/spring-integration.md#exceptions).
-
-## Why `@name` and not `:name`
-
-Named parameters are `@name`, not the `:name` that Spring's `NamedParameterJdbcTemplate` made familiar.
-
-`:` is already PostgreSQL's, in array slice syntax: `array[1:5]`, `array[:n]`, `array[m:]`. Under `:name` the two
-collide in a way no parser can settle: `service_record[:tours]` is a slice up to the column `tours` and the
-element at the parameter `tours`, and the statement does not say which. With `@` each reading has a spelling of
-its own:
-
-```sql
-SELECT service_record[:tours]  FROM legionnaires;  -- a slice up to the column tours
-SELECT service_record[@tours]  FROM legionnaires;  -- the element at the parameter tours
-SELECT service_record[:@tours] FROM legionnaires;  -- a slice up to the parameter tours
-```
-
-`@` is PostgreSQL's too — the absolute-value operator, and part of `@>`, `<@`, `@@`, `@?` and a handful more —
-so the two do meet. What matters is that wherever they meet, there is a spelling with one reading. A parameter
-is an `@` with a name straight after it, and nothing else is: `@x` and `a <@b` are parameters here, while `@ x`
-and `a <@ b` are PostgreSQL's absolute value and containment. Everything PostgreSQL says with `@` can be
-written the second way — `@>`, `@@` and `@?` cannot be written any other way to begin with — so none of it is
-out of reach, and no statement is left open to two readings.
 
 ## Dynamic queries are just strings
 
