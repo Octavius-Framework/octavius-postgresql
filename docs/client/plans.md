@@ -5,9 +5,9 @@ clauses were read in order, and a later one leaned on an earlier one having take
 before the legacies charged on him meant anything. The testator did not execute it. He wrote down what was to
 happen, and handed that over.*
 
-A `transaction { }` block is a lambda. A plan is a **value**: it can be built up, counted,
-[inspected](#reading-one-that-went-wrong), merged, handed on, and run somewhere that knows nothing about what
-went into it.
+A `transaction { }` block is a lambda. A plan is a **value**: it can be built up by code that holds no client,
+counted, [inspected](#reading-one-that-went-wrong), merged, handed on, and run somewhere that knows nothing about
+what went into it.
 
 ## When a Block Is Not Enough
 
@@ -28,8 +28,10 @@ A plan exists before any of it runs, and that is what it is for:
 - **A value.** The function that knows the tables can [hand its part back](#returning-a-fragment) instead of
   doing it, and the caller merges it with other work, [describes it](#reading-one-that-went-wrong),
   [runs it again](#running-one-twice), or runs it [inside a block](#inside-a-block) of its own.
-- **Handed, not found.** A helper adding to a plan takes the plan as a parameter, where one called inside a
-  block finds the transaction on its thread — the same work, with the dependency in the signature.
+- **Built without a client.** A plan starts its own queries, so the code deciding what to write needs nothing
+  but the plan: no client, no session, no transaction. A helper adding to a plan takes the plan as a parameter,
+  where one called inside a block finds the transaction on its thread — the same work, with the dependency in
+  the signature.
 
 What it gives up is deciding as it goes. Its shape is fixed before it runs: a step can use what an earlier one
 produced, but whether a step runs at all is settled from what was known beforehand. Until then an id is a
@@ -44,36 +46,34 @@ before the parent has one. `edictId.value()` below is the id the edict will have
 after it, resolved when that step runs, and the statements, and the order they run in, are the ones you wrote.
 
 ```kotlin
-fun planEdict(draft: EdictDraft): Pair<TransactionPlan, StepHandle<Int>> {
-    val plan = TransactionPlan()
-
-    val edictId = plan.add(
-        db.insertInto("edicts").values(listOf("title", "tribute")).returning("id")
-            .asStep().fetchFieldStrict<Int>("title" to draft.title, "tribute" to draft.tribute)
-    )
+fun planEdict(draft: EdictDraft): Pair<TransactionPlan, StepHandle<Int>> = with(TransactionPlan()) {
+    val edictId = insertInto("edicts").values(listOf("title", "tribute")).returning("id")
+        .asStep().fetchFieldStrict<Int>("title" to draft.title, "tribute" to draft.tribute)
 
     if (draft.levy.isNotEmpty()) {
-        plan.add(
-            db.rawQuery(
-                """
-                INSERT INTO edict_items (edict_id, province, amount)
-                SELECT @edict_id, u.province, u.amount
-                FROM UNNEST(@provinces, @amounts) AS u(province, amount)
-                """
-            ).asStep().executeUpdate(
-                "edict_id" to edictId.value(),
-                "provinces" to draft.levy.map { it.province },
-                "amounts" to draft.levy.map { it.amount }
-            )
+        rawQuery(
+            """
+            INSERT INTO edict_items (edict_id, province, amount)
+            SELECT @edict_id, u.province, u.amount
+            FROM UNNEST(@provinces, @amounts) AS u(province, amount)
+            """
+        ).asStep().executeUpdate(
+            "edict_id" to edictId.value(),
+            "provinces" to draft.levy.map { it.province },
+            "amounts" to draft.levy.map { it.amount }
         )
     }
 
-    return plan to edictId
+    this to edictId
 }
 
 val (plan, edictId) = planEdict(draft)
 val id = db.executeTransactionPlan(plan)[edictId]
 ```
+
+`planEdict` holds no client. With the plan as the receiver — `with(plan)` or `plan.apply { }` — `insertInto`,
+`select`, `update`, `deleteFrom` and `rawQuery` are the plan's own, and `asStep()` turns what they build into a
+step. The step's terminal adds it to the plan and returns its handle.
 
 **Two steps, however many items.** The items go in as one statement, the rows turned sideways into one array
 per column — [the bulk-write form](../driver/bulk-writes.md#inserting), one round trip where a step per item
@@ -85,10 +85,14 @@ The items step is added only where there are items. Two empty lists carry no ele
 see [Empty batches need a type](../driver/bulk-writes.md#empty-batches-need-a-type) — and a plan being data, a
 step with nothing to do can simply be left out of it.
 
-`asStep()` turns any query into a step builder. Its terminals are the `fetch*` family and `executeUpdate` — the
-`forEach*` family is absent on purpose, a plan keeping every result so that later steps can use it, and a walk
-over rows too large to hold having nothing to keep. So is `RawQuery.execute()`, which speaks a protocol that
-binds nothing and could therefore take no reference to an earlier step.
+The step terminals are the `fetch*` family and `executeUpdate` — the `forEach*` family is absent on purpose, a
+plan keeping every result so that later steps can use it, and a walk over rows too large to hold having nothing
+to keep. So is `RawQuery.execute()`, which speaks a protocol that binds nothing and could therefore take no
+reference to an earlier step.
+
+A query the plan started runs only as a step: its own terminals, called without `asStep()`, throw
+`InvalidOperationException` saying so. A client's query can become a step as well, and runs in the same
+transaction as the rest — every step does, [whoever built it](#inside-a-block).
 
 ## Creating or Editing
 
@@ -130,21 +134,16 @@ A `TransactionValue` can be either — `toTransactionValue()` wraps the known on
 the generated one — and every step after binds it without knowing which it got:
 
 ```kotlin
-fun planSave(edict: Edict, sealExists: Boolean): TransactionPlan {
-    val plan = TransactionPlan()
+fun planSave(edict: Edict, sealExists: Boolean): TransactionPlan = TransactionPlan().apply {
     val row = mapOf("title" to edict.title, "tribute" to edict.tribute)
 
     val edictId: TransactionValue<Int> = when (val id = edict.id) {
-        null -> plan.add(
-            db.insertInto("edicts").values(row).returning("id")
-                .asStep().fetchFieldStrict<Int>(row)
-        ).value()
+        null -> insertInto("edicts").values(row).returning("id")
+            .asStep().fetchFieldStrict<Int>(row).value()
 
         else -> {
-            plan.add(
-                db.update("edicts").setValues(row).where("id = @id")
-                    .asStep().executeUpdate(row + ("id" to id))
-            )
+            update("edicts").setValues(row).where("id = @id")
+                .asStep().executeUpdate(row + ("id" to id))
             id.toTransactionValue()
         }
     }
@@ -152,26 +151,20 @@ fun planSave(edict: Edict, sealExists: Boolean): TransactionPlan {
     // Kept, added, removed, or never there - the last adds no step
     val sealedBy = edict.sealedBy
     when {
-        sealExists && sealedBy != null -> plan.add(
-            db.update("edict_seals").setValues(listOf("sealed_by")).where("edict_id = @edict_id")
+        sealExists && sealedBy != null ->
+            update("edict_seals").setValues(listOf("sealed_by")).where("edict_id = @edict_id")
                 .asStep().executeUpdate("sealed_by" to sealedBy, "edict_id" to edictId)
-        )
-        sealedBy != null -> plan.add(
-            db.insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
+        sealedBy != null ->
+            insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
                 .asStep().executeUpdate("edict_id" to edictId, "sealed_by" to sealedBy)
-        )
-        sealExists -> plan.add(
-            db.deleteFrom("edict_seals").where("edict_id = @edict_id")
-                .asStep().executeUpdate("edict_id" to edictId)
-        )
+        sealExists ->
+            deleteFrom("edict_seals").where("edict_id = @edict_id").asStep().executeUpdate("edict_id" to edictId)
     }
-
-    return plan
 }
 ```
 
-The branches are the same two `when`s, and the plan is the longer of the two by its `plan.add`, `asStep()` and
-the wrapping of the id. The block has two things the plan has not: the id comes back as its result, where the
+The branches are the same two `when`s, and the plan is the longer of the two by its `asStep()` and the
+wrapping of the id. The block has two things the plan has not: the id comes back as its result, where the
 plan reaches it only through the insert's handle, which exists on one branch of the two; and `sealExists` could
 be read inside the transaction — a `SELECT … FOR UPDATE` on the seal — instead of taken from whoever loaded the
 edict. What the plan has in return is [what a plan is for](#when-a-block-is-not-enough): none of it runs until
@@ -191,10 +184,8 @@ and puts it among its parameters like any other:
 ```kotlin
 fun planAudit(entityId: TransactionValue<Int>, summary: String): TransactionPlan =
     TransactionPlan().apply {
-        add(
-            db.insertInto("audit").values(listOf("entity_id", "summary"))
-                .asStep().executeUpdate("entity_id" to entityId, "summary" to summary)
-        )
+        insertInto("audit").values(listOf("entity_id", "summary"))
+            .asStep().executeUpdate("entity_id" to entityId, "summary" to summary)
     }
 
 val (edictPlan, edictId) = planEdict(draft)
@@ -216,12 +207,25 @@ The plan merged in is not consumed and not changed: it can still be run on its o
 Merging the same plan twice is refused — directly, or through two plans that both hold it. Its steps would run
 twice under one handle, and only the last result of each would be reachable.
 
+A helper can also add to a plan it is handed rather than return one of its own. It takes the plan as a
+parameter and adds inside `plan.apply { }`, which puts the plan's queries and `asStep()` in reach:
+
+```kotlin
+fun addSeal(plan: TransactionPlan, edictId: TransactionValue<Int>, sealedBy: String) {
+    plan.apply {
+        insertInto("edict_seals").values(listOf("edict_id", "sealed_by"))
+            .asStep().executeUpdate("edict_id" to edictId, "sealed_by" to sealedBy)
+    }
+}
+```
+
 ## Inside a Block
 
 `executeTransactionPlan` opens its transaction through `transaction`, and takes the same
-[propagation](transactions-failures.md#propagation). Under the default, `REQUIRED`, a plan run inside a block
-joins the block's transaction — so the two are not alternatives. The block reads, locks and decides, in plain
-Kotlin; the plan writes what was decided.
+[propagation](transactions-failures.md#propagation). Every step runs on that transaction's session, whether the
+plan started its query or a client did, and whichever client that was. Under the default, `REQUIRED`, a plan
+run inside a block joins the block's transaction — so the two are not alternatives. The block reads, locks and
+decides, in plain Kotlin; the plan writes what was decided.
 
 ```kotlin
 fun answer(petitionId: Int, draft: EdictDraft): Int = db.transaction {
@@ -266,8 +270,8 @@ A retry goes around whoever opened the transaction, which for a joined plan is t
 
 ## Handles and What They Reach
 
-`plan.add` returns a `StepHandle`. It is identity and nothing else — two handles are the same handle or they
-are not — and it is useful only inside the plan whose `add` returned it, or a plan that one is merged into.
+A step's terminal returns a `StepHandle`. It is identity and nothing else — two handles are the same handle or
+they are not — and it is useful only inside the plan the step was added to, or a plan that one is merged into.
 
 A handle reaches one thing, `value()`: the step's result, whole, as its terminal produced it. The type comes
 with it, so reaching *into* a result is ordinary Kotlin, written in `map { }`:
@@ -292,13 +296,13 @@ question, answered by whether the driver can send that class as a parameter.
 
 | The step's terminal                       | `value()` binds                             |
 |-------------------------------------------|---------------------------------------------|
-| `fetchField`, `fetchFieldStrict`          | ✅                                           |
-| `fetchFields`, `fetchObjects`             | ✅ — a list of scalars binds as an array     |
-| `executeUpdate`                           | ✅ — the affected-row count                  |
+| `fetchField`, `fetchFieldStrict`          | ✅                                          |
+| `fetchFields`, `fetchObjects`             | ✅ — a list of scalars binds as an array    |
+| `executeUpdate`                           | ✅ — the affected-row count                 |
 | `fetchObject`, `fetchObjectStrict`        | only if the class is a registered composite |
-| `fetchObject*<Map<String, Any?>>`         | ❌ — nothing sends a Map; `spread()` does    |
-| `fetchRow`, `fetchRowStrict`, `fetchRows` | ❌ — a `Row` is not something to send        |
-| `fetchRow` that matched nothing           | ✅ — binds as `NULL`                         |
+| `fetchObject*<Map<String, Any?>>`         | ❌ — nothing sends a Map; `spread()` does   |
+| `fetchRow`, `fetchRowStrict`, `fetchRows` | ❌ — a `Row` is not something to send       |
+| `fetchRow` that matched nothing           | ✅ — binds as `NULL`                        |
 
 A `value()` nothing can send fails where the parameter is encoded, naming the class. `map` is the way across:
 it reaches the object and takes the part that can be sent.
@@ -309,10 +313,8 @@ it reaches the object and takes the part that can be sent.
 next step wants, and a list can become its size, without adding a step just to compute it:
 
 ```kotlin
-plan.add(
-    db.insertInto("audit").values(listOf("summary"))
-        .asStep().executeUpdate("summary" to items.value().map { "granted to ${it.size} provinces" })
-)
+insertInto("audit").values(listOf("summary"))
+    .asStep().executeUpdate("summary" to items.value().map { "granted to ${it.size} provinces" })
 ```
 
 **A transformation is the one place a plan runs code you wrote.** Anything it throws arrives as a
@@ -344,15 +346,11 @@ PATH: step 1 -> parameter 'name' -> map #1
 under their own keys, and the name it was filed under is dropped:
 
 ```kotlin
-val original = plan.add(
-    db.select("title", "tribute", "province").from("edicts").where("id = @id")
-        .asStep().fetchObjectStrict<Map<String, Any?>>("id" to id)
-)
+val original = select("title", "tribute", "province").from("edicts").where("id = @id")
+    .asStep().fetchObjectStrict<Map<String, Any?>>("id" to id)
 
-plan.add(
-    db.insertInto("edict_archive").values(listOf("title", "tribute", "province"))
-        .asStep().executeUpdate("anything" to original.value().spread())
-)
+insertInto("edict_archive").values(listOf("title", "tribute", "province"))
+    .asStep().executeUpdate("anything" to original.value().spread())
 ```
 
 `@title`, `@tribute` and `@province` are bound; `@anything` is not, and nothing binds it. That name is a
@@ -438,21 +436,9 @@ is among the things worth describing, and the other nineteen steps still describ
 
 ### Which step is step 2
 
-A step's number, in a description and in a failure alike, is **where it sits in the plan being run**. A
-handle's own `toString` is not: it carries the index the handle was *created* at, and after `addPlan` that is
-no longer where its step is.
-
-```kotlin
-val source = tail.add(…)    // step 0 of tail
-head.addPlan(tail)          // head had two steps of its own, so that step is now step 2
-
-source.toString()           // StepHandle(step 0)        - the index it was created at
-head.describe()             // @amount <- step 2.map(#1) - where it runs
-```
-
-So read the number off `describe()` or off the failure, and treat a handle's own as saying which plan it came
-from rather than where it will run. That distinction is also why a handle from another plan is reported the
-way it is: there, naming the plan it was created in is the whole point.
+A step's number, in a description and in a failure alike, is **where it sits in the plan being run**. After
+`addPlan` the same step sits at a different place in each plan that holds it, so a handle has no number of its
+own: only a plan says where a step is, and a handle from elsewhere is reported as one.
 
 ## Running One Twice
 
@@ -483,4 +469,4 @@ for what the server does to a doomed transaction in the meantime.
 
 - [Transactions and Failures](transactions-failures.md) — the propagation and timeout arguments a plan takes
 - [Bulk Writes](../driver/bulk-writes.md) — the one statement a graph's rows go in as
-- [Queries](queries.md) — what `asStep()` is called on
+- [Queries](queries.md) — the builders a plan's steps are written with

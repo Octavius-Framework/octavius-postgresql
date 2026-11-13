@@ -18,7 +18,7 @@ Contents:
 * [Reading them all as maps](#reading-them-all-as-maps)
 * [Writing the converters by hand](#writing-the-converters-by-hand)
 * [The raw forms: `PgComposite` and `PgRecord`](#the-raw-forms-pgcomposite-and-pgrecord)
-* [Maps in and out: `toDataObject` and `toDataMap`](#maps-in-and-out-todataobject-and-todatamap)
+* [A class as named parameters: `toDataMap`](#a-class-as-named-parameters-todatamap)
 * [Practical rules and gotchas](#practical-rules-and-gotchas)
 
 ## Reading needs a class, writing needs a type
@@ -260,11 +260,13 @@ argument for it as much as against.
 Every reflective mapper uses the same metadata, computed once per class and cached for the lifetime of the JVM:
 
 * **The primary constructor is the whole contract.** Only its parameters are read. A property declared in the class body
-  is invisible in both directions — it is never populated from the database and never written to it.
+  is invisible in both directions — it is never populated from the database and never written to it. A private
+  constructor property is read and written like a public one.
 * **A data class is required.** Reflective mapping reads every primary constructor parameter back as a property, which
   is exactly what a data class guarantees. `registerAutoComposite` rejects anything else with
-  `InvalidOperationException(INVALID_ARGUMENT)` at registration time rather than at query time, and the reflective
-  converters only answer for data classes. Any other shape wants a converter pair of its own.
+  `InvalidOperationException(INVALID_ARGUMENT)` at registration time rather than at query time, `toDataMap` rejects it
+  the same way, and the reflective converters only answer for data classes. Any other shape wants a converter pair of
+  its own.
 * **Names are matched, positions are not.** Column and attribute order never matters.
 * **Extra columns and attributes are ignored.** A `SELECT *` that returns more than your class declares is fine.
 * **Extra properties are dropped on the way out.** Writing iterates the *type's* attributes, so a property with no
@@ -587,27 +589,29 @@ record.fieldOids     // IntArray, the OID of each field
 Uncast literals are fine on both sides. PostgreSQL types a bare `'active'` as `unknown`, which the driver loads from
 the catalog like any other base type and decodes to `String`, so no `::text` is needed to make a `ROW(...)` convertible.
 
-## Maps in and out: `toDataObject` and `toDataMap`
+## A class as named parameters: `toDataMap`
 
-The same reflective matching is available directly, with no database in the picture. Both live in
-`io.github.octaviusframework.driver.util.reflection`:
+`toDataMap` turns an object into a map under the names reflection reads it by, so its properties can go out as the
+named parameters of a query, each one separately. It lives in `io.github.octaviusframework.driver.util.reflection`:
 
 ```kotlin
 import io.github.octaviusframework.driver.util.reflection.toDataMap
-import io.github.octaviusframework.driver.util.reflection.toDataObject
 
-Address("Roma", "Via Sacra").toDataMap()              // {city=Roma, street=Via Sacra}
-Address("Roma", "Via Sacra").toDataMap("street")      // {city=Roma} - excluded keys
+val address = Address("Roma", "Via Sacra")
+address.toDataMap()              // {city=Roma, street=Via Sacra}
+address.toDataMap("street")      // {city=Roma} - excluded keys
 
-mapOf("city" to "Roma", "street" to "Via Sacra").toDataObject<Address>()
+session.createNamedQuery("UPDATE senators SET city = @city, street = @street WHERE id = @id")
+    .executeUpdate(address.toDataMap() + ("id" to 7))
 ```
 
-Keys are the mapped names, so `@PgName` applies to both directions here too. `toDataObject` follows the same
-missing-value rules as [the table above](#when-a-value-is-missing) and adds a runtime type check, reporting a mismatch
-as `MappingException(CONVERSION_ERROR)` — *"Incompatible type. Expected kotlin.String but got class kotlin.Int"* — with
-the offending key in `path`.
+The map holds the properties of the primary constructor, in its order, a `null` kept under its key. A property declared
+in the class body is left out, as everywhere [reflection reads a class](#what-reflection-reads-and-what-it-ignores).
+Keys are the mapped names, the `snake_case` form or `@PgName`, and `excludeKeys` names keys, not properties: a
+`legioStatus` is left out by `toDataMap("legio_status")`, while `toDataMap("legioStatus")` leaves out nothing.
 
-It works on any class with a primary constructor, data class or not.
+It takes a data class, and anything else raises `InvalidOperationException(INVALID_ARGUMENT)`. The class needs no
+registration, since its values go out one by one rather than as a composite.
 
 ## Practical rules and gotchas
 

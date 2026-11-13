@@ -5,8 +5,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 
 /**
  * Renders a value as the chain that will produce it, source first, never with a literal's value. A handle is
- * rendered by its place in [stepIndices] where given; its own `toString` has the index it was created at, which
- * after [TransactionPlan.addPlan] may not be where its step sits.
+ * rendered by its place in [stepIndices]; without them it has no number to give.
  */
 internal fun describeValue(
     value: TransactionValue<*>,
@@ -14,8 +13,10 @@ internal fun describeValue(
 ): String = when (value) {
     is TransactionValue.Value -> "literal"
 
-    is TransactionValue.FromStep ->
-        stepIndices?.get(value.handle)?.let { "step $it" } ?: value.handle.toString()
+    is TransactionValue.FromStep -> when {
+        stepIndices == null -> "a step"
+        else -> stepIndices[value.handle]?.let { "step $it" } ?: "a step of another plan"
+    }
 
     is TransactionValue.Transformed<*, *> ->
         "${describeValue(value.source, stepIndices)}.map(#${value.position})"

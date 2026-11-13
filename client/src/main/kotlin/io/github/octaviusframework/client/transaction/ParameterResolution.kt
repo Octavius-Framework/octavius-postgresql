@@ -99,8 +99,8 @@ private fun resultOf(
     if (!results.containsKey(handle)) {
         throw InvalidOperationException(
             InvalidOperationExceptionReason.INVALID_ARGUMENT,
-            details = "Step $stepIndex of the plan binds '$paramName' to $handle, which is a step that runs " +
-                "after it or comes from another plan. A step can only use results from steps added before it."
+            details = "Step $stepIndex of the plan binds '$paramName' to a step that runs after it or comes from " +
+                "another plan. A step can only use results from steps added before it."
         )
     }
     return results[handle]

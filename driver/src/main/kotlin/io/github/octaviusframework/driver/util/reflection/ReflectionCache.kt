@@ -1,6 +1,8 @@
 package io.github.octaviusframework.driver.util.reflection
 
 import io.github.octaviusframework.annotation.PgName
+import io.github.octaviusframework.driver.exception.InvalidOperationException
+import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.identifier.CaseConvention
 import io.github.octaviusframework.identifier.CaseConverter
 import java.util.concurrent.ConcurrentHashMap
@@ -8,6 +10,7 @@ import kotlin.reflect.*
 import kotlin.reflect.full.findAnnotation
 import kotlin.reflect.full.memberProperties
 import kotlin.reflect.full.primaryConstructor
+import kotlin.reflect.jvm.isAccessible
 
 /**
  * A data class constructor parameter and its property.
@@ -37,22 +40,32 @@ object ReflectionCache {
 
     /**
      * The metadata of [kClass], read on first request and never evicted. A property maps to its
-     * [PgName][io.github.octaviusframework.annotation.PgName], or its name in `snake_case`.
+     * [PgName][io.github.octaviusframework.annotation.PgName], or its name in `snake_case`, and is read whatever its
+     * visibility.
      *
-     * @throws IllegalArgumentException if [kClass] has no primary constructor.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` if [kClass] is not a data class.
      */
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> getOrCreateDataObjectMetadata(
         kClass: KClass<T>
     ): DataObjectClassMetadata<T> {
         return dataObjectCache.getOrPut(kClass) {
-            val constructor = kClass.primaryConstructor
-                ?: throw IllegalArgumentException("Class ${kClass.simpleName} must have a primary constructor.")
+            if (!kClass.isData) {
+                throw InvalidOperationException(
+                    InvalidOperationExceptionReason.INVALID_ARGUMENT,
+                    "Class ${kClass.qualifiedName ?: kClass.simpleName} is not a data class. Reflective mapping " +
+                            "reads every primary constructor parameter back as a property, which only a data class " +
+                            "guarantees."
+                )
+            }
+            val constructor = kClass.primaryConstructor!!
 
             val propertiesByName = kClass.memberProperties.associateBy { it.name }
 
             val constructorProperties = constructor.parameters.map { param ->
                 val property = propertiesByName[param.name]!!
+                // So that a private constructor property can be read back, as it can be passed in.
+                property.isAccessible = true
 
                 val keyName = property.findAnnotation<PgName>()?.name
                     ?: CaseConverter.convert(param.name!!, CaseConvention.CAMEL_CASE, CaseConvention.SNAKE_CASE_LOWER)

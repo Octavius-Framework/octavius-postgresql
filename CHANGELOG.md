@@ -1,3 +1,60 @@
+## Version 2.11.0 (v2.11.0)
+
+### Driver
+
+#### Added
+
+- `Row.toObject<T>()` maps a row onto `T` as `fetchObject<T>()` maps one, for a row already in hand from `fetchRow`,
+  `fetchRows` or `forEachRow`.
+
+#### Changed
+
+- **[BREAKING]** `Map.toDataObject()` is gone. A map read from a query becomes a class by reading the class instead,
+  through `fetchObject<T>()` or `Row.toObject<T>()`, which also convert the values where `toDataObject` only checked
+  their types. `toDataMap()` stays, for passing an object's properties as named parameters.
+
+- **[BREAKING]** `toDataMap()` takes only a data class, as every reflective mapping does, and raises
+  `InvalidOperationException(INVALID_ARGUMENT)` for any other class. It read a class whose constructor parameters
+  were all properties, and failed with a `NullPointerException` on one that was not.
+  `ReflectionCache.getOrCreateDataObjectMetadata` refuses the same way, where it raised `IllegalArgumentException` for
+  a class without a primary constructor and read any other.
+
+#### Fixed
+
+- A private property of a data class's primary constructor is written as a composite attribute and put into the map
+  of `toDataMap()`, as it is read. Writing such a class failed with `MappingException(CONVERSION_ERROR)`, and
+  `toDataMap()` with kotlin-reflect's `IllegalCallableAccessException`.
+
+### Client
+
+#### Added
+
+- `TransactionPlan` starts its own queries: `rawQuery`, `select`, `insertInto`, `update` and `deleteFrom`, the
+  same builders a client hands out. Code that builds a plan needs no client. A query the plan started runs only
+  as a step, and its own terminals throw `InvalidOperationException(INVALID_ARGUMENT)` naming `asStep()`.
+
+#### Changed
+
+- **[BREAKING]** A step's terminal adds it to the plan and returns its `StepHandle`, where it returned a
+  `TransactionStep` to pass to `plan.add`. `asStep()` is a member of `TransactionPlan` and reached with the plan
+  as the receiver (`with(plan)`, `plan.apply { }`), where it was on every query; `plan.add(step)` and
+  `TransactionStep` are gone. `plan.add(db.insertInto(…).asStep().executeUpdate(…))` becomes
+  `with(plan) { insertInto(…).asStep().executeUpdate(…) }`. A client's query still becomes a step the same way.
+
+- A `StepHandle` carries no step number, where its `toString` gave the index it was created at, which after
+  `addPlan` is not where its step sits. A value's `toString` names its source as `a step`, `describe()` marks a
+  handle from elsewhere as `a step of another plan`, and the failures that printed a handle name steps by where
+  they sit in each plan: merging a plan twice says `Step 0 of the plan being merged is already step 1 of this
+  plan`.
+
+#### Fixed
+
+- Every step of a `TransactionPlan` runs on the session of the transaction `executeTransactionPlan` opened or
+  joined, whichever client its query was built on. A step built on another client ran through that client's own
+  session provider, found no transaction there and committed by itself, so a later step failing rolled back only
+  the steps built on the executing client. The client a step's query comes from is now only where its SQL was
+  built.
+
 ## Version 2.10.0 (v2.10.0) (2026-11-11)
 
 ### Driver

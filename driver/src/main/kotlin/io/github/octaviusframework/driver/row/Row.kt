@@ -8,6 +8,7 @@ import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.registry.TypeCatalog
+import io.github.octaviusframework.driver.type.PgType
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
 
@@ -114,6 +115,21 @@ class Row internal constructor(
      * @throws MappingException `COLUMN_NOT_FOUND` if there is no such column.
      */
     fun getRaw(columnName: String): Any? = getRaw(getColumnIndex(columnName))
+
+    /**
+     * Returns this row mapped onto [targetType], as `fetchObject` maps a row of a result: a data class by column
+     * names, a `Map<String, V>` with every column converted to `V`.
+     *
+     * @throws MappingException if the row cannot be mapped onto [targetType].
+     */
+    fun <T : Any> toObject(targetType: KType): T = resultMapper.deserialize(this, targetType, PgType.Record)
+
+    /**
+     * Returns this row mapped onto [T], as `fetchObject` maps a row of a result.
+     *
+     * @throws MappingException if the row cannot be mapped onto [T].
+     */
+    inline fun <reified T : Any> toObject(): T = toObject(typeOf<T>())
 
     /** The type OID of the column at zero-based [index]. */
     fun getOid(index: Int): Int {

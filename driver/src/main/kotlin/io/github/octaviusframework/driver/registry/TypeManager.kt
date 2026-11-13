@@ -118,19 +118,8 @@ class TypeManager internal constructor(
             CaseConvention.SNAKE_CASE_LOWER
         )
 
-        // Reflective mapping reads every constructor parameter back as a property, which only a data class
-        // guarantees.
-        if (!kClass.isData) {
-            throw InvalidOperationException(
-                InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                "Class ${kClass.qualifiedName ?: kClass.simpleName} is not a data class and cannot be registered " +
-                        "as composite type '$qName'. Reflective mapping reads every primary constructor parameter " +
-                        "back as a property, which only a data class guarantees. Write a ResultConverter and " +
-                        "ParameterConverter pair for any other shape."
-            )
-        }
-
-        // Warms the metadata cache before the registration is visible, so the first query does not pay for it.
+        // Refuses a class that is not a data class, and warms the metadata cache before the registration is
+        // visible, so the first query does not pay for it.
         ReflectionCache.getOrCreateDataObjectMetadata(kClass)
 
         holder.update { it.withComposite(kClass, QualifiedName(schema, qName)) }

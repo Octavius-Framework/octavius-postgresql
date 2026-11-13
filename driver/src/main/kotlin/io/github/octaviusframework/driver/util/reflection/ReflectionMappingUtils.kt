@@ -1,10 +1,10 @@
 package io.github.octaviusframework.driver.util.reflection
 
+import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
-import kotlin.reflect.KType
 
 /** What a value resolver returns for a name the source does not hold, as opposed to a `NULL`. */
 object MissingToken
@@ -69,42 +69,11 @@ fun <T : Any> instantiateDataObject(
 }
 
 /**
- * This map as the data class [T], each property read from the key of its `snake_case` name or its
- * [PgName][io.github.octaviusframework.annotation.PgName]. An absent key and a `null` differ as in
- * [instantiateDataObject]; a key with no property is ignored.
+ * This data class's constructor properties by their `snake_case` names or their
+ * [PgName][io.github.octaviusframework.annotation.PgName], without the keys in [excludeKeys].
  *
- * @throws MappingException if a value does not fit its property, or a non-nullable property has none.
+ * @throws InvalidOperationException `INVALID_ARGUMENT` if the class is not a data class.
  */
-inline fun <reified T : Any> Map<String, Any?>.toDataObject(): T {
-    return toDataObject(T::class)
-}
-
-/**
- * [toDataObject] for a class found at runtime.
- *
- * @throws MappingException if a value does not fit its property, or a non-nullable property has none.
- */
-fun <T : Any> Map<String, Any?>.toDataObject(
-    kClass: KClass<T>
-): T {
-    val metadata = ReflectionCache.getOrCreateDataObjectMetadata(kClass)
-    
-    return instantiateDataObject(kClass, metadata) { meta ->
-        if (this.containsKey(meta.keyName)) {
-            val value = this[meta.keyName]
-            try {
-                validateValue(value, meta.type)
-            } catch (e: MappingException) {
-                e.path.add(meta.keyName)
-                throw e
-            }
-        } else {
-            MissingToken
-        }
-    }
-}
-
-/** This data class's constructor properties by the names [toDataObject] reads, without [excludeKeys]. */
 fun <T : Any> T.toDataMap(
     vararg excludeKeys: String
 ): Map<String, Any?> {
@@ -123,84 +92,4 @@ fun <T : Any> T.toDataMap(
         
         keyName to value
     }.associate { it }
-}
-
-/**
- * Returns [value] if it fits [targetType]. A `List` or `Map` is checked by its first non-null element only.
- *
- * @throws MappingException `REQUIRED_ATTRIBUTE_MISSING` if [value] is null and [targetType] is not nullable,
- *   `CONVERSION_ERROR` if it does not fit.
- */
-private fun validateValue(value: Any?, targetType: KType): Any? {
-    if (value == null) {
-        if (targetType.isMarkedNullable) {
-            return null
-        } else {
-            throw MappingException(
-                reason = MappingExceptionReason.REQUIRED_ATTRIBUTE_MISSING,
-                details = "Null value for non-nullable expected type $targetType"
-            )
-        }
-    }
-
-    val classifier = targetType.classifier
-    if (classifier is kotlin.reflect.KTypeParameter) {
-        throw MappingException(
-            reason = MappingExceptionReason.CONVERSION_ERROR,
-            details = "Unsupported generic type parameter in data class: $targetType"
-        )
-    }
-
-    val targetClass = classifier as? KClass<*> ?: return value
-
-    // --- Validation 1: Check main type ---
-    if (!targetClass.isInstance(value)) {
-        throw MappingException(
-            reason = MappingExceptionReason.CONVERSION_ERROR,
-            details = "Incompatible type. Expected $targetType but got ${value::class}"
-        )
-    }
-
-    // --- Validation 2: Check element type in collection ---
-    when (value) {
-        is List<*> -> validateList(value, targetType)
-        is Map<*, *> -> validateMap(value, targetType)
-    }
-
-    return value
-}
-
-private fun validateList(value: List<*>, targetType: KType) {
-    val firstNonNullElement = value.firstOrNull { it != null }
-
-    if (firstNonNullElement != null) {
-        val listElementType = targetType.arguments.firstOrNull()?.type ?: return
-        val listElementClass = listElementType.classifier as? KClass<*> ?: return
-
-        if (!listElementClass.isInstance(firstNonNullElement)) {
-            throw MappingException(
-                reason = MappingExceptionReason.CONVERSION_ERROR,
-                details = "Incompatible collection element type. Expected $listElementType but got ${firstNonNullElement::class}"
-            )
-        }
-    }
-}
-
-private fun validateMap(value: Map<*, *>, targetType: KType) {
-    val firstNonNullEntry = value.entries.firstOrNull { it.key != null && it.value != null }
-
-    if (firstNonNullEntry != null && targetType.arguments.size == 2) {
-        val keyType = targetType.arguments[0].type ?: return
-        val valueType = targetType.arguments[1].type ?: return
-
-        val keyClass = keyType.classifier as? KClass<*> ?: return
-        val valueClass = valueType.classifier as? KClass<*> ?: return
-
-        if (!keyClass.isInstance(firstNonNullEntry.key) || !valueClass.isInstance(firstNonNullEntry.value)) {
-            throw MappingException(
-                reason = MappingExceptionReason.CONVERSION_ERROR,
-                details = "Incompatible map entry types for map $targetType. Key: ${firstNonNullEntry.key!!::class}, Value: ${firstNonNullEntry.value!!::class}"
-            )
-        }
-    }
 }

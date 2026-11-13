@@ -11,7 +11,20 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
+data class FetchedSenator(val id: Int, val cognomen: String)
+
 class BasicQueryIntegrationTest : AbstractIntegrationTest() {
+
+    @Test
+    fun `a fetched row maps onto a class as fetchObject maps one`() {
+        openSession().use { session ->
+            val sql = "SELECT 7 AS id, 'Cicero' AS cognomen"
+            val row = session.createNativeQuery(sql).fetchRowStrict()
+            assertEquals(session.createNativeQuery(sql).fetchObject<FetchedSenator>(), row.toObject<FetchedSenator>())
+            assertEquals(FetchedSenator(7, "Cicero"), row.toObject<FetchedSenator>())
+            assertEquals(mapOf("id" to 7, "cognomen" to "Cicero"), row.toObject<Map<String, Any?>>())
+        }
+    }
 
     @Test
     fun test() {

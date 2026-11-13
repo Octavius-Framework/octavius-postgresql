@@ -1,7 +1,6 @@
 package io.github.octaviusframework.client.query
 
 import io.github.octaviusframework.client.session.SessionProvider
-import io.github.octaviusframework.client.transaction.StepBuilder
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
 import io.github.octaviusframework.driver.query.NamedParameterQuery
@@ -37,8 +36,9 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
 
     /** The driver query every terminal runs, carrying this query's own converters. */
     @PublishedApi
-    internal fun OctaviusSessionOperations.preparedQuery(): NamedParameterQuery {
-        val query = createNamedQuery(querySql())
+    context(session: OctaviusSessionOperations)
+    internal fun preparedQuery(): NamedParameterQuery {
+        val query = session.createNamedQuery(querySql())
         queryResultConverters?.forEach { query.registerResultConverter(it) }
         queryParameterConverters?.forEach { query.registerParameterConverter(it) }
         return query
@@ -87,15 +87,6 @@ abstract class RunnableQuery<T : RunnableQuery<T>> @PublishedApi internal constr
      * `fetch*Strict` that found no row still throws.
      */
     fun asResult(): ResultQuery = ResultQuery(this)
-
-    /**
-     * Turns this query into a step of a
-     * [TransactionPlan][io.github.octaviusframework.client.transaction.TransactionPlan] instead of running it. The
-     * parameters given at the step's terminal may hold
-     * [TransactionValue][io.github.octaviusframework.client.transaction.TransactionValue]s pointing at earlier
-     * steps.
-     */
-    fun asStep(): StepBuilder = StepBuilder(this)
 
     // --- Rows -------------------------------------------------------------------------------------
 

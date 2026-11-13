@@ -23,6 +23,12 @@ class ReflectionCompositeMappingTest {
         @PgName("age_in_years") val age: Int
     )
 
+    data class Informer(val cognomen: String, private val source: String)
+
+    private val informerType = PgType.Composite(
+        4, "informer_type", "public", LinkedHashMap(mapOf("cognomen" to 1, "source" to 1))
+    )
+
     val type = PgType.Composite(
         3, "person_type", "public", LinkedHashMap(
             mapOf(
@@ -37,7 +43,8 @@ class ReflectionCompositeMappingTest {
         update { it.withTypes(mapOf(
             1 to PgType.Base(1, "text", "public"),
             2 to PgType.Base(2, "int4", "public"),
-            3 to type
+            3 to type,
+            4 to informerType
         )) }
     }
     
@@ -106,6 +113,28 @@ class ReflectionCompositeMappingTest {
         assertEquals("Jane", serialized.get(0))
         assertEquals("Smith", serialized.get(1))
         assertEquals(28, serialized.get(2))
+    }
+
+    @Test
+    fun `a registered class with a private constructor property is read and written with it`() {
+        dummyTypeManager.registerAutoComposite<Informer>("informer_type", "public")
+        val context = object : SerializationContext {
+            override val types = dummyTypeManager.lookup
+            override fun convert(source: Any, expectedOid: Int, pathSegment: String?): Any? = source
+            override fun findConverter(source: Any, expectedOid: Int): ParameterConverter<Any>? = null
+            override fun findConverterByClass(sourceClass: KClass<*>, expectedOid: Int): ParameterConverter<Any>? = null
+        }
+
+        val serialized = ReflectionCompositeParameterConverter.convert(
+            Informer("Curius", "Fulvia"), informerType.oid, context
+        ) as PgComposite
+
+        assertEquals("Curius", serialized.get(0))
+        assertEquals("Fulvia", serialized.get(1))
+
+        val deserializer = ResultMapper(dummyRegistry.catalog, listOf(ReflectionCompositeConverter), dummyTypeManager.lookup)
+        val read: Informer = deserializer.deserialize(serialized, typeOf<Informer>(), informerType)
+        assertEquals(Informer("Curius", "Fulvia"), read)
     }
 }
 

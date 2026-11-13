@@ -148,7 +148,8 @@ interface OctaviusClient : AutoCloseable {
     }
 
     /**
-     * Runs every step of [plan] in one transaction, in order, and returns what each produced. A step's
+     * Runs every step of [plan] in one transaction of this client, in order, and returns what each produced,
+     * whichever client the steps' queries were built on. A step's
      * [TransactionValue][io.github.octaviusframework.client.transaction.TransactionValue]s are resolved just
      * before it runs.
      *
@@ -176,21 +177,26 @@ interface OctaviusClient : AutoCloseable {
         // Nothing to run is not a transaction worth opening
         if (steps.isEmpty()) return TransactionPlanResult(emptyMap(), 0)
 
-        // Before the transaction, so a malformed plan runs none of it. The index names steps in failures:
-        // after addPlan a handle's own index is not where its step sits here.
+        // Before the transaction, so a malformed plan runs none of it. The index names steps in failures, a
+        // handle having no number of its own.
         val stepIndices = validatePlan(steps)
 
         return transaction(propagation, isolation, readOnly, statementTimeout, transactionTimeout) {
-            val results = LinkedHashMap<StepHandle<*>, Any?>(steps.size)
-            for ((index, step) in steps.withIndex()) {
-                try {
-                    results[step.handle] = step.run(resolveParams(step.params, results, index, stepIndices))
-                } catch (e: OctaviusException) {
-                    e.path.add("step $index")
-                    throw e
+            // The transaction's session, not each query's own client: a step built on another client would
+            // otherwise find no transaction there and commit on its own.
+            execute {
+                val results = LinkedHashMap<StepHandle<*>, Any?>(steps.size)
+                for ((index, step) in steps.withIndex()) {
+                    try {
+                        val params = resolveParams(step.params, results, index, stepIndices)
+                        results[step.handle] = step.run(this, params)
+                    } catch (e: OctaviusException) {
+                        e.path.add("step $index")
+                        throw e
+                    }
                 }
+                TransactionPlanResult(results, steps.size)
             }
-            TransactionPlanResult(results, steps.size)
         }
     }
 
