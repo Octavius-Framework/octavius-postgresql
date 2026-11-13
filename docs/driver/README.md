@@ -102,7 +102,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Reading Them All as Maps](composites-reflection.md#reading-them-all-as-maps) — `compositesAsMaps()` for one query, subtree and all, without touching a registration
 - [Writing the Converters by Hand](composites-reflection.md#writing-the-converters-by-hand) — Replacing reflection, and what `getDefaultTypeName` is really for
 - [`PgComposite` and `PgRecord`](composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord) — The raw forms, and why `ROW(...)` is not a row but a structure of keys
-- [`toDataObject` and `toDataMap`](composites-reflection.md#maps-in-and-out-todataobject-and-todatamap) — The same matching, without a database
+- [`toDataMap`](composites-reflection.md#a-class-as-named-parameters-todatamap) — An object's properties as named parameters, one by one
 
 ### Bulk Writes
 - [Why One Statement Beats a Batch](bulk-writes.md#why-one-statement-beats-a-batch) — Round trips, not driver speed

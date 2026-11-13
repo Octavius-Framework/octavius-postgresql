@@ -7,6 +7,12 @@
 - `Row.toObject<T>()` maps a row onto `T` as `fetchObject<T>()` maps one, for a row already in hand from `fetchRow`,
   `fetchRows` or `forEachRow`.
 
+#### Changed
+
+- **[BREAKING]** `Map.toDataObject()` is gone. A map read from a query becomes a class by reading the class instead,
+  through `fetchObject<T>()` or `Row.toObject<T>()`, which also convert the values where `toDataObject` only checked
+  their types. `toDataMap()` stays, for passing an object's properties as named parameters.
+
 ### Client
 
 #### Added

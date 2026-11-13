@@ -10,7 +10,6 @@ import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.registry.TypeManager
 import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.type.PgType
-import io.github.octaviusframework.driver.util.reflection.toDataObject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -141,19 +140,6 @@ class ReflectionMissingValueTest {
         assertEquals("Latium", r.province)
     }
 
-    // --- the same matrix through Map toDataObject --------------------------
-
-    private val absent = mapOf<String, Any?>("cognomen" to "Cicero")
-    private val nulled = mapOf<String, Any?>("cognomen" to "Cicero", "province" to null)
-
-    @Test
-    fun `toDataObject - absent key`() {
-        assertMissingProvince { absent.toDataObject<Required>() }
-        assertNull(absent.toDataObject<Nullable>().province)
-        assertEquals("unknown", absent.toDataObject<Defaulted>().province)
-        assertEquals("unknown", absent.toDataObject<NullableDefaulted>().province)
-    }
-
     // --- registration rejects anything reflection cannot take apart ---------
 
     class NotAData(val cognomen: String, val province: String)
@@ -179,13 +165,5 @@ class ReflectionMissingValueTest {
         }
         assertEquals(before, typeManager.catalog.registeredComposites.size)
         assertEquals(namesBefore, typeManager.catalog.compositeClassByName.size)
-    }
-
-    @Test
-    fun `toDataObject - key present holding null`() {
-        assertMissingProvince { nulled.toDataObject<Required>() }
-        assertNull(nulled.toDataObject<Nullable>().province)
-        assertMissingProvince { nulled.toDataObject<Defaulted>() }
-        assertNull(nulled.toDataObject<NullableDefaulted>().province)
     }
 }
