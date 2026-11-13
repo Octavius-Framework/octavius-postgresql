@@ -260,11 +260,13 @@ argument for it as much as against.
 Every reflective mapper uses the same metadata, computed once per class and cached for the lifetime of the JVM:
 
 * **The primary constructor is the whole contract.** Only its parameters are read. A property declared in the class body
-  is invisible in both directions — it is never populated from the database and never written to it.
+  is invisible in both directions — it is never populated from the database and never written to it. A private
+  constructor property is read and written like a public one.
 * **A data class is required.** Reflective mapping reads every primary constructor parameter back as a property, which
   is exactly what a data class guarantees. `registerAutoComposite` rejects anything else with
-  `InvalidOperationException(INVALID_ARGUMENT)` at registration time rather than at query time, and the reflective
-  converters only answer for data classes. Any other shape wants a converter pair of its own.
+  `InvalidOperationException(INVALID_ARGUMENT)` at registration time rather than at query time, `toDataMap` rejects it
+  the same way, and the reflective converters only answer for data classes. Any other shape wants a converter pair of
+  its own.
 * **Names are matched, positions are not.** Column and attribute order never matters.
 * **Extra columns and attributes are ignored.** A `SELECT *` that returns more than your class declares is fine.
 * **Extra properties are dropped on the way out.** Writing iterates the *type's* attributes, so a property with no
@@ -608,8 +610,8 @@ in the class body is left out, as everywhere [reflection reads a class](#what-re
 Keys are the mapped names, the `snake_case` form or `@PgName`, and `excludeKeys` names keys, not properties: a
 `legioStatus` is left out by `toDataMap("legio_status")`, while `toDataMap("legioStatus")` leaves out nothing.
 
-The class does not have to be a data class, but every parameter of its primary constructor has to be a public `val` or
-`var`. The class itself needs no registration, since its values go out one by one rather than as a composite.
+It takes a data class, and anything else raises `InvalidOperationException(INVALID_ARGUMENT)`. The class needs no
+registration, since its values go out one by one rather than as a composite.
 
 ## Practical rules and gotchas
 

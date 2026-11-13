@@ -13,6 +13,18 @@
   through `fetchObject<T>()` or `Row.toObject<T>()`, which also convert the values where `toDataObject` only checked
   their types. `toDataMap()` stays, for passing an object's properties as named parameters.
 
+- **[BREAKING]** `toDataMap()` takes only a data class, as every reflective mapping does, and raises
+  `InvalidOperationException(INVALID_ARGUMENT)` for any other class. It read a class whose constructor parameters
+  were all properties, and failed with a `NullPointerException` on one that was not.
+  `ReflectionCache.getOrCreateDataObjectMetadata` refuses the same way, where it raised `IllegalArgumentException` for
+  a class without a primary constructor and read any other.
+
+#### Fixed
+
+- A private property of a data class's primary constructor is written as a composite attribute and put into the map
+  of `toDataMap()`, as it is read. Writing such a class failed with `MappingException(CONVERSION_ERROR)`, and
+  `toDataMap()` with kotlin-reflect's `IllegalCallableAccessException`.
+
 ### Client
 
 #### Added

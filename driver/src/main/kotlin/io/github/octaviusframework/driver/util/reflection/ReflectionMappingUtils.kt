@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.util.reflection
 
+import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import kotlin.reflect.KClass
@@ -68,8 +69,10 @@ fun <T : Any> instantiateDataObject(
 }
 
 /**
- * This object's primary constructor properties by their `snake_case` names or their
+ * This data class's constructor properties by their `snake_case` names or their
  * [PgName][io.github.octaviusframework.annotation.PgName], without the keys in [excludeKeys].
+ *
+ * @throws InvalidOperationException `INVALID_ARGUMENT` if the class is not a data class.
  */
 fun <T : Any> T.toDataMap(
     vararg excludeKeys: String
