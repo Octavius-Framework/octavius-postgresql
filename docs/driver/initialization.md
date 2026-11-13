@@ -359,7 +359,7 @@ Three members on the session that are easy to miss, all of them about the connec
 | `networkTimeout`   | Read timeout in milliseconds for this connection, readable and writable at any point. `socketTimeout` sets its initial value.               |
 | `abort()`          | Kills the connection outright so a pool evicts it instead of reusing it. The blunt instrument for "this connection must not be handed on".  |
 
-`isValid` is what HikariCP calls to validate a borrowed connection; how it shares the connection with a query on another thread is in [Concurrency](concurrency.md#two-threads-on-one-session). It answers `false` for a dead connection rather than throwing; the one thing it does throw for is misuse, such as being called from inside a streaming block on its own connection.
+`isValid` is what HikariCP calls to validate a borrowed connection; how it shares the connection with a query on another thread is in [Concurrency](concurrency.md#one-session-runs-one-statement-at-a-time). It answers `false` for a dead connection rather than throwing; the one thing it does throw for is misuse, such as being called from inside a streaming block on its own connection.
 
 `abort()` is the same work `Connection.abort(executor)` does, minus the exception that method deliberately throws to make a pool notice. Reach for it when a connection is known to be in a state you would rather not pass on — after an interruptible listener loop, for instance, which uses it internally on shutdown.
 

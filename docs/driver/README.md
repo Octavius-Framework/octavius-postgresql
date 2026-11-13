@@ -23,7 +23,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 | [Error Handling & Exceptions](exceptions.md)        | The SQLSTATE-keyed hierarchy, message format, query context, catching at the right altitude               |
 | [Logging](logging.md)                               | Logger names, what each level says, what never reaches the log, and what tracing costs                    |
 | [Spring Integration](spring-integration.md)         | `OctaviusTemplate`, autoconfiguration, `application.yml`, transaction manager, the driver's exceptions    |
-| [Concurrency and Virtual Threads](concurrency.md)   | What one connection serializes, pinning, `OctaviusDispatchers`, cancellation, where the real limit is     |
+| [Concurrency and Virtual Threads](concurrency.md)   | What one session serializes, pinning, `OctaviusDispatchers`, the shared catalog, where the real limit is  |
 | [COPY Protocol](copy.md)                            | COPY IN and COPY OUT, data formats, operation lifecycle, cancelling, transactions                         |
 | [Listen & Notify](listen-notify.md)                 | Subscribing and emitting, when delivery actually happens, receiving as a flow, listener loops             |
 | [Large Objects](large-objects.md)                   | Creating, reading, seeking, resizing and deleting data beyond what `bytea` can hold                       |
@@ -105,7 +105,6 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [`toDataMap`](composites-reflection.md#a-class-as-named-parameters-todatamap) — An object's properties as named parameters, one by one
 
 ### Bulk Writes
-- [Why One Statement Beats a Batch](bulk-writes.md#why-one-statement-beats-a-batch) — Round trips, not driver speed
 - [Inserting](bulk-writes.md#inserting) — `UNNEST` with one array per column
 - [Updating](bulk-writes.md#updating) — `UPDATE ... FROM unnest(...)`
 - [Deleting, and the `IN` Clause](bulk-writes.md#deleting-and-the-in-clause) — `= ANY($1)` instead of a generated `IN`
@@ -149,15 +148,10 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [What Else in Spring Works](spring-integration.md#what-else-in-spring-works) — Actuator's health check among them, and what cannot
 
 ### Concurrency
-- [One Connection Is One Wire](concurrency.md#one-connection-is-one-wire) — What the protocol serializes
-- [Two Threads on One Session](concurrency.md#two-threads-on-one-session) — What actually happens
-- [Reentrancy Is Refused, Not Queued](concurrency.md#reentrancy-is-refused-not-queued) — Fail fast instead of deadlock
-- [Virtual Threads and Pinning](concurrency.md#virtual-threads-and-pinning) — Why nothing in the driver is `synchronized`
-- [`OctaviusDispatchers`](concurrency.md#octaviusdispatchers) — Coroutine dispatchers backed by virtual threads
-- [Where the Concurrency Limit Actually Is](concurrency.md#where-the-concurrency-limit-actually-is) — The pool, not the threads
-- [What Is Shared Beyond the Connection](concurrency.md#what-is-shared-beyond-the-connection) — The type registry, and what a reload promises
-- [What Can Cross a Thread Boundary](concurrency.md#what-can-cross-a-thread-boundary) — Sessions, rows, managers
-- [Cancelling a Query in Flight](concurrency.md#cancelling-a-query-in-flight) — And why a cancel can hit the wrong statement
+- [One Session Runs One Statement at a Time](concurrency.md#one-session-runs-one-statement-at-a-time) — What another thread waits for, and what is refused
+- [Running on Virtual Threads](concurrency.md#running-on-virtual-threads) — No pinning, `OctaviusDispatchers`, and the pool as the limit
+- [What Is Shared Beyond the Connection](concurrency.md#what-is-shared-beyond-the-connection) — The type catalog, and what a reload promises
+- [What Can Cross a Thread Boundary](concurrency.md#what-can-cross-a-thread-boundary) — Values, rows, sessions, query objects
 
 ### COPY Protocol
 - [Two Levels of API](copy.md#two-levels-of-api) — Stream-based, or chunks you control

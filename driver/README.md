@@ -41,7 +41,7 @@ val senators: List<Senator> = session
   fields plus the SQL and parameters your application sent.
 - **Asynchronous notifications** — `LISTEN` / `NOTIFY` as a Kotlin Coroutines `SharedFlow`.
 - **Bulk paths that are actually fast** — native `COPY` support, and
-  [`UNNEST` inserts](../docs/driver/bulk-writes.md) that beat classic JDBC batching by ~3×.
+  [`UNNEST` inserts](../docs/driver/bulk-writes.md) that beat classic JDBC batching.
 - **Large Objects as a first-class API** — `lo` support without unwrapping to a vendor interface.
 - **TLS with the property names you already know** — the full `sslmode` ladder from `prefer` to `verify-full`,
   client certificates and root CA included, with the handshake restricted to TLS 1.2 and 1.3.
@@ -120,17 +120,15 @@ session.close() // Safely returns the connection to the pool
 ## Performance
 
 Measured against `pgjdbc` on the same machine, same JVM, same work
-([full numbers and caveats](../docs/driver/performance.md)):
+([the numbers and their caveats](../docs/driver/performance.md)):
 
-- **Object mapping ties** — 0.216 ± 0.006 against 0.220 ± 0.005 ops/ms, the intervals overlapping, on the
-  path most applications live on.
-- **`UNNEST` bulk inserts are 3.1× faster than classic JDBC batching**, and tie with pgjdbc's
-  `reWriteBatchedInserts` optimization — while remaining usable for `UPDATE` and `DELETE`, where that
-  optimization does not apply.
-- **Array decoding costs ~26%** for going through the general conversion machinery — the same machinery that
-  makes a `List<Senator>` of composites work.
-- **Reflective mapping costs more than a hand-written converter does** — on the narrow rows benchmarked, 1.5×
-  the allocation reading, and time as well on a wider class. Worth replacing on your hottest path, and nowhere else.
+- **Object mapping ties**, on the path most applications live on.
+- **`UNNEST` bulk inserts beat classic JDBC batching**, and tie with pgjdbc's `reWriteBatchedInserts`
+  optimization — while remaining usable for `UPDATE` and `DELETE`, where that optimization does not apply.
+- **Array decoding is slower than pgjdbc's** for going through the general conversion machinery — the same
+  machinery that makes a `List<Senator>` of composites work.
+- **Reflective mapping costs more than a hand-written converter does** — in allocation when reading, and in time
+  as well on a wider class. Worth replacing on your hottest path, and nowhere else.
 
 ## Documentation
 

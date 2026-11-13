@@ -37,15 +37,15 @@ names. That is what a composite cannot do: its shape is decided once, in the sch
 
 Where the shape *is* fixed, use a composite. It is cheaper in every direction — no JSON to encode, no
 discriminator to keep honest, and no document for the server to walk into before it can compare a field.
-[Measured](performance.md#a-composite-or-a-dynamic_dto) on a five-field row: 3.2× on writing, 1.7× on reading,
-1.8× on filtering.
+[Measured](performance.md#a-composite-or-a-dynamic_dto) on a five-field row, it is ahead writing, reading and
+filtering.
 
 The margin is narrowest where the composite is nested and mapped by
 [`registerAutoComposite`](../driver/composites-reflection.md), which matches attributes to constructor
-parameters afresh at every level, where a JSON payload is one parse however deep it goes. Reflection took 1.7×
-the allocation of a hand-written `ResultConverter` on a two-level row, against 1.5× on a flat one, and more time at
-both depths. A converter that names the attributes instead of discovering them is the fastest encoding here, writing and
-reading, at either depth.
+parameters afresh at every level, where a JSON payload is one parse however deep it goes. Reflection allocates more
+than a hand-written `ResultConverter`, more so on a nested row than a flat one, and takes more time at both depths.
+A converter that names the attributes instead of discovering them is the fastest encoding here, writing and reading,
+at either depth.
 
 ## Where It Goes
 

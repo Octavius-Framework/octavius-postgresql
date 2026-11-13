@@ -367,11 +367,11 @@ session.cancelQuery()
 
 The blocked call then fails with `ExecutionAbortedException` (SQLSTATE `57014`), the session stays usable, and the next statement runs normally.
 
-Two things it does not promise. **It never throws** — if the cancel request cannot be delivered, the failure is swallowed and the query simply keeps running, so a return means "asked", not "stopped".
+Two things it does not promise. **A cancel that fails is not reported** — if the request cannot be delivered, the failure is swallowed and the query simply keeps running, so a return means "asked", not "stopped".
 
-And **it can hit the wrong statement.** A cancel request carries a backend process id and a key; there is no statement identifier in it. The server signals that connection to abandon whatever it is running when the signal is handled — so if the statement you meant finished first and another has since started on that connection, the cancel takes that one instead. On a session only one thread ever touches, the statement is still running while you cancel it and the question does not arise; where several threads share a session, or where a cancel is fired at a session about to go back to the pool, it can. [Concurrency](concurrency.md#why-a-cancel-can-hit-the-wrong-statement) walks through the sequence.
+And **it can hit the wrong statement.** A cancel request carries a backend process id and a key; there is no statement identifier in it. The server signals that connection to abandon whatever it is running when the signal is handled — so if the statement you meant finished first and another has since started on that connection, the cancel takes that one instead. On a session only one thread ever touches, the statement is still running while you cancel it and the question does not arise; where several threads share a session, or where a cancel is fired at a session about to go back to the pool, it can. Cancel a statement you know is still running, and let the thread that issued it see the outcome before the session runs anything else.
 
-For a limit that should apply to every statement rather than one, set `statement_timeout` as a [startup parameter](initialization.md#startup-parameters) — no second thread, no second connection, and it covers the whole session. See [Concurrency](concurrency.md#cancelling-a-query-in-flight) for how this interacts with the connection lock.
+For a limit that should apply to every statement rather than one, set `statement_timeout` as a [startup parameter](initialization.md#startup-parameters) — no second thread, no second connection, it covers the whole session, and it cannot land on the wrong statement.
 
 ## Per-query converters
 
