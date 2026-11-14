@@ -117,6 +117,33 @@ The table is what one column answers. To move the whole column — and everythin
 query, without touching what the class is registered as anywhere else, see
 [Reading them all as maps](#reading-them-all-as-maps).
 
+### A table's row, with its children
+
+A table's row type is a composite of its columns, so `d` in `FROM dispatches d` reads into a class like any other
+composite, and `ARRAY(SELECT d …)` into a list of them, with nothing registered:
+
+```kotlin
+data class Dispatch(val id: Int, val campaignId: Int, val content: String, val campaign: Campaign? = null)
+data class Campaign(val id: Int, val name: String, val dispatches: List<Dispatch> = emptyList())
+
+// Each campaign with its dispatches
+session.createNativeQuery(
+    """
+    SELECT c.*, ARRAY(SELECT d FROM dispatches d WHERE d.campaign_id = c.id ORDER BY d.id) AS dispatches
+    FROM campaigns c
+    """
+).fetchObjects<Campaign>()
+
+// Each dispatch with its campaign
+session.createNativeQuery("SELECT d.*, c AS campaign FROM dispatches d JOIN campaigns c ON c.id = d.campaign_id")
+    .fetchObjects<Dispatch>()
+```
+
+A property the query has no column or attribute for takes its default, so one pair of classes reads both ways: the
+dispatches inside a campaign have no `campaign`, and a campaign beside a dispatch has no `dispatches` — see
+[When a value is missing](#when-a-value-is-missing). Where the children should carry only some columns, or columns
+from several tables, a [`ROW(...)` of keys and values](#pgrecord--anonymous-row) names them instead.
+
 ### Registration is per class, not per graph
 
 Every data class a write reaches needs its own registration, including ones that only ever appear as an attribute of

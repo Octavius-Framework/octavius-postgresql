@@ -5,12 +5,13 @@ unloaded at Portus, and the whole harvest of a province crossed the sea in one p
 the same one: ten thousand rows sent a statement at a time pay for ten thousand crossings, and the same rows sent as
 arrays in a single statement pay for one.*
 
-Past a handful of rows, the shape of the statement matters far more than the driver underneath it. Inserting 10 000 senators one `INSERT` at a time costs ~329 ms; the same rows go in through a single statement carrying arrays in **~6.8 ms** — [48× faster](performance.md#writing), and 43× in `pgjdbc`.
-
-Octavius has no `addBatch()` / `executeBatch()`: JDBC batching is [one of the things it dropped](octavius-vs-jdbc.md#3-jdbc-batching). What replaces it is PostgreSQL's own answer — pass each column as an array, let the server zip them back into rows — which is not a workaround for a missing feature but the faster path in both drivers, and the only one of the two that works for `UPDATE` and `DELETE` as well.
+Many rows go in as one statement with one array parameter per column, which `UNNEST` turns back into rows. That is one
+round trip and one plan whatever the row count; [Performance](performance.md#writing) has what it saves against one
+`INSERT` at a time. There is no `addBatch()` / `executeBatch()` ([why](octavius-vs-jdbc.md#3-jdbc-batching)), and the
+array form covers `UPDATE` and `DELETE` as well as `INSERT`.
 
 Contents:
-* [Why one statement beats a batch](#why-one-statement-beats-a-batch)
+
 * [Inserting](#inserting)
 * [Updating](#updating)
 * [Deleting, and the `IN` clause](#deleting-and-the-in-clause)
@@ -21,28 +22,9 @@ Contents:
 * [When to reach for COPY instead](#when-to-reach-for-copy-instead)
 * [Practical rules and gotchas](#practical-rules-and-gotchas)
 
-## Why one statement beats a batch
-
-Row-at-a-time insertion pays for a full Parse/Bind/Execute cycle and a round trip per row. JDBC batching pipelines those messages so they travel together, but the server still binds and executes each row separately — which is why it lands where it does in [the benchmarks](performance.md#writing):
-
-| Strategy for 10 000 rows                | Octavius    | pgjdbc       |
-|:----------------------------------------|:------------|:-------------|
-| Single inserts                          | 297.7 ± 4.2 | 248.8 ± 12.5 |
-| JDBC batching                           | n/a         | 23.38 ± 0.52 |
-| JDBC batching + `reWriteBatchedInserts` | n/a         | 7.05 ± 0.24  |
-| **`UNNEST`**                            | 7.60 ± 0.42 | 5.52 ± 0.46  |
-
-Milliseconds per operation, lower is better. `UNNEST` in Octavius ties with pgjdbc's fastest batching mode and beats plain batching by 3.1×.
-
-The reason is that `UNNEST` collapses the whole load into **one** statement: one Parse, one Bind, one Execute, one round trip, one plan. Ten thousand rows leave as *two* parameters — an `int[]` and a `text[]` — rather than twenty thousand.
-
-That last detail has a hard consequence beyond speed. The Bind message counts its parameters in a 16-bit field, so **no statement can carry more than 65 535 parameters**: a multi-row `VALUES` list with two columns hits that ceiling at ~32 000 rows and cannot go further. An `UNNEST` statement sends one parameter per *column* no matter how many rows ride inside it, so the ceiling never enters the picture.
-
-And unlike `reWriteBatchedInserts`, which rewrites `INSERT` and nothing else, the array form applies unchanged to every kind of DML.
-
 ## Inserting
 
-Turn your rows sideways — one list per column — and let `UNNEST` zip them back together:
+Turn the rows sideways, one list per column, and let `UNNEST` zip them back together:
 
 ```kotlin
 data class Senator(val id: Int, val cognomen: String)
@@ -56,113 +38,98 @@ val inserted: Long = session.createNativeQuery(
 ).executeUpdate(ids, cognomina)
 ```
 
-`executeUpdate()` returns the row count from the server's own `INSERT n` tag, exactly as it would for a single-row insert.
+`executeUpdate()` returns the number of rows inserted. A `List<Int>` goes out as `int4[]` and a `List<String>` as
+`text[]`, the element type taken from the first non-null element; [Arrays](arrays-ranges-json.md#writing) has the rest.
 
-A Kotlin `List` becomes a PostgreSQL array with no ceremony: the parameter converter walks the collection, infers the element type from the first non-null element, and sends a binary array under the matching OID — `List<Int>` as `int4[]`, `List<String>` as `text[]`. Named parameters work the same way:
-
-```kotlin
-session.createNamedQuery(
-    "INSERT INTO senators (id, cognomen) SELECT * FROM UNNEST(@ids, @cognomina)"
-).executeUpdate("ids" to ids, "cognomina" to cognomina)
-```
+> [!WARNING]
+> **Arrays of unequal length do not fail; they pad with `NULL`.** `UNNEST` returns as many rows as the longest array,
+> so a list that lost an element somewhere upstream inserts rows with nulls, and nothing complains unless a column is
+> `NOT NULL`. Build the lists in one pass over one collection, as above.
 
 ### When a cast earns its place
 
-The statements above carry none and need none: the driver declares an OID for every array it sends, so `UNNEST($1)` is
-planned knowing it was handed an `int4[]`. Wherever the array is taken apart before anything is compared — unnested into
-rows, or matched element-wise by `= ANY($1)` — only the element types have to meet, and PostgreSQL brings those together
-itself: an `int4[]` fills a `bigint[]` column, its unnested rows join a `bigint` key, and a `List<String>` matches a
-`varchar` one.
+None of the statements on this page needs a cast. The driver declares the type of every array it sends, and PostgreSQL
+converts what it can by itself: an `int4[]` fills a `bigint[]` column, its unnested rows join a `bigint` key, and a
+`List<String>` under `= ANY($1)` compares with a `varchar` column. Two cases need one:
 
-**An array compared whole is the exception.** The `anyarray` operators resolve both sides to one type and coerce
-neither, so an element type that merely converts is not close enough: `varchar[] = text[]` stops at *"operator does not
-exist: character varying[] = text[]"* (`42883`, arriving as `StatementException(UNDEFINED_OBJECT)`), and `@>`, `&&` and
-`<@` stop the same way. Nor is it a `varchar` quirk — `bigint[] @> int4[]` fails identically. A `List<String>` goes out
-as `text[]` and a `List<Int>` as `int4[]`, so a `varchar[]` or `bigint[]` column has to be told:
-`WHERE tags @> $1::varchar[]`.
-
-The other case is the conversion PostgreSQL will not make unasked, and `text` to `jsonb` is the one to watch:
-`INSERT INTO dossiers (data) SELECT * FROM UNNEST($1)` stops at *"column `data` is of type jsonb but expression is of
-type text"* (`42804`, arriving as `StatementException(DATA_TYPE_ERROR)`). Either say it in the SQL —
-`UNNEST($1::jsonb[])` — or say it on the Kotlin side with [`withPgType`](type-system.md#pgtyped).
-
-What `withPgType` will *not* do is widen: it names what you are sending, so `INT8_ARRAY` on a `List<Int>` fails before
-anything is sent. Build a `List<Long>` for `int8` on the wire, or cast in SQL; [Arrays](arrays-ranges-json.md#writing)
-has both side by side.
+* **An array compared whole.** `=`, `@>`, `&&` and `<@` between two arrays want the same array type on both sides, so
+  `varchar[] = text[]` and `bigint[] @> int4[]` fail with `StatementException(UNDEFINED_OBJECT)` (`42883`, "operator
+  does not exist"). Cast the parameter to the column's type: `WHERE tags @> $1::varchar[]`.
+* **A conversion PostgreSQL does not make unasked**, most often `text` to `jsonb`: a `List<String>` goes out as
+  `text[]`, and `UNNEST($1)` into a `jsonb` column fails with `StatementException(DATA_TYPE_ERROR)` (`42804`). Cast it
+  in SQL: `UNNEST($1::jsonb[])`.
 
 ### Empty batches need a type
 
-An `emptyList()` carries no element type, so an empty batch fails with `TypeException(TYPE_NOT_FOUND)`, wrapped in a
-`MappingException(CONVERSION_ERROR)`. Guard it with `if (ids.isEmpty()) return 0` when it means there is no work, or
-type it as [Empty collections need their type stated](arrays-ranges-json.md#empty-collections-need-their-type-stated)
-shows.
-
-> [!WARNING]
-> **Arrays of unequal length do not fail — they pad with `NULL`.** `UNNEST` produces as many rows as the *longest* array it was given, filling the shorter ones with nulls, so a list that lost an element to a filter somewhere upstream inserts null rows instead of raising anything. PostgreSQL only complains if a null then hits a `NOT NULL` column. Build the parallel lists in one pass over one collection, as above, rather than assembling them separately.
+An `emptyList()` has no element to take a type from, so it fails with `MappingException(CONVERSION_ERROR)` caused by
+`TypeException(TYPE_NOT_FOUND)`. Return early where an empty batch means no work, or state its type as
+[Empty collections need their type stated](arrays-ranges-json.md#empty-collections-need-their-type-stated) shows.
 
 ## Updating
 
-This is where the array form earns its keep, because `reWriteBatchedInserts` — the one JDBC batching mode that is genuinely fast — does nothing for `UPDATE`. Join the table against the unnested arrays:
+Join the table against the unnested arrays:
 
 ```kotlin
-session.createNativeQuery("""
+session.createNativeQuery(
+    """
     UPDATE senators AS s
     SET rank = u.rank,
         province_id = u.province
     FROM UNNEST($1, $2, $3) AS u(id, rank, province)
     WHERE s.id = u.id
-""").executeUpdate(ids, ranks, provinces)
+"""
+).executeUpdate(ids, ranks, provinces)
 ```
 
-The `AS u(id, rank, province)` alias is what makes the unnested columns addressable; without it they arrive as `unnest`, `unnest1`, and so on. The returned count is the number of rows actually updated, which is **not** necessarily the length of your arrays — an id that matches nothing simply updates nothing, silently. If that matters, compare the count against the batch size and act on the difference.
+The alias `u(id, rank, province)` names the unnested columns.
 
 ## Deleting, and the `IN` clause
 
-A delete needs no zipping, only membership, so `= ANY` takes the array directly:
+`= ANY` takes the array as it is:
 
 ```kotlin
 session.createNativeQuery("DELETE FROM senators WHERE id = ANY($1)")
     .executeUpdate(ids)
 ```
 
-The same construction answers a question that has nothing to do with bulk writing: **how to pass a list to an `IN` clause.** In JDBC that means generating `?, ?, ?` to match the size of the list and binding each element — a different statement string for every distinct list length, and a new plan for each. Here the list is one parameter and the statement is a constant:
+That is also how a list reaches an `IN` clause. The driver does not expand a list into a placeholder per element; a
+list is one array parameter, so the clause is written `= ANY($1)`:
 
 ```kotlin
 val senators = session.createNativeQuery("SELECT * FROM senators WHERE province_id = ANY($1)")
     .fetchObjects<Senator>(provinceIds)
 ```
 
-`x = ANY(array)` is exactly equivalent to `x IN (...)`, and `x <> ALL(array)` covers `NOT IN`. Note that neither matches `NULL`, the same way `IN` does not.
-
 ## Upserts
 
-`ON CONFLICT` attaches to the `INSERT` and behaves normally, which makes a bulk upsert a one-liner and is a capability [`COPY`](copy.md) does not have at all:
+`ON CONFLICT` works on the bulk insert as on any other:
 
 ```kotlin
-session.createNativeQuery("""
+session.createNativeQuery(
+    """
     INSERT INTO senators (id, cognomen)
     SELECT * FROM UNNEST($1, $2)
     ON CONFLICT (id) DO UPDATE SET cognomen = EXCLUDED.cognomen
-""").executeUpdate(ids, cognomina)
+"""
+).executeUpdate(ids, cognomina)
 ```
-
-One caveat is PostgreSQL's, not the driver's: a single statement cannot update the same row twice, so a batch containing the same conflict key more than once fails with *"ON CONFLICT DO UPDATE command cannot affect row a second time"* (`21000`, arriving as `StatementException(INVALID_DEFINITION)`). Deduplicate the batch by key before sending it.
 
 ## Reading values back with `RETURNING`
 
-`RETURNING` works as it always does, so generated ids come back as a list:
-
 ```kotlin
-val newIds: List<Long> = session.createNativeQuery("""
+val newIds: List<Long> = session.createNativeQuery(
+    """
     INSERT INTO senators (cognomen) SELECT * FROM UNNEST($1)
     RETURNING id
-""").fetchFields(cognomina)
+"""
+).fetchFields(cognomina)
 ```
 
 > [!IMPORTANT]
-> **`RETURNING` does not promise the rows come back in the order you sent them.** SQL guarantees no ordering without an `ORDER BY`, and there is nothing here to order by that you did not supply yourself. Zipping `newIds` against `cognomina` by position is the kind of assumption that holds in testing: nothing in this plan happens to reorder rows, but nothing promises it either. And it breaks outright once a row can be skipped — `RETURNING` reports only the rows actually inserted, so an `ON CONFLICT DO NOTHING` or a `BEFORE` trigger returning `NULL` leaves one out, and every id from that point on pairs with the wrong name.
->
-> If you need to correlate results with inputs, carry the correlation in the data. `WITH ORDINALITY` numbers the unnested rows for you:
+> **`RETURNING` does not promise the order you sent.** Nothing orders it, and a row skipped by `ON CONFLICT DO NOTHING`
+> or by a `BEFORE` trigger returning `NULL` is missing from it, so pairing `newIds` with `cognomina` by position can
+> give an id the wrong name. Carry the correlation in the data: number the rows `WITH ORDINALITY`, or return a key you
+> sent.
 >
 > ```kotlin
 > data class Assigned(val ordinality: Long, val id: Long)
@@ -173,51 +140,43 @@ val newIds: List<Long> = session.createNativeQuery("""
 >     RETURNING batch_position AS ordinality, id
 > """).fetchObjects(cognomina)
 > ```
->
-> Returning a natural key you already sent works just as well and needs no extra column.
 
 ## Composites, enums and your own classes
 
-Turning rows sideways is tedious past three columns, and it does not have to be the only option. A data class registered with `registerAutoComposite` is a PostgreSQL type like any other, so a `List<Senator>` becomes a `senator[]` and the whole batch travels as **one** parameter:
+A data class registered with `registerAutoComposite` is a PostgreSQL type like any other, so a `List<Senator>` goes out
+as `senator[]` and the whole batch is one parameter:
 
 ```kotlin
 session.typeManager.registerAutoComposite<Senator>()   // once, at startup
 
-session.createNativeQuery("""
+session.createNativeQuery(
+    """
     INSERT INTO senators (id, cognomen)
     SELECT s.id, s.cognomen FROM UNNEST($1) AS s
-""").executeUpdate(senators)
+"""
+).executeUpdate(senators)
 ```
 
-The element OID is inferred from the first element the same way a scalar array's is — the composite registration supplies it, and a registered enum supplies its own type name in the same position, so a `List<LegioStatus>` goes out as `legio_status[]` without a cast. See [Registering your own mappings](type-system.md#registering-your-own-mappings).
+A registered enum goes out the same way, a `List<LegioStatus>` as `legio_status[]` with no cast. The composite type has
+to exist in the database; it is often the table's own row type. See
+[Registering your own mappings](type-system.md#registering-your-own-mappings).
 
-The composite type has to exist in the database either way — it is often the table's own row type, which PostgreSQL creates for you.
-
-### What the composite form costs
-
-[Measured](performance.md#reflection-or-a-hand-written-converter) on the same 10 000 rows, against the parallel-scalar-arrays form above. The row here is two columns, an `int` and a short `text`, which is worth keeping in mind before reading the multipliers as constants:
-
-| Form                                             | Time        | Allocated |
-|:-------------------------------------------------|:------------|:----------|
-| Parallel scalar arrays                           | 7.43 ± 0.35 | 0.92 MB   |
-| `composite[]`, hand-written `ParameterConverter` | 8.29 ± 0.74 | 2.05 MB   |
-| `composite[]`, `registerAutoComposite`           | 9.16 ± 0.33 | 2.05 MB   |
-
-**On time, the composite form is free on this row** — 8.29 against 7.43 with the intervals overlapping — and `registerAutoComposite`'s 9.16 overlaps the hand-written converter too. On [a five-field composite](../client/performance.md#a-composite-or-a-dynamic_dto) reflection is clearly behind.
-
-**On memory it is never free.** For these rows, composites allocate 2.2× the scalar form, the same whether the converter is hand-written or reflective. That multiplier is not a constant — a wider class or heavier field types shift it — but the ordering holds, and it lands on top of the arrays you already built. See [Choosing a batch size](#choosing-a-batch-size).
-
-So: reach for parallel scalar arrays on the path that moves the most rows, and for the composite form when the call site would otherwise take eight arrays and a good memory. Reflection is the convenience on top of that, and its price grows with the class: the example above uses it, and [a hand-written `ParameterConverter`](type-system.md#custom-converters) is what replaces it where the class is wide and the path is hot.
+A `composite[]` allocates more than the same rows as scalar arrays, and `registerAutoComposite` falls behind a
+hand-written `ParameterConverter` as the class widens;
+[Performance](performance.md#reflection-or-a-hand-written-converter) measures both.
+Use scalar arrays on the path that moves the most rows, and the composite form where the call would otherwise take
+eight arrays. For a wide class on a hot path, [a hand-written `ParameterConverter`](type-system.md#custom-converters)
+replaces the reflection.
 
 ## Choosing a batch size
 
-Everything in the batch is serialized into the connection's parameter buffer **before the first byte goes out**, so the whole load exists twice in memory for the duration: once as your Kotlin objects, once in binary form. The buffer grows to fit and then shrinks back to `initialParameterWriterCapacity` after any statement that pushed it past `maxParameterWriterCapacity` ([both configurable](initialization.md#network-and-limits)), so a large batch does not permanently inflate the connection — it does allocate at the time.
+The whole batch is encoded into the connection's parameter buffer before anything is sent, so while the statement runs
+it is in memory twice: as your objects and in binary form. The buffer shrinks back to `initialParameterWriterCapacity`
+after a statement that pushed it past `maxParameterWriterCapacity`
+([both configurable](initialization.md#network-and-limits)).
 
-Two hard limits sit further out: a single PostgreSQL array value cannot exceed 1 GB, and `UNNEST` materializes its rows server-side.
-
-How much that is depends on what a row holds, not only on how many there are. For the [benchmark's](performance.md#reflection-or-a-hand-written-converter) two-column rows — an `int` and a short `text` — 10 000 of them come to ~0.92 MB per statement as parallel scalar arrays and ~2.05 MB as a `composite[]`, however it is built. A wider class, longer strings or nested structures move both figures, so measure your own shape rather than scaling these.
-
-In practice the gain is nearly all captured well before any of that. **Chunk at 10 000–50 000 rows** and loop; the per-statement overhead you are trying to amortize disappears within the first thousand, and smaller chunks keep both memory and lock duration predictable:
+Chunk at 10 000–50 000 rows. The cost per statement is spread thin long before that, and smaller chunks keep memory
+and lock time predictable:
 
 ```kotlin
 session.transaction.required {
@@ -228,11 +187,7 @@ session.transaction.required {
 }
 ```
 
-Wrapping the loop in a transaction is what makes the chunks all-or-nothing; without it each statement commits on its own and a failure halfway leaves the earlier chunks applied.
-
 ## When to reach for COPY instead
-
-[`COPY`](copy.md) is the next step up, and the boundary is less about row count than about what you need from the statement:
 
 | Situation                                              | Reach for                                                            |
 |:-------------------------------------------------------|:---------------------------------------------------------------------|
@@ -242,16 +197,13 @@ Wrapping the loop in a transaction is what makes the chunks all-or-nothing; with
 | Hundreds of thousands of rows and up, plain insert     | `COPY` — constant memory, and no array to build                      |
 | A full table reload                                    | `COPY` inside a transaction with the `TRUNCATE`, for `WITH (FREEZE)` |
 
-`UNNEST` builds the entire batch in memory; `COPY` streams it. That is the practical difference at scale, and the reason the chunking loop above exists.
+`UNNEST` builds the whole batch in memory; [`COPY`](copy.md) streams it.
 
 ## Practical rules and gotchas
 
-* **Build the parallel lists in one pass.** Arrays of different lengths pad with `NULL` instead of failing — the single easiest way to write garbage rows at speed.
-* **`executeUpdate()` counts what the server did, not what you sent.** For a bulk `UPDATE` the difference is exactly the ids that matched nothing; check it if that is not supposed to happen.
-* **Guard or type your empty batches.** `emptyList()` carries no element type, so it fails with `TYPE_NOT_FOUND` unless wrapped in `withPgType`.
-* **Scalar arrays are the cheapest form.** On two-column rows a `composite[]` allocated 2.2× as much, whether a hand-written converter or `registerAutoComposite` built it; time was a tie except for the reflective path. Your own shape decides the size of that, not the ratio quoted here.
-* **Do not zip `RETURNING` results against your input by position.** Use `WITH ORDINALITY` or return a key you supplied.
-* **Deduplicate before an `ON CONFLICT DO UPDATE`.** The same key twice in one statement is an error, not a last-write-wins.
-* **`= ANY($1)` is the `IN` clause.** One parameter, one plan, any list length — and `<> ALL($1)` for `NOT IN`.
-* **Chunk, and wrap the loop in a transaction.** 10 000–50 000 rows per statement captures the win without holding an unbounded buffer.
-* **Reuse the query object across chunks** if you are looping: `createNativeQuery` snapshots the codec dictionary at construction, and building it once per loop rather than once per chunk saves that work.
+* **Build the parallel lists in one pass.** Arrays of unequal length pad with `NULL` instead of failing.
+* **Guard or type empty batches.** An `emptyList()` has no element type to send.
+* **Do not pair `RETURNING` rows with your input by position.** Use `WITH ORDINALITY` or return a key you sent.
+* **`= ANY($1)` is the `IN` clause.** A list is one parameter, never a placeholder per element.
+* **Scalar arrays are the cheapest form.** A `composite[]` allocates more for the same rows.
+* **Chunk.** 10 000–50 000 rows per statement.

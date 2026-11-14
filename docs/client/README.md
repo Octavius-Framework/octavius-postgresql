@@ -49,6 +49,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 ### Queries
 - [Every Clause Is SQL](queries.md#every-clause-is-sql) — What the builder does and what it refuses to parse
 - [A Name That Comes From Outside](queries.md#a-name-that-comes-from-outside) — Values are placeholders; names are SQL
+- [An Object as the Row](queries.md#an-object-as-the-row) — `values(map)` and `setValues(map)` from `toDataMap`
 - [Clauses That Disappear](queries.md#clauses-that-disappear) — `where(null)`, and the filter assembled at runtime
 - [`QueryFragment`](queries.md#queryfragment) — A condition and the parameters it names, kept together
 - [A Value, or an Expression](queries.md#a-value-or-an-expression) — `valueExpression`, `setExpression`, and the decrement no parameter can send
@@ -83,7 +84,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 
 ### `dynamic_dto`
 - [The Case a Composite Cannot Cover](dynamic-dto.md#the-case-a-composite-cannot-cover) — Shape per row, not per schema
-- [Where It Goes](dynamic-dto.md#where-it-goes) — Arrays, objects built in the query, plain columns
+- [Where It Goes](dynamic-dto.md#where-it-goes) — Arrays, a class chosen by the query, plain columns
 - [Creating the Type](dynamic-dto.md#creating-the-type) — `DYNAMIC_DTO_DDL`, a migration, or `install()`
 - [Registering a Class](dynamic-dto.md#registering-a-class) — And why the name is stated rather than derived
 - [Reading](dynamic-dto.md#reading) — As the class, as a supertype, as the raw form, as a map

@@ -366,7 +366,7 @@ The mark is on the parameter slot rather than on the value in it, so everything 
 can still be done first:
 
 ```kotlin
-"anything" to original.value().map { it - "id" + ("archived_at" to Instant.now()) }.spread()
+"anything" to original.value().map { it - "id" + ("archived_at" to Clock.System.now()) }.spread()
 ```
 
 `spread()` is the last thing written: what it returns is not a `TransactionValue`, so `map` cannot follow

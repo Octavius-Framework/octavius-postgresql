@@ -94,7 +94,7 @@ Worth knowing about a reload:
 * Custom **codecs survive**: registered codecs are replayed and re-bound against the new OIDs.
 * Custom **converters and composite and enum registrations carry over** — a reload replaces the types and the codecs, and nothing else in the catalog.
 * In an application with a static schema, you typically never call it. In tests, migrations, or anything that creates types at runtime, call it once after the DDL.
-* **It does not reach a query already running.** A statement in flight finishes against the catalog its terminal pinned; the reload reaches the terminals that start after it. See [Concurrency](concurrency.md#what-a-reload-does-not-promise).
+* **It does not reach a query already running.** A statement in flight finishes against the catalog its terminal pinned; the reload reaches the terminals that start after it. See [Concurrency](concurrency.md#what-is-shared-beyond-the-connection).
 
 ### One catalog per database, not per URL
 
