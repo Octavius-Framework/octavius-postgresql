@@ -189,6 +189,8 @@ When a global registration is too broad, converters can also be scoped to a sing
 
 The auto-configured `PlatformTransactionManager` supports Spring's declarative transaction management (`@Transactional`). Inside a transaction `template.execute` runs on the transaction's session.
 
+A client built with `OctaviusClient.fromDataSource` takes no part in this: its queries and its `db.transaction` borrow a connection of their own and commit apart from Spring's transaction, staying committed when it rolls back. Built with `fromSessionProvider` over the template and the transaction manager, it runs in Spring's transaction — see [`SessionProvider`](../client/transactions-failures.md#sessionprovider).
+
 By default, **nested transactions are allowed**. This means you can use `Propagation.NESTED` safely with the Octavius driver.
 
 ```kotlin
@@ -305,6 +307,7 @@ Declaring a `TransactionManager` of your own replaces this.
 | Feature                                                    | Works | Notes                                                                                         |
 |:-----------------------------------------------------------|:------|:----------------------------------------------------------------------------------------------|
 | `OctaviusTemplate`, `@Transactional`, `Propagation.NESTED` | Yes   | The supported path.                                                                           |
+| `OctaviusClient`                                           | Yes   | Through a [`SessionProvider`](../client/transactions-failures.md#sessionprovider).            |
 | HikariCP and `spring.datasource.hikari.*`                  | Yes   | Validation runs through `isValid()`. Leave `connection-test-query` unset — `SELECT 1` throws. |
 | `spring.sql.init` — `schema.sql` and `data.sql`            | Yes   | Those scripts run through a plain `Statement`, which Octavius implements.                     |
 | Actuator's `db` health indicator                           | Yes   | Checked with `isValid()` — `DOWN` whenever `connection-test-query` is set.                    |
