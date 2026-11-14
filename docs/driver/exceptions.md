@@ -80,7 +80,7 @@ and the failed write rides along as a suppressed exception. At login every refus
 Decoding and mapping happen *while* the result stream is being consumed, so a mapping failure is handled the same careful way: the exception is held, the loop keeps draining until `ReadyForQuery`, and only then is it thrown. Two consequences worth knowing:
 
 * If the server *also* reported an error, the server's error wins.
-* Exceptions that aren't `OctaviusException` get wrapped in a `MappingException(CONVERSION_ERROR)`. **Exceptions thrown by your own code** inside `forEachRow` / `forEachObject` / `forEachField` blocks are wrapped too, but under their own reason — `MappingException(BLOCK_FAILED)`, with details `"Exception in block: ..."` and the original as `cause`. If you need your own exception type to escape a streaming block, catch and re-throw it outside the block, or make it an `OctaviusException`.
+* Whatever a converter throws reaches you as `MappingException(CONVERSION_ERROR)` with the original as `cause`, the driver's own exceptions included, so a type missing from the catalog is a `TypeException` under it. Only a `MappingException` from a nested conversion passes as it is, with its `path` extended. Whatever a codec throws arrives as a `CodecException`. **Exceptions thrown by your own code** inside `forEachRow` / `forEachObject` / `forEachField` blocks are wrapped too, but under their own reason — `MappingException(BLOCK_FAILED)`, with details `"Exception in block: ..."` and the original as `cause`. If you need your own exception type to escape a streaming block, catch and re-throw it outside the block, or make it an `OctaviusException`.
 
 ## Message format and logging
 
