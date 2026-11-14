@@ -95,7 +95,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 ### Composites and Reflection
 - [Reading Needs a Class, Writing Needs a Type](composites-reflection.md#reading-needs-a-class-writing-needs-a-type) — A row, a composite and a `ROW(...)` read into a class with nothing registered
 - [Rows onto Data Classes](composites-reflection.md#rows-onto-data-classes) — Columns found by property name, with nothing registered
-- [Composites onto Data Classes](composites-reflection.md#composites-onto-data-classes) — `registerAutoComposite`, and what a composite reads as without it
+- [Composites onto Data Classes](composites-reflection.md#composites-onto-data-classes) — `registerAutoComposite`, what a composite reads as without it, and a table's row with its children
 - [Writing a Whole Object as One Parameter](composites-reflection.md#writing-a-whole-object-as-one-parameter) — Entity in and out via `SELECT (@row).*` and `RETURNING *`, and why a nested `emptyList()` needs no `withPgType`
 - [What Reflection Reads](composites-reflection.md#what-reflection-reads-and-what-it-ignores) — The primary constructor, and everything it ignores
 - [When a Value Is Missing](composites-reflection.md#when-a-value-is-missing) — Absent, `NULL`, nullable, defaulted — the whole matrix

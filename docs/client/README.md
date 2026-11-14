@@ -49,6 +49,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 ### Queries
 - [Every Clause Is SQL](queries.md#every-clause-is-sql) — What the builder does and what it refuses to parse
 - [A Name That Comes From Outside](queries.md#a-name-that-comes-from-outside) — Values are placeholders; names are SQL
+- [An Object as the Row](queries.md#an-object-as-the-row) — `values(map)` and `setValues(map)` from `toDataMap`
 - [Clauses That Disappear](queries.md#clauses-that-disappear) — `where(null)`, and the filter assembled at runtime
 - [`QueryFragment`](queries.md#queryfragment) — A condition and the parameters it names, kept together
 - [A Value, or an Expression](queries.md#a-value-or-an-expression) — `valueExpression`, `setExpression`, and the decrement no parameter can send

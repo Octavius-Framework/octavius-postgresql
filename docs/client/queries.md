@@ -111,6 +111,26 @@ columns of an `INSERT … SELECT` and goes with `fromSelect`, never with `values
 their columns themselves, and an `INSERT` taking its rows from both is refused when it renders. `fromSelect`
 takes SQL, so [another builder's `toSql()`](#a-query-is-a-value) fits there.
 
+### An object as the row
+
+`values(map)` and `setValues(map)` take the map's keys as the columns, with `@key` beside each, and the same map
+then supplies the values. [`toDataMap`](../driver/composites-reflection.md#a-class-as-named-parameters-todatamap)
+makes that map from a data class, under the names reflection reads it by, leaving out the keys it is given:
+
+```kotlin
+data class Edict(val id: Int? = null, val provinceId: Int, val text: String)
+
+val row = edict.toDataMap("id")                     // {province_id=3, text=…}
+
+val stored = db.insertInto("edicts").values(row).returning("*").fetchObjectStrict<Edict>(row)
+
+db.update("edicts").setValues(row).where("id = @id").executeUpdate(row + ("id" to stored.id))
+```
+
+`RETURNING *` reads back into the same class, with the generated `id` and without any column the class does not
+declare. The keys are column names, so the map comes from a class and never from a request — see
+[A name that comes from outside](#a-name-that-comes-from-outside).
+
 ## Clauses That Disappear
 
 This is the reason to reach for a builder at all:
