@@ -20,7 +20,8 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
 /*
- * Four ways to put a structure in one column, each with a family of classes of its own.
+ * Four ways to put a structure in one column, each with a family of classes of its own, and a fifth family for
+ * an anonymous record of keys and values, which no column can hold and the query builds instead.
  *
  * The families are not duplication for its own sake. `DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS` hands a
  * class that is also a registered composite to the composite path, and `registerAutoComposite` is registered
@@ -65,6 +66,12 @@ data class CharacterJson(val id: Int, val name: String, val stats: StatsJson)
 
 @Serializable
 data class FlatJson(val id: Int, val name: String, val strength: Int, val agility: Int, val intelligence: Int)
+
+// -- Anonymous ROW of keys and values, read with nothing registered -----------------------------------
+
+data class StatsRecord(val strength: Int, val agility: Int, val intelligence: Int)
+data class CharacterRecord(val id: Int, val name: String, val stats: StatsRecord)
+data class FlatRecord(val id: Int, val name: String, val strength: Int, val agility: Int, val intelligence: Int)
 
 /*
  * The jsonb rungs' converters.
@@ -244,6 +251,20 @@ internal const val SHAPE_FLAT = "flat"
  *    `type_name` on the way back to decide which class to decode into. Against rung 3 that difference is the
  *    envelope and nothing else.
  *
+ * ## Built by the query
+ *
+ * A record cannot be the type of a column, so a `ROW` of keys and values has nothing stored to be read back: the
+ * query builds it from `c`'s attributes. The two rungs it is set against are built from the same attributes in
+ * the same scan, so that between the three the difference is what is built and not whether it is built.
+ *
+ * 5. `project_composite` - `ROW(...)` cast to the composite type and read like `compositeAuto`. Against
+ *    `compositeAuto` it is the price of building the value on the server.
+ * 6. `project_record` - `ROW('id', ..., 'name', ..., ...)` with no cast, read into a class nothing was registered
+ *    for, by its keys. Against `project_composite` the difference is the keys: one more `text` field per
+ *    attribute, on the wire and matched by name.
+ * 7. `project_dynamicDto` - the same projection as a `jsonb_build_object` document in a `dynamic_dto` envelope.
+ *    Against `project_record` it is a JSON document against binary fields.
+ *
  * ## The two shapes
  *
  * `nested` puts `strength`, `agility` and `intelligence` inside a `stats` structure; `flat` puts all five
@@ -258,6 +279,9 @@ internal const val SHAPE_FLAT = "flat"
  * ## What is measured
  *
  * **Reading** - 10 000 rows back, decoded into the data class.
+ *
+ * **Projecting** - the same 10 000 rows, the structure built by the query out of the stored composite's
+ * attributes, then decoded into the data class.
  *
  * **Filtering** - the server reaches into the structure and only a few rows come back. This is the direction
  * that has nothing to do with codecs: PostgreSQL reading a composite attribute against PostgreSQL parsing a
@@ -301,6 +325,10 @@ open class CompositeVsDynamicDtoBenchmark {
     private lateinit var filterAuto: RawQuery
     private lateinit var filterJsonbQuery: RawQuery
     private lateinit var filterDynamic: RawQuery
+
+    private lateinit var projectComposite: RawQuery
+    private lateinit var projectRecord: RawQuery
+    private lateinit var projectDynamic: RawQuery
 
     private val rowCount = 10000
 
@@ -382,6 +410,28 @@ open class CompositeVsDynamicDtoBenchmark {
         filterDynamic = client.rawQuery(
             "SELECT d FROM bench_cvd_read WHERE ((d).data_payload $jsonPath)::int > @min"
         )
+
+        // All three are built from the stored composite's attributes, the stats ones in a level of their own when
+        // the shape is nested.
+        val stats = listOf("strength", "agility", "intelligence")
+        val statsSource = if (nested) "((c).stats)" else "(c)"
+        val positional = stats.joinToString { "$statsSource.$it" }
+        val keyed = stats.joinToString { "'$it', $statsSource.$it" }
+
+        val composite =
+            if (nested) "ROW((c).id, (c).name, ROW($positional)::$NESTED_STATS_TYPE)::$NESTED_CHARACTER_TYPE"
+            else "ROW((c).id, (c).name, $positional)::$FLAT_TYPE"
+        val record =
+            if (nested) "ROW('id', (c).id, 'name', (c).name, 'stats', ROW($keyed))"
+            else "ROW('id', (c).id, 'name', (c).name, $keyed)"
+        val document =
+            if (nested) "jsonb_build_object('id', (c).id, 'name', (c).name, 'stats', jsonb_build_object($keyed))"
+            else "jsonb_build_object('id', (c).id, 'name', (c).name, $keyed)"
+        val dynamicTypeName = if (nested) "bench_cvd_character_dyn" else "bench_cvd_flat_dyn"
+
+        projectComposite = client.rawQuery("SELECT $composite FROM bench_cvd_read")
+        projectRecord = client.rawQuery("SELECT $record FROM bench_cvd_read")
+        projectDynamic = client.rawQuery("SELECT dynamic_dto('$dynamicTypeName', $document) FROM bench_cvd_read")
     }
 
     /**
@@ -432,7 +482,10 @@ open class CompositeVsDynamicDtoBenchmark {
             "the filter has to match some rows and leave others, or it is not a filter"
         }
 
-        val sizes = listOf(readWholeAuto(), readWholeManual(), readWholeJsonb(), readWholeDynamic())
+        val sizes = listOf(
+            readWholeAuto(), readWholeManual(), readWholeJsonb(), readWholeDynamic(),
+            projectWholeComposite(), projectWholeRecord(), projectWholeDynamic()
+        )
         check(sizes.all { it == rowCount }) { "every path must read back all $rowCount rows, got $sizes" }
 
         val matches = listOf(filterWithAuto(), filterWithJsonb(), filterWithDynamic())
@@ -480,6 +533,18 @@ open class CompositeVsDynamicDtoBenchmark {
         if (nested) filterDynamic.fetchFields<CharacterDynamic>("min" to STRENGTH_THRESHOLD).size
         else filterDynamic.fetchFields<FlatDynamic>("min" to STRENGTH_THRESHOLD).size
 
+    private fun projectWholeComposite(): Int =
+        if (nested) projectComposite.fetchFields<CharacterAuto>().size
+        else projectComposite.fetchFields<FlatAuto>().size
+
+    private fun projectWholeRecord(): Int =
+        if (nested) projectRecord.fetchFields<CharacterRecord>().size
+        else projectRecord.fetchFields<FlatRecord>().size
+
+    private fun projectWholeDynamic(): Int =
+        if (nested) projectDynamic.fetchFields<CharacterDynamic>().size
+        else projectDynamic.fetchFields<FlatDynamic>().size
+
     // --- Reading whole ---------------------------------------------------------------------------------
 
     @Benchmark
@@ -504,4 +569,15 @@ open class CompositeVsDynamicDtoBenchmark {
 
     @Benchmark
     fun filter_dynamicDto(): Int = filterWithDynamic()
+
+    //----------------------------------------------------PROJECTING----------------------------------------------------
+
+    @Benchmark
+    fun project_composite(): Int = projectWholeComposite()
+
+    @Benchmark
+    fun project_record(): Int = projectWholeRecord()
+
+    @Benchmark
+    fun project_dynamicDto(): Int = projectWholeDynamic()
 }
