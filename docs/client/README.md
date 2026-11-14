@@ -70,7 +70,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [`SessionProvider`](transactions-failures.md#sessionprovider) — The seam, and Spring in under thirty lines
 
 ### Transaction Plans
-- [When a Block Is Not Enough](plans.md#when-a-block-is-not-enough) — What each has that the other has not
+- [A Block and a Plan](plans.md#a-block-and-a-plan) — What each has that the other has not
 - [Writing a Graph](plans.md#writing-a-graph) — A handle for a key that does not exist yet
 - [Creating or Editing](plans.md#creating-or-editing) — The same save as a block and as a plan
 - [Returning a Fragment](plans.md#returning-a-fragment) — `addPlan`, handles across plans, and merge order

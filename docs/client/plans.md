@@ -5,11 +5,20 @@ clauses were read in order, and a later one leaned on an earlier one having take
 before the legacies charged on him meant anything. The testator did not execute it. He wrote down what was to
 happen, and handed that over.*
 
-A `transaction { }` block is a lambda. A plan is a **value**: it can be built up by code that holds no client,
-counted, [inspected](#reading-one-that-went-wrong), merged, handed on, and run somewhere that knows nothing about
-what went into it.
+A plan is a unit of work: the statements of one operation — a record, the rows that hang off it, keys passed
+from parent to child before they exist — collected in memory and run together. Where an ORM's unit of work tracks
+objects and [works out the statements](../../DESIGN_PHILOSOPHY.md#the-orm-tax), a plan holds them as you wrote
+them, in your order.
 
-## When a Block Is Not Enough
+It is not a replacement for a `transaction { }` block but its other half. The block reads, locks and decides, in
+plain Kotlin; the plan writes what was decided, and [run inside the block](#inside-a-block) it joins the block's
+transaction.
+
+A block is a lambda. A plan is a **value**: it can be built up by code that holds no client, counted,
+[inspected](#reading-one-that-went-wrong), merged, handed on, and run somewhere that knows nothing about what went
+into it.
+
+## A Block and a Plan
 
 A block and a plan write the same things — [a graph](#writing-a-graph) whose later rows need keys the earlier
 ones generate, [a record that may be new or may be edited](#creating-or-editing), the rows around it — and with
@@ -43,7 +52,7 @@ produced it.
 In a block the parent's id is a local by the time the children need it. In a plan nothing has run yet, so there
 is no id to pass — a handle stands in for it, the way an ORM lets a new child point at its parent's *object*
 before the parent has one. `edictId.value()` below is the id the edict will have: usable by any step added
-after it, resolved when that step runs, and the statements, and the order they run in, are the ones you wrote.
+after it, and resolved when that step runs.
 
 ```kotlin
 fun planEdict(draft: EdictDraft): Pair<TransactionPlan, StepHandle<Int>> = with(TransactionPlan()) {
@@ -167,7 +176,7 @@ The branches are the same two `when`s, and the plan is the longer of the two by 
 wrapping of the id. The block has two things the plan has not: the id comes back as its result, where the
 plan reaches it only through the insert's handle, which exists on one branch of the two; and `sealExists` could
 be read inside the transaction — a `SELECT … FOR UPDATE` on the seal — instead of taken from whoever loaded the
-edict. What the plan has in return is [what a plan is for](#when-a-block-is-not-enough): none of it runs until
+edict. What the plan has in return is [what a plan is for](#a-block-and-a-plan): none of it runs until
 all of it is decided, nothing inside it can catch a step's failure and carry on to the next, and the whole of it
 is a value — run on its own, handed back to a caller that merges it, or run again:
 
@@ -224,8 +233,7 @@ fun addSeal(plan: TransactionPlan, edictId: TransactionValue<Int>, sealedBy: Str
 `executeTransactionPlan` opens its transaction through `transaction`, and takes the same
 [propagation](transactions-failures.md#propagation). Every step runs on that transaction's session, whether the
 plan started its query or a client did, and whichever client that was. Under the default, `REQUIRED`, a plan
-run inside a block joins the block's transaction — so the two are not alternatives. The block reads, locks and
-decides, in plain Kotlin; the plan writes what was decided.
+run inside a block joins the block's transaction, so the block can lock what it read before the plan writes:
 
 ```kotlin
 fun answer(petitionId: Int, draft: EdictDraft): Int = db.transaction {
