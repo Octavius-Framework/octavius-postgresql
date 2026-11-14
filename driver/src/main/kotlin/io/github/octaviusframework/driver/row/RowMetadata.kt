@@ -42,6 +42,9 @@ class RowMetadata internal constructor(
         return nameToIndexCache[columnName] ?: throw MappingException(MappingExceptionReason.COLUMN_NOT_FOUND, "Column not found: $columnName")
     }
 
+    /** The zero-based index of the first column named [columnName], or `null` if there is no such column. */
+    internal fun getColumnIndexOrNull(columnName: String): Int? = nameToIndexCache[columnName]
+
     /** Whether this result has a column named [columnName]. */
     fun hasColumn(columnName: String): Boolean = nameToIndexCache.containsKey(columnName)
 

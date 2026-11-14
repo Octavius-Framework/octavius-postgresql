@@ -21,10 +21,11 @@ internal object MapRowConverter : ResultConverter<Row, Map<String, Any?>> {
         val valueType = expectedType.arguments.getOrNull(1)?.type ?: typeOf<Any?>()
 
         val result = mutableMapOf<String, Any?>()
-        for ((index, columnName) in source.columnNames.withIndex()) {
+        val columns = source.metadata.columns
+        for (index in columns.indices) {
+            val column = columns[index]
             val rawValue = source.getRaw(index)
-            val oid = source.getOid(index)
-            result[columnName] = if (rawValue == null) null else context.convert<Any>(rawValue, valueType, oid, columnName)
+            result[column.name] = if (rawValue == null) null else context.convert<Any>(rawValue, valueType, column.type, column.name)
         }
         return result
     }
