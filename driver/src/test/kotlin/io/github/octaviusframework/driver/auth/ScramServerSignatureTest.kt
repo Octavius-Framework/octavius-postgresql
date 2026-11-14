@@ -2,10 +2,10 @@ package io.github.octaviusframework.driver.auth
 
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
-import io.github.octaviusframework.driver.initialization.authenticationOk
-import io.github.octaviusframework.driver.initialization.message
-import io.github.octaviusframework.driver.initialization.readyForQuery
-import io.github.octaviusframework.driver.initialization.writeCString
+import io.github.octaviusframework.driver.authenticationOk
+import io.github.octaviusframework.driver.message
+import io.github.octaviusframework.driver.readyForQuery
+import io.github.octaviusframework.driver.writeCString
 import io.github.octaviusframework.driver.io.PgStream
 import io.github.octaviusframework.driver.message.frontend.StartupMessage
 import org.junit.jupiter.api.Test

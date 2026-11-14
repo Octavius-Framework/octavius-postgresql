@@ -8,7 +8,7 @@ import kotlin.test.assertFailsWith
 
 /**
  * A backend the server terminates is not here: the server says why before it closes, and that reaches the
- * caller as [SessionTerminatedException] - see `SessionTerminatedExceptionIntegrationTest`. A connection that
+ * caller as [SessionTerminatedException] - see `SessionTerminatedExceptionTest`. A connection that
  * closes without a word is covered by `SessionTerminationProtocolTest`, which can close one that way on demand.
  */
 class NetworkExceptionIntegrationTest : AbstractIntegrationTest() {

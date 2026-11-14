@@ -1,11 +1,14 @@
 package io.github.octaviusframework.driver.io
 
+import io.github.octaviusframework.driver.ScriptedServer
 import io.github.octaviusframework.driver.exception.NetworkException
 import io.github.octaviusframework.driver.exception.NetworkExceptionReason
 import io.github.octaviusframework.driver.exception.SessionTerminatedException
 import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionReason
 import io.github.octaviusframework.driver.execution.QueryExecutor
+import io.github.octaviusframework.driver.message
 import io.github.octaviusframework.driver.message.frontend.FrontendCopyDataMessage
+import io.github.octaviusframework.driver.writeCString
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.condition.DisabledOnOs
@@ -29,7 +32,7 @@ import kotlin.test.fail
  *
  * The server's side of it is not a thing a real PostgreSQL does on demand in every shape - a `FATAL` followed by
  * a connection that stays open, or by a reset rather than a close - so these are played by a server that sends
- * exactly the bytes each case is about. What a real server does is in `SessionTerminatedExceptionIntegrationTest`.
+ * exactly the bytes each case is about. What a real server does is in `SessionTerminatedExceptionTest`.
  */
 class SessionTerminationProtocolTest {
 

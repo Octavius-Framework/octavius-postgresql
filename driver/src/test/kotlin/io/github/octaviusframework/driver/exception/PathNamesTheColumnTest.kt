@@ -1,0 +1,47 @@
+package io.github.octaviusframework.driver.exception
+
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import org.junit.jupiter.api.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+/** A failure inside a composite column has to read the same way whichever route reached it. */
+class PathNamesTheColumnTest : AbstractIntegrationTest() {
+
+    /** `city` is `text` in the database, so reading it as an `Int` fails inside the composite. */
+    data class PathAddress(val street: String, val city: Int)
+
+    private val sql = "SELECT ROW('Via Sacra', 'Roma')::path_addr AS residence"
+
+    override val schema = "CREATE TYPE path_addr AS (street text, city text)"
+
+    @Test
+    fun `the column is on the path whichever route reached the failure`() {
+        openSession().use { s ->
+            s.reloadTypes()
+            s.typeManager.registerAutoComposite<PathAddress>("path_addr")
+
+            val throughFetchField = assertFailsWith<MappingException> {
+                s.createNativeQuery(sql).fetchField<PathAddress>()
+            }
+            val throughRowGet = assertFailsWith<MappingException> {
+                s.createNativeQuery(sql).fetchRowStrict().get<PathAddress>("residence")
+            }
+
+            assertEquals(listOf("residence", "city"), throughFetchField.path.asReversed())
+            assertEquals(throughFetchField.path, throughRowGet.path, "the two routes should read alike")
+        }
+    }
+
+    @Test
+    fun `a column that cannot be decoded is named too`() {
+        // A row is decoded as it arrives, before anything asks for a column - and `BigDecimal` has no NaN.
+        openSession().use { s ->
+            val thrown = assertFailsWith<CodecException> {
+                s.createNativeQuery("SELECT 1::numeric AS tribute, 'NaN'::numeric AS arrears").fetchRowStrict()
+            }
+
+            assertEquals(listOf("arrears"), thrown.path)
+        }
+    }
+}

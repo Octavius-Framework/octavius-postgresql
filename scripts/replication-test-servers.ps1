@@ -4,7 +4,7 @@
     replication tests.
 
 .DESCRIPTION
-    ReplicationIntegrationTest chooses among servers that really are a primary and its standby, and passes
+    ReplicationTest chooses among servers that really are a primary and its standby, and passes
     over one that belongs to another cluster. This puts all three on ports of their own, entirely inside
     `.replication-test/` at the repository root, so nothing about an existing install is touched and
     `remove` really does remove all of it.
@@ -42,7 +42,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $base = Join-Path $root '.replication-test'
 
-# ReplicationIntegrationTest logs in with this and connects to the ports below, so neither can change here alone.
+# ReplicationTest logs in with this and connects to the ports below, so neither can change here alone.
 $password = '1234'
 
 # Started in this order and stopped in the reverse: the standby needs its primary to stream from.
@@ -179,7 +179,7 @@ function Write-TestInstructions {
     Write-Host "Ready. To run the replication tests against them:" -ForegroundColor Green
     Write-Host ""
     Write-Host "  `$env:TEST_REPLICATION = `"true`""
-    Write-Host "  .\gradlew.bat :driver:test --tests `"*ReplicationIntegrationTest*`""
+    Write-Host "  .\gradlew.bat :driver:test --tests `"*ReplicationTest*`""
     Write-Host ""
     Write-Host "And when you are done, so they are not left running:"
     Write-Host "  .\scripts\replication-test-servers.ps1 remove"
