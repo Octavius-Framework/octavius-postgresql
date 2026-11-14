@@ -12,7 +12,9 @@ import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
+import kotlin.reflect.KClass
 import kotlin.reflect.KType
+import kotlin.reflect.typeOf
 
 class ManualCompositeTest : AbstractIntegrationTest() {
 
@@ -58,10 +60,14 @@ class ManualCompositeTest : AbstractIntegrationTest() {
     override val schema = """
         CREATE TYPE payment_info AS (amount int, currency text);
         CREATE TABLE orders (id int PRIMARY KEY, payment payment_info);
+
+        CREATE TYPE allegiance AS ENUM ('LOYAL', 'REBEL', 'UNKNOWN');
+        CREATE TYPE client_king AS (realm text, allegiance allegiance);
+        CREATE TYPE frontier AS (standing allegiance, king client_king);
     """.trimIndent()
 
     @Test
-    fun testTransactionWithManualCompositeMapper() {
+    fun `hand-written converters write a composite into a table and read it back`() {
         val conn = openSession()
         try {
             // Force a fresh type load, payment_info included
@@ -94,6 +100,51 @@ class ManualCompositeTest : AbstractIntegrationTest() {
 
         } finally {
             conn.close()
+        }
+    }
+
+    enum class Allegiance { LOYAL, REBEL, UNKNOWN }
+    data class ClientKing(val realm: String, val allegiance: Allegiance)
+
+    @Test
+    fun `hand-written converters apply inside a composite read as a map, nesting through the context`() {
+        openSession().use { session ->
+            session.typeManager.registerResultConverter(object : ResultConverter<Any, Allegiance> {
+                override val supportedSourceClass = Any::class
+                override fun canConvert(
+                    sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext
+                ) = expectedType.classifier == Allegiance::class || sourceType.name == "allegiance"
+
+                override fun convert(
+                    source: Any, expectedType: KType, sourceType: PgType, context: DeserializationContext
+                ) = Allegiance.entries.find { it.name.equals(source.toString(), ignoreCase = true) }
+                    ?: Allegiance.UNKNOWN
+            })
+
+            session.typeManager.registerResultConverter(object : ResultConverter<PgComposite, ClientKing> {
+                override val supportedSourceClass = PgComposite::class
+                override fun canConvert(
+                    sourceClass: KClass<*>, expectedType: KType, sourceType: PgType, context: DeserializationContext
+                ) = expectedType.classifier == ClientKing::class || sourceType.name == "client_king"
+
+                override fun convert(
+                    source: PgComposite, expectedType: KType, sourceType: PgType, context: DeserializationContext
+                ) = ClientKing(
+                    realm = source.get("realm"),
+                    allegiance = context.convert(
+                        source.get<Any>("allegiance"), typeOf<Allegiance>(), source.getAttributeOid("allegiance")
+                    )
+                )
+            })
+
+            val frontier = session.createNativeQuery(
+                "SELECT ROW('LOYAL'::allegiance, ROW('Armenia', 'REBEL')::client_king)::frontier"
+            ).fetchFieldStrict<Map<String, Any?>>()
+
+            assertEquals(
+                mapOf("standing" to Allegiance.LOYAL, "king" to ClientKing("Armenia", Allegiance.REBEL)),
+                frontier
+            )
         }
     }
 }

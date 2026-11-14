@@ -52,7 +52,7 @@ class MappingExceptionTest {
     data class Company(val name: String, val employees: List<Person>)
 
     @Test
-    fun `test nested composite mapping exception path for missing attribute`() {
+    fun `a missing attribute deep inside a composite is named by its whole path`() {
         val deserializer = ResultMapper(
             dummyRegistry.catalog,
             listOf(ReflectionCompositeConverter, CollectionArrayConverter),
@@ -93,7 +93,7 @@ class MappingExceptionTest {
     }
 
     @Test
-    fun `test nested composite mapping exception path for null in non-nullable property`() {
+    fun `a NULL under a non-nullable property deep inside a composite is named by its whole path`() {
         val deserializer = ResultMapper(
             dummyRegistry.catalog,
             listOf(ReflectionCompositeConverter, CollectionArrayConverter),
@@ -122,7 +122,7 @@ class MappingExceptionTest {
     }
 
     @Test
-    fun `test nested array mapping exception path for null in non-nullable array element`() {
+    fun `a NULL element of a list that holds none is named by its index`() {
         val deserializer = ResultMapper(
             dummyRegistry.catalog,
             listOf(ReflectionCompositeConverter, CollectionArrayConverter),

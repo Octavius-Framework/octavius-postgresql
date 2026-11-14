@@ -25,7 +25,7 @@ class LargeObjectTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test large object basic operations`() {
+    fun `a large object is written, read back, and positioned by seek and tell`() {
         session.transaction.required {
             val loManager = session.largeObjects
             
@@ -64,7 +64,7 @@ class LargeObjectTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test large object streams`() {
+    fun `a large object is written and read through streams`() {
         session.transaction.required {
             val loManager = session.largeObjects
             val oid = loManager.create()
@@ -86,7 +86,7 @@ class LargeObjectTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test read length only`() {
+    fun `read with a length alone returns that many bytes`() {
         session.transaction.required {
             val loManager = session.largeObjects
             val oid = loManager.create()

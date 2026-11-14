@@ -87,7 +87,7 @@ class AutoCompositeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testEverythingWithNativeQuery() {
+    fun `the whole composite goes out and reads back through a positional query`() {
         openSession().use { session ->
             val row = session.createNativeQuery("SELECT $1 AS enlistment").fetchRowStrict(enlistment())
 
@@ -96,7 +96,7 @@ class AutoCompositeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testEverythingWithNamedParameterQuery() {
+    fun `the whole composite goes out and reads back through a named query`() {
         openSession().use { session ->
             val row = session.createNamedQuery("SELECT @enlistment AS enlistment")
                 .fetchRowStrict("enlistment" to enlistment())

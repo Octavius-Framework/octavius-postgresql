@@ -24,7 +24,7 @@ class SslTest {
     private val url = "jdbc:octavius://localhost:5433/octavius_test"
 
     @Test
-    fun testSslModeRequire() {
+    fun `sslmode=require encrypts the connection`() {
         val properties = OctaviusProperties().apply {
             user = "postgres"
             password = "1234"
@@ -43,7 +43,7 @@ class SslTest {
     }
 
     @Test
-    fun testNegotiatedProtocolIsTls13() {
+    fun `the handshake is not capped below the newest TLS version both ends offer`() {
         val properties = OctaviusProperties().apply {
             user = "postgres"
             password = "1234"
@@ -68,7 +68,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslModePrefer() {
+    fun `sslmode=prefer encrypts where the server supports it`() {
         val properties = OctaviusProperties().apply {
             user = "postgres"
             password = "1234"
@@ -87,7 +87,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslModeDisable() {
+    fun `sslmode=disable leaves the connection unencrypted`() {
         val properties = OctaviusProperties().apply {
             user = "postgres"
             password = "1234"
@@ -107,7 +107,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslModeVerifyCaFailsWithoutCert() {
+    fun `sslmode=verify-ca without a root certificate is refused`() {
         val properties = OctaviusProperties().apply {
             user = "postgres"
             password = "1234"
@@ -122,7 +122,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslModeVerifyCaWithCert() {
+    fun `sslmode=verify-ca connects with the root certificate given`() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         assumeTrue(rootCert != null, "No root cert provided.")
 
@@ -145,7 +145,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslModeVerifyFullWithCert() {
+    fun `sslmode=verify-full connects to the host the certificate names`() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         assumeTrue(rootCert != null, "No root cert provided.")
 
@@ -169,7 +169,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslModeVerifyFullRefusesAnotherHostName() {
+    fun `verify-full refuses a host name the certificate does not carry, where verify-ca lets it through`() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         assumeTrue(rootCert != null, "No root cert provided.")
 
@@ -194,7 +194,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslClientAuth() {
+    fun `a client certificate logs in`() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         val clientCert = System.getenv("SSL_CERT")
         val clientKey = System.getenv("SSL_KEY")
@@ -221,7 +221,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslClientAuthWithEcKey() {
+    fun `a client certificate with an EC key logs in`() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         val clientCert = System.getenv("SSL_CERT_EC")
         val clientKey = System.getenv("SSL_KEY_EC")
@@ -237,7 +237,7 @@ class SslTest {
             sslKey = clientKey
         }
 
-        // Same exchange as testSslClientAuth, on a key that is not RSA. The driver takes the key's
+        // Same exchange as the client certificate test, on a key that is not RSA. The driver takes the key's
         // algorithm from the certificate presented alongside it, so this passes for any algorithm
         // the JVM has a KeyFactory for; asking for "RSA" outright failed here with
         // InvalidKeySpecException before the certificate was consulted.
@@ -252,7 +252,7 @@ class SslTest {
     }
 
     @Test
-    fun testSslClientAuthWithEncryptedKey() {
+    fun `a client key behind a password logs in with sslPassword`() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         val clientCert = System.getenv("SSL_CERT")
         val clientKey = System.getenv("SSL_KEY_ENCRYPTED")
@@ -273,7 +273,7 @@ class SslTest {
             sslPassword = keyPassword
         }
 
-        // The same certificate as testSslClientAuth, presented with the same key locked behind a
+        // The same certificate as the client certificate test, presented with the same key locked behind a
         // password - so anything this proves is about the decryption and nothing else.
         val session = getOctaviusSession(url, properties)
 
@@ -286,7 +286,7 @@ class SslTest {
     }
 
     @Test
-    fun testEncryptedKeyWithoutPasswordIsRefused() {
+    fun `an encrypted client key without sslPassword is refused, naming the property`() {
         val rootCert = System.getenv("SSL_ROOT_CERT")
         val clientCert = System.getenv("SSL_CERT")
         val clientKey = System.getenv("SSL_KEY_ENCRYPTED")
@@ -315,7 +315,7 @@ class SslTest {
     }
 
     @Test
-    fun testCleartextPasswordOverTls() {
+    fun `a cleartext password goes out over TLS`() {
         val properties = OctaviusProperties().apply {
             user = "cleartext_user"
             password = "senatus"
@@ -336,7 +336,7 @@ class SslTest {
     }
 
     @Test
-    fun testCleartextPasswordRefusedWithoutTls() {
+    fun `a cleartext password is refused without TLS, and the refusal says to raise sslmode`() {
         val properties = OctaviusProperties().apply {
             user = "cleartext_user"
             password = "senatus"
@@ -356,7 +356,7 @@ class SslTest {
     }
 
     @Test
-    fun testCleartextPasswordRefusedUnderChannelBindingRequire() {
+    fun `a cleartext password is refused under channelBinding=require`() {
         val properties = OctaviusProperties().apply {
             user = "cleartext_user"
             password = "senatus"
@@ -373,7 +373,7 @@ class SslTest {
     }
 
     @Test
-    fun testCancelQueryOverSsl() {
+    fun `a cancelled query leaves the session usable and still encrypted`() {
         val properties = OctaviusProperties().apply {
             user = "postgres"
             password = "1234"
@@ -415,7 +415,7 @@ class SslTest {
     }
 
     @Test
-    fun testSessionTerminatedWhileIdleOverSsl() {
+    fun `a session terminated while idle reports the administrator command over TLS too`() {
         getOctaviusSession(url, requireTls()).use { session ->
             val pid = session.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict<Int>()
 
@@ -438,7 +438,7 @@ class SslTest {
     }
 
     @Test
-    fun testTransactionTimeoutOverSsl() {
+    fun `transaction_timeout reports itself over TLS too`() {
         getOctaviusSession(url, requireTls()).use { session ->
             val exception = assertFailsWith<SessionTerminatedException> {
                 session.transaction.required(transactionTimeout = 200.milliseconds) {

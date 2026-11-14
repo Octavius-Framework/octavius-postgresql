@@ -87,7 +87,7 @@ class JsonElementTest : AbstractIntegrationTest() {
     """.trimIndent()
 
     @Test
-    fun testJsonElementAsParameterAndResult() {
+    fun `a JsonObject goes into a jsonb column and reads back`() {
         val conn = openSession()
         try {
             val inputJson = buildJsonObject {
@@ -110,7 +110,7 @@ class JsonElementTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testJsonElementInsideComposite() {
+    fun `a JsonObject inside a composite goes through hand-written converters`() {
         val conn = openSession()
         try {
             conn.reloadTypes()
@@ -137,7 +137,7 @@ class JsonElementTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testJsonElementListAsParameter() {
+    fun `a list of JsonObjects goes out as a jsonb array with no type stated`() {
         val conn = openSession()
         try {
             val list = listOf(
@@ -159,7 +159,7 @@ class JsonElementTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testJsonElementWithExplicitType() {
+    fun `withPgType sends a JsonElement as json rather than jsonb`() {
         val conn = openSession()
         try {
             val inputJson = buildJsonObject {

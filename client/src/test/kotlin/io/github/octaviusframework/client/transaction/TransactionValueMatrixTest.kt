@@ -501,7 +501,8 @@ class TransactionValueMatrixTest : AbstractClientIntegrationTest() {
                 .asStep().executeUpdate("name" to stranger.value().map { it.get<String>("name") })
         }
 
-        val thrown = assertFailsWith<OctaviusException> { db.executeTransactionPlan(plan) }
+        val thrown = assertFailsWith<InvalidOperationException> { db.executeTransactionPlan(plan) }
+        assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, thrown.reason)
         assertTrue(thrown.getDetailedMessage()!!.contains("not a step of"), thrown.getDetailedMessage()!!)
         // Nothing ran: the row this step would have written is not there, and it is not there because the
         // plan was refused rather than because a transaction rolled back.

@@ -48,7 +48,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test autoCommit false requires explicit commit`() {
+    fun `with auto-commit off, commit keeps what was written`() {
         session.autoCommit = false
         assertFalse(session.autoCommit)
 
@@ -62,7 +62,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test rollback`() {
+    fun `rollback discards what was written`() {
         session.autoCommit = false
 
         session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
@@ -75,7 +75,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test savepoints`() {
+    fun `rolling back to a savepoint discards only what came after it`() {
         session.autoCommit = false
 
         session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
@@ -96,7 +96,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test release savepoint`() {
+    fun `releasing a savepoint keeps what came after it`() {
         session.autoCommit = false
 
         session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
@@ -113,7 +113,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test transaction state`() {
+    fun `the transaction state goes from idle to in transaction, to failed, and back on rollback`() {
         assertEquals(TransactionState.IDLE, session.transactionState)
 
         session.autoCommit = false
@@ -383,7 +383,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test transaction manager successful block`() {
+    fun `a required block that returns commits and leaves auto-commit on`() {
         session.transaction.required {
             createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
         }
@@ -395,7 +395,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test transaction manager failing block rolls back`() {
+    fun `a required block that throws rolls back and leaves auto-commit on`() {
         try {
             session.transaction.required {
                 createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
@@ -412,7 +412,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test transaction manager nested successful block`() {
+    fun `a nested block that returns commits with the one around it`() {
         session.transaction.required {
             session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
 
@@ -426,7 +426,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test transaction manager nested failing block rolls back to savepoint`() {
+    fun `a nested block that throws rolls back to its savepoint, and the one around it commits`() {
         session.transaction.required {
             session.createNativeQuery("INSERT INTO tributes (id, province) VALUES (1, 'Gallia')").execute()
 
@@ -448,7 +448,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test transaction isolation level configurations`() {
+    fun `the isolation level can be set outside a transaction and before its first statement, and not after`() {
         // Test autoCommit = true
         session.autoCommit = true
         session.transactionIsolationLevel = TransactionIsolationLevel.SERIALIZABLE
@@ -475,7 +475,7 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test unsupported transaction isolation level`() {
+    fun `TRANSACTION_NONE is refused through the JDBC facade as INVALID_ARGUMENT`() {
         val internalSession = session as OctaviusSessionImpl
         val wrapper = assertThrows<SQLExceptionWrapper> {
             internalSession.octaviusConnection.transactionIsolation = java.sql.Connection.TRANSACTION_NONE

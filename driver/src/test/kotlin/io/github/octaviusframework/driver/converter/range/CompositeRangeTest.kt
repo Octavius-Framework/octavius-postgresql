@@ -25,7 +25,7 @@ class CompositeRangeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testCompositeRangeNativeQuery() {
+    fun `a range over a composite goes out and reads back`() {
         openSession().use { session ->
             val stretch = rangeOf(
                 lowerBound = Milestone(1, 10),
@@ -41,7 +41,7 @@ class CompositeRangeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testCompositeMultiRangeNativeQuery() {
+    fun `a multirange over a composite goes out and reads back`() {
         openSession().use { session ->
             val stretches = multiRangeOf(
                 rangeOf(lowerBound = Milestone(1, 10), upperBound = Milestone(1, 20)),

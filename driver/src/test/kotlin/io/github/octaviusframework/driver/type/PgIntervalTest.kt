@@ -16,7 +16,7 @@ import kotlin.time.Duration
 class PgIntervalTest : AbstractIntegrationTest() {
 
     @Test
-    fun `test finite PgInterval roundtrip via DB`() {
+    fun `a finite interval round-trips with its months, days and microseconds`() {
         val session = openSession()
 
         val finiteInterval = PgInterval.Finite(
@@ -33,7 +33,7 @@ class PgIntervalTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test PgInterval infinity mappings via DB`() {
+    fun `both infinities round-trip`() {
         val session = openSession()
 
         val result = session.createNativeQuery("SELECT $1 as sine_fine, $2 as ante_urbem")
@@ -45,7 +45,7 @@ class PgIntervalTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test Postgres string to PgInterval`() {
+    fun `an interval written in SQL reads as the same months, days and microseconds`() {
         val session = openSession()
 
         val result = session.createNativeQuery("SELECT '1 year 2 months 15 days 01:00:00.5'::interval")
@@ -61,7 +61,7 @@ class PgIntervalTest : AbstractIntegrationTest() {
     }
     
     @Test
-    fun `test infinity from Postgres string`() {
+    fun `infinity and -infinity written in SQL read as the two infinities`() {
         val session = openSession()
 
         val result = session.createNativeQuery("SELECT 'infinity'::interval as sine_fine, '-infinity'::interval as ante_urbem")
@@ -73,7 +73,7 @@ class PgIntervalTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test DateTimePeriod to PgInterval roundtrip`() {
+    fun `a DateTimePeriod round-trips through an interval`() {
         val session = openSession()
 
         val period =DateTimePeriod(
@@ -96,7 +96,7 @@ class PgIntervalTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test Duration exact to PgInterval roundtrip`() {
+    fun `a Duration converted exactly round-trips through an interval`() {
         val session = openSession()
 
         val duration = Duration.parseIsoString("PT45H30M15.123S")
@@ -111,7 +111,7 @@ class PgIntervalTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test Duration approximate to PgInterval roundtrip`() {
+    fun `a Duration converted approximately round-trips through an interval`() {
         val session = openSession()
 
         // 35 days in hours
@@ -127,7 +127,7 @@ class PgIntervalTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test edge cases for negative periods and durations`() {
+    fun `a negative period and a negative duration round-trip as well`() {
         val session = openSession()
 
         val negativePeriod = DateTimePeriod(

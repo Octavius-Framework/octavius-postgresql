@@ -179,4 +179,24 @@ class FieldNullabilityTest : AbstractIntegrationTest() {
             assertNull(s.createNativeQuery("SELECT 1 AS a WHERE false").fetchObject<Map<String, Any?>>())
         }
     }
+
+    @Test
+    fun `fetchRowStrict should report an empty result as a size problem`() {
+        openSession().use { s ->
+            val e = assertFailsWith<InvalidOperationException> {
+                s.createNativeQuery("SELECT 1 WHERE false").fetchRowStrict()
+            }
+            assertEquals(InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE, e.reason)
+        }
+    }
+
+    @Test
+    fun `fetchRow should reject more than one row`() {
+        openSession().use { s ->
+            val e = assertFailsWith<InvalidOperationException> {
+                s.createNativeQuery("SELECT 1 UNION ALL SELECT 2").fetchRow()
+            }
+            assertEquals(InvalidOperationExceptionReason.INCORRECT_RESULT_SIZE, e.reason)
+        }
+    }
 }

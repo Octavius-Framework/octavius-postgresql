@@ -45,7 +45,7 @@ class BasicQueryTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testFetchOneWithMultipleRows() {
+    fun `fetchRowStrict over many rows stops at the second and leaves the connection usable`() {
         val session = openSession()
 
         // A thousand legionaries. Thanks to maxRows=2 and PortalSuspended, it should fetch exactly 2 rows
@@ -63,7 +63,7 @@ class BasicQueryTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testForEachMethods() {
+    fun `forEachRow and forEachField walk the result in batches, positional and named alike`() {
         val session = openSession()
 
         // NativeQuery forEachRow
@@ -99,7 +99,7 @@ class BasicQueryTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testForEachRejectsANegativeFetchSizeButNotZero() {
+    fun `a negative fetch size is refused, and zero reads the whole result in one batch`() {
         val session = openSession()
 
         val e = assertFailsWith<InvalidOperationException> {

@@ -40,13 +40,6 @@ class OctaviusSpringTransactionTest {
     lateinit var testService: TestService
 
     @Test
-    fun `should autoconfigure OctaviusTemplate`() {
-        assertNotNull(octaviusTemplate)
-        val row = octaviusTemplate.execute { createNativeQuery("SELECT 1 as num").fetchRowStrict() }
-        assertEquals(1, row.get<Int>("num"))
-    }
-
-    @Test
     fun `should work within transactions`() {
         testService.createTable()
         

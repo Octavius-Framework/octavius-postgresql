@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 class RangeTest : AbstractIntegrationTest() {
 
     @Test
-    fun testRangeSelect() {
+    fun `a range reads as Range`() {
         val session = openSession()
 
         val rangeResult = session.createNativeQuery("SELECT '[10,20)'::int4range").fetchRowStrict()
@@ -29,7 +29,7 @@ class RangeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testMultiRangeSelect() {
+    fun `a multirange reads as MultiRange`() {
         val session = openSession()
 
         val multiRangeResult = session.createNativeQuery("SELECT '{[1,5], [10,20)}'::int4multirange").fetchRowStrict()
@@ -52,7 +52,7 @@ class RangeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testRangeParameter() {
+    fun `a Range goes out as a range`() {
         val session = openSession()
 
         val inputRange = rangeOf(lowerBound = 5, upperBound = 15, isLowerInclusive = true, isUpperInclusive = true)
@@ -69,7 +69,7 @@ class RangeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testMultiRangeParameter() {
+    fun `a MultiRange goes out as a multirange, an unbounded side included`() {
         val session = openSession()
 
         val inputMultiRange = multiRangeOf(

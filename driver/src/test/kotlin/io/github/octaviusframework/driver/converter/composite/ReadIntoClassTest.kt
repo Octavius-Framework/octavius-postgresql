@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.converter.composite
 
+import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
@@ -7,6 +8,7 @@ import kotlinx.datetime.LocalDate
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 
 /**
  * A composite and an anonymous `ROW(...)` of keys and values read into the data class asked for with nothing
@@ -50,6 +52,17 @@ class ReadIntoClassTest : AbstractIntegrationTest() {
             listOf(Tribute(40, "denarius"), Tribute(12, "as")),
             read<List<Tribute>>("SELECT ARRAY[ROW(40, 'denarius')::tribute, ROW(12, 'as')::tribute]")
         )
+    }
+
+    @Test
+    fun `a composite with no class to go by is the driver's container under Any, and its attributes under a Map`() {
+        val sql = "SELECT ROW(40, 'denarius')::tribute"
+
+        val asAny = read<Any>(sql)
+        assertIs<PgComposite>(asAny)
+        assertEquals(listOf<Any?>(40, "denarius"), asAny.fields.toList())
+
+        assertEquals(mapOf<String, Any?>("amount" to 40, "currency" to "denarius"), read<Map<String, Any?>>(sql))
     }
 
     // --- Records --------------------------------------------------------------------------------------

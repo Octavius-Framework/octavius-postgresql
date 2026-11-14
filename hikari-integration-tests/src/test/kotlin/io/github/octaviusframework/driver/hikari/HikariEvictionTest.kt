@@ -11,7 +11,7 @@ import kotlin.test.assertFailsWith
 class HikariEvictionTest {
 
     @Test
-    fun testHikariConnectionAndEviction() {
+    fun `an aborted session gives up its connection, and the pool hands out a working one`() {
         val config = HikariConfig()
         config.jdbcUrl = TestDatabase.URL
         config.username = TestDatabase.USER

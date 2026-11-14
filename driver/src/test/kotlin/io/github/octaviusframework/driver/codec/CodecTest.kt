@@ -15,7 +15,7 @@ import kotlin.uuid.Uuid
 class CodecTest : AbstractIntegrationTest() {
 
     @Test
-    fun testGeometricTypes() {
+    fun `the geometric types round-trip`() {
         val session = openSession()
         
         // Point
@@ -57,7 +57,7 @@ class CodecTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testBitStringTypes() {
+    fun `a BitSet round-trips as varbit`() {
         val session = openSession()
         
         val bitSet = BitSet()
@@ -72,7 +72,7 @@ class CodecTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testNetworkTypes() {
+    fun `the network types round-trip, typed by withPgType`() {
         val session = openSession()
 
         // Inet
@@ -104,7 +104,7 @@ class CodecTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testXmlType() {
+    fun `xml goes out by withPgType and reads back as text`() {
         val session = openSession()
 
         val xmlVal = "<liber><titulus>Commentarii de Bello Gallico</titulus></liber>"
@@ -115,7 +115,7 @@ class CodecTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testStandardTypes() {
+    fun `the standard scalar types round-trip, and a numeric BigDecimal cannot hold is refused`() {
         val session = openSession()
 
         // Boolean
@@ -172,5 +172,12 @@ class CodecTest : AbstractIntegrationTest() {
         }
 
         session.close()
+    }
+
+    @Test
+    fun `an untyped literal reads as text`() {
+        openSession().use { session ->
+            assertEquals("alea iacta est", session.createNativeQuery("SELECT 'alea iacta est'").fetchField<String>())
+        }
     }
 }

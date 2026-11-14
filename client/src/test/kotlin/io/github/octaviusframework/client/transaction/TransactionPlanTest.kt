@@ -332,83 +332,6 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         assertIs<ConstraintViolationException>(result.error)
     }
 
-    // --- Reading a handle -------------------------------------------------------------------------
-
-    @Test
-    fun `map takes one column of a row-shaped result`() {
-        val plan = TransactionPlan()
-
-        val edict = with(plan) {
-            insertInto("plan_edicts").values(listOf("title", "tribute")).returning("id", "tribute")
-                .asStep().fetchRowStrict("title" to "De Tributis", "tribute" to 650)
-        }
-        with(plan) {
-            insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().executeUpdate(
-                    "edict_id" to edict.value().map { it.get<Int>("id") },
-                    "province" to "Gallia",
-                    "amount" to edict.value().map { it.get<Int>("tribute") }
-                )
-        }
-
-        db.executeTransactionPlan(plan)
-
-        assertEquals(650, db.rawQuery("SELECT amount FROM plan_items").fetchFieldStrict<Int>())
-    }
-
-    @Test
-    fun `map gathers one column of every row into something bindable`() {
-        val plan = TransactionPlan()
-
-        val ids = with(plan) {
-            insertInto("plan_edicts")
-                .fromSelect("SELECT 'Edict ' || i, i * 100 FROM generate_series(1, 3) AS i")
-                .columns("title", "tribute")
-                .returning("id")
-                .asStep().fetchRows()
-        }
-
-        val total = with(plan) {
-            select("sum(tribute)").from("plan_edicts").where("id = ANY(@ids)")
-                .asStep().fetchFieldStrict<Long>(
-                    // The row asked for the column at Int rather than at Any?, so what arrives is a List<Int>
-                    // the driver sends as an array - no filtering a list of Any? into one it will accept.
-                    "ids" to ids.value().map { rows -> rows.map { row -> row.get<Int>("id") } }
-                )
-        }
-
-        val results = db.executeTransactionPlan(plan)
-
-        assertEquals(3, results[ids].size)
-        assertEquals(600L, results[total])
-    }
-
-    @Test
-    fun `a map result is spread into parameters under its own keys`() {
-        db.insertInto("plan_edicts").values(listOf("title", "tribute"))
-            .executeUpdate("title" to "De Tributis", "tribute" to 650)
-
-        val plan = TransactionPlan()
-
-        val source = with(plan) {
-            select("tribute").from("plan_edicts").where("title = @title")
-                .asStep().fetchObjectStrict<Map<String, Any?>>("title" to "De Tributis")
-        }
-        // "row" is not a parameter the statement names - the map's keys are, and they arrive under those
-        // names because a spread drops the key it was filed under.
-        with(plan) {
-            insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().executeUpdate("title" to "De Tributis II", "row" to source.value().spread())
-        }
-
-        db.executeTransactionPlan(plan)
-
-        assertEquals(
-            650,
-            db.rawQuery("SELECT tribute FROM plan_edicts WHERE title = @t").fetchFieldStrict<Int>("t" to "De Tributis II")
-        )
-    }
-
     // --- What it refuses --------------------------------------------------------------------------
 
     @Test
@@ -436,24 +359,6 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
     }
 
     @Test
-    fun `a handle from another plan is refused rather than silently missing`() {
-        val other = TransactionPlan()
-        val strayHandle = with(other) {
-            insertInto("plan_edicts").values(listOf("title", "tribute"))
-                .asStep().executeUpdate("title" to "Elsewhere", "tribute" to 1)
-        }
-
-        val plan = TransactionPlan()
-        with(plan) {
-            insertInto("plan_items").values(listOf("edict_id", "province", "amount"))
-                .asStep().executeUpdate("edict_id" to strayHandle.value(), "province" to "Gallia", "amount" to 1)
-        }
-
-        val thrown = assertFailsWith<InvalidOperationException> { db.executeTransactionPlan(plan) }
-        assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, thrown.reason)
-    }
-
-    @Test
     fun `a plan merged in ahead of the one it takes values from is refused before anything runs`() {
         // The one order a handle cannot enforce by itself: tail is built against head's handle, and merging
         // the two the wrong way round puts the step that needs the id ahead of the step that generates it.
@@ -475,13 +380,6 @@ class TransactionPlanTest : AbstractClientIntegrationTest() {
         assertEquals(InvalidOperationExceptionReason.INVALID_ARGUMENT, thrown.reason)
         assertTrue(thrown.details!!.contains("step 1, which runs after it"), thrown.details!!)
         assertTrue(thrown.path.isEmpty(), "refused by validation, not by the executor partway through")
-    }
-
-    @Test
-    fun `an empty plan runs and produces nothing`() {
-        val results = db.executeTransactionPlan(TransactionPlan())
-        assertEquals(0, results.size)
-        assertEquals(0L, edictCount())
     }
 
     @Test

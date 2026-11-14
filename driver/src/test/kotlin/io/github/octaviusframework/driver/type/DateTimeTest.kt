@@ -15,7 +15,7 @@ import kotlin.time.Instant
 class DateTimeTest : AbstractIntegrationTest() {
 
     @Test
-    fun `test DateTime infinity mappings via DB`() {
+    fun `DISTANT_FUTURE and DISTANT_PAST of every date type round-trip through infinity`() {
         val session = openSession()
 
         // 1. Test LocalDate mapping
@@ -39,7 +39,7 @@ class DateTimeTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun `test Date overlap with infinity throws exception via DB`() {
+    fun `a date on the day count PostgreSQL reserves for infinity is refused`() {
         val session = openSession()
 
         val pgEpochDays = 10957L

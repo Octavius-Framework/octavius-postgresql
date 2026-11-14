@@ -66,33 +66,33 @@ class RoutineQueryTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testCallFunction() {
+    fun `a function is called with positional parameters`() {
         val result = session.createNativeQuery("SELECT muster($1, $2)").fetchFieldStrict<Int>(10, 20)
         assertEquals(30, result)
     }
 
     @Test
-    fun testCallFunctionWithNamedParameters() {
+    fun `a function is called with named parameters`() {
         val result = session.createNamedQuery("SELECT muster(@cohorts, @auxilia)")
             .fetchFieldStrict<Int>("cohorts" to 5, "auxilia" to 15)
         assertEquals(20, result)
     }
     
     @Test
-    fun testCallTableFunction() {
+    fun `a set-returning function reads as a list`() {
         val rows = session.createNativeQuery("SELECT * FROM number_cohorts($1)").fetchFields<Int>(5)
         assertEquals(listOf(1, 2, 3, 4, 5), rows)
     }
 
     @Test
-    fun testCallProcedure() {
+    fun `CALL on a procedure with INOUT parameters returns its row`() {
         // Procedure with INOUT requires CALL and returns a row in PostgreSQL
         val resultRow = session.createNativeQuery("CALL levy($1, $2)").fetchRowStrict(100, 50)
         assertEquals(150, resultRow.get<Int>(0))
     }
 
     @Test
-    fun testCallVoidFunction() {
+    fun `a plpgsql void function reads as Unit`() {
         val result = session.createNativeQuery("SELECT sacrifice()").fetchField<Unit>()
         assertEquals(Unit, result)
     }
@@ -117,7 +117,7 @@ class RoutineQueryTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testCallProcedureWithoutOut() {
+    fun `CALL on a procedure without OUT parameters counts no rows`() {
         session.createNativeQuery("CALL adjourn_senate()").execute()
         val updateCount = session.createNativeQuery("CALL adjourn_senate()").executeUpdate()
         assertEquals(0L, updateCount)
