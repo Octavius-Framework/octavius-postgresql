@@ -1,13 +1,21 @@
 package io.github.octaviusframework.driver.converter.range
 
+import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.TypeException
+import io.github.octaviusframework.driver.exception.TypeExceptionReason
+import io.github.octaviusframework.driver.type.PgStandardType
 import io.github.octaviusframework.driver.type.range.MultiRange
 import io.github.octaviusframework.driver.type.range.Range
 import io.github.octaviusframework.driver.type.range.rangeOf
 import io.github.octaviusframework.driver.type.range.multiRangeOf
+import io.github.octaviusframework.driver.type.withPgType
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -97,5 +105,37 @@ class RangeTest : AbstractIntegrationTest() {
         assertTrue(second.isLowerInclusive)
         assertTrue(second.isUpperInfinite)
         session.close()
+    }
+
+    /** A data class with no type registered for it. */
+    data class Milestone(val road: Int, val mile: Int)
+
+    private fun typeExceptionFor(param: Any): TypeException = openSession().use { session ->
+        val ex = assertFailsWith<MappingException> { session.createNativeQuery("SELECT $1").fetchRowStrict(param) }
+        assertIs<TypeException>(ex.cause)
+    }
+
+    @Test
+    fun `a Range or MultiRange sent as a type of another kind is refused as not that container`() {
+        val asInt = typeExceptionFor(rangeOf(1, 5).withPgType(PgStandardType.INT4))
+        assertEquals(TypeExceptionReason.NOT_A_CONTAINER, asInt.reason)
+        assertEquals("Type 'int4' is not a range", asInt.details)
+
+        val asRange = typeExceptionFor(multiRangeOf(rangeOf(1, 5)).withPgType("int4range"))
+        assertEquals(TypeExceptionReason.NOT_A_CONTAINER, asRange.reason)
+        assertEquals("Type 'int4range' is not a multirange", asRange.details)
+    }
+
+    @Test
+    fun `a Range or MultiRange over a class with no PostgreSQL type is refused naming the class`() {
+        val milestone = Milestone::class.qualifiedName!!
+
+        val range = typeExceptionFor(rangeOf(Milestone(1, 10), Milestone(1, 20)))
+        assertEquals(TypeExceptionReason.TYPE_NOT_FOUND, range.reason)
+        assertContains(range.details!!, "range bounds of $milestone")
+
+        val multirange = typeExceptionFor(MultiRange.empty<Milestone>())
+        assertEquals(TypeExceptionReason.TYPE_NOT_FOUND, multirange.reason)
+        assertContains(multirange.details!!, "multirange bounds of $milestone")
     }
 }

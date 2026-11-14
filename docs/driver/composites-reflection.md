@@ -503,9 +503,9 @@ val assessed = rangeOf(lowerBound = Tribute(1, "denarii"), upperBound = Tribute(
 session.createNativeQuery("SELECT $1 AS r").fetchRowStrict(assessed)
 ```
 
-Without the override that throws `MappingException(CONVERSION_ERROR)` caused by `TypeException(TYPE_NOT_FOUND)` —
-*"Cannot infer range type. The range is empty or bounds are null."* The range converter has a `Range<Tribute>`, needs
-the OID of `tribute` to find `tribute_range`, and asks the parameter converter for that class what type name it
+Without the override that throws `MappingException(CONVERSION_ERROR)` caused by `TypeException(TYPE_NOT_FOUND)`, whose
+details name `Tribute` as a class with no PostgreSQL type for range bounds. The range converter has a `Range<Tribute>`,
+needs the OID of `tribute` to find `tribute_range`, and asks the parameter converter for that class what type name it
 declares. With the override, or with `registerAutoComposite` (which supplies its own), the same call succeeds. Pinning
 the parameter works too, if you would rather not carry the override:
 

@@ -8,6 +8,14 @@
   through the search path, and a type of the same name in a schema the path puts ahead of `pg_catalog` was sent
   in place of the built-in one.
 
+- A `Range` or `MultiRange` sent as a type that is not a range or a multirange still fails with
+  `MappingException(CONVERSION_ERROR)`, now caused by `TypeException(NOT_A_CONTAINER)` naming that type, where the
+  cause was `TYPE_NOT_FOUND`. One over a class with no PostgreSQL type keeps `TYPE_NOT_FOUND` as the cause, and its
+  details name the class and the two ways to give it a type: registering it, or `getDefaultTypeName` on its parameter
+  converter. Both causes had said the range was empty or its bounds were null, which stopped deciding the type once the
+  class rode on the `Range`, and suggested `withPgType`, which the first case had already used and which for an
+  unregistered class only moves the failure to encoding the bounds.
+
 ## Version 2.11.0 (v2.11.0) (2026-11-13)
 
 ### Driver
