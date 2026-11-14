@@ -22,7 +22,7 @@ data class PgTyped(val value: Any?, val pgType: QualifiedName) {
 
 /** This value, sent as the built-in [pgType]. */
 fun Any?.withPgType(pgType: PgStandardType): PgTyped =
-    PgTyped(this, QualifiedName("", pgType.typeName, isArray = pgType.isArray))
+    PgTyped(this, QualifiedName("pg_catalog", pgType.typeName, isArray = pgType.isArray))
 
 /** This value, sent as the type [name], or an array of it; an empty [schema] resolves through the search path. */
 fun Any?.withPgType(name: String, schema: String = "", isArray: Boolean = false): PgTyped =

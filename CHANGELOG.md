@@ -1,3 +1,13 @@
+## Version 2.11.1 (v2.11.1)
+
+### Driver
+
+#### Fixed
+
+- `withPgType(PgStandardType)` names its type in `pg_catalog`. It left the schema empty, so the name was resolved
+  through the search path, and a type of the same name in a schema the path puts ahead of `pg_catalog` was sent
+  in place of the built-in one.
+
 ## Version 2.11.0 (v2.11.0) (2026-11-13)
 
 ### Driver
