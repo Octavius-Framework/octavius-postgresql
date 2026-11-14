@@ -33,19 +33,14 @@ val benefits: List<Benefit> = db.select("benefit").from("veterans").fetchFields(
 ```
 
 The column comes back as whatever supertype you ask for, each row decoded as the class its own `type_name`
-names. That is what a composite cannot do: its shape is decided once, in the schema, for every row at once.
+names. A composite's shape is decided once, in the schema, for every row.
 
-Where the shape *is* fixed, use a composite. It is cheaper in every direction — no JSON to encode, no
-discriminator to keep honest, and no document for the server to walk into before it can compare a field.
-[Measured](performance.md#a-composite-or-a-dynamic_dto) on a five-field row, it is ahead writing, reading and
-filtering.
-
-The margin is narrowest where the composite is nested and mapped by
-[`registerAutoComposite`](../driver/composites-reflection.md), which matches attributes to constructor
-parameters afresh at every level, where a JSON payload is one parse however deep it goes. Reflection allocates more
-than a hand-written `ResultConverter`, more so on a nested row than a flat one, and takes more time at both depths.
-A converter that names the attributes instead of discovering them is the fastest encoding here, writing and reading,
-at either depth.
+Where the shape *is* fixed, use a composite: no JSON to encode, no discriminator to keep honest, no document for the
+server to walk into before it can compare a field, and [ahead](performance.md#a-composite-or-a-dynamic_dto) writing,
+reading and filtering. Where nothing is stored — an object built in the projection, a parent read with its
+children — a [`ROW(...)` of keys and values](../driver/composites-reflection.md#pgrecord--anonymous-row) reads into
+the class asked for with nothing registered, every field keeping its column's type. A `dynamic_dto` built in a query
+is for [a class chosen per row](#a-class-chosen-by-the-query).
 
 ## Where It Goes
 
@@ -53,8 +48,7 @@ A column is one place. There are three more, and none of them needs anything the
 
 ### Several shapes in one array
 
-An array of them is an array like any other: `benefits public.dynamic_dto[]` holds a grant and a pension side
-by side.
+`benefits public.dynamic_dto[]` holds a grant and a pension side by side:
 
 ```kotlin
 val benefits = listOf(LandGrant("Gallia Narbonensis", 120), MilitaryPension("X Gemina", 300))
@@ -66,31 +60,16 @@ val back: List<Benefit> = db.select("benefits").from("veterans").where("name = @
     .fetchFieldStrict("n" to "Marcus")
 ```
 
-Each element is written and read on the column's terms: the list needs no wrapping, and comes back as the
-supertype asked for — or as `List<Any>` where the shapes have nothing in common, and a `when` sorts them out.
+The list needs no wrapping, and comes back as the supertype asked for, or as `List<Any>` where the shapes have
+nothing in common.
 
-### An object built in the query
+### A class chosen by the query
 
-The value does not have to be stored at all. Built in the projection, it lands in a property like any other
-column, which reads a join as a nested object without a type for it in the schema:
-
-```kotlin
-data class Decorated(val id: Int, val name: String, val award: LandGrant)
-
-val decorated = db.rawQuery(
-    """
-    SELECT v.id, v.name,
-           dynamic_dto('land_grant', jsonb_build_object('province', g.province, 'iugera', g.iugera)) AS award
-    FROM veterans v JOIN grants g ON g.veteran_id = v.id
-    """
-).fetchObjects<Decorated>()
-```
-
-An `ARRAY` of them is a list property, which is the 1:N case — a parent and its children in one query, rather
-than one query for the parents and another per parent:
+The value does not have to be stored at all. Built in the projection, each row names its own class, so rows from
+tables that have nothing in common read as one list — here each veteran's benefits, from two tables:
 
 ```kotlin
-data class Veteran(val id: Int, val name: String, val awards: List<LandGrant>)
+data class Veteran(val id: Int, val name: String, val benefits: List<Benefit>)
 
 val veterans = db.rawQuery(
     """
@@ -98,23 +77,23 @@ val veterans = db.rawQuery(
            ARRAY(
                SELECT dynamic_dto('land_grant', jsonb_build_object('province', g.province, 'iugera', g.iugera))
                FROM grants g WHERE g.veteran_id = v.id
-           ) AS awards
+               UNION ALL
+               SELECT dynamic_dto('military_pension', jsonb_build_object('legion', p.legion, 'annual', p.annual))
+               FROM pensions p WHERE p.veteran_id = v.id
+           ) AS benefits
     FROM veterans v
     """
 ).fetchObjects<Veteran>()
 ```
 
-The keys `jsonb_build_object` is given are the class's property names. A payload named the way SQL names
-things reads under [a `Json` of its own](#a-different-json-for-one-query). Where the nested shape has no class
-at all, a plain `ROW(...)` comes back with its types intact instead — see
-[the raw forms](../driver/composites-reflection.md#the-raw-forms-pgcomposite-and-pgrecord).
+The keys `jsonb_build_object` is given are the class's property names; a payload named the way SQL names things
+reads under [a `Json` of its own](#a-different-json-for-one-query).
 
 ### Plain columns, the type only in transit
 
-Storing the composite ties the table to it: anything else reading `veterans` meets a `dynamic_dto` it has to
-take apart. Where the table should stay plain — read by a report, a script, a service with no Octavius in it —
-the discriminator and the payload can live in columns of their own, and the type exist only on the way in and
-out:
+Storing the composite ties the table to it: anything else reading the table meets a `dynamic_dto` it has to take
+apart. Where the table should stay plain — read by a report, a script, a service with no Octavius in it — the
+discriminator and the payload live in columns of their own, and the type exists only on the way in and out:
 
 ```sql
 CREATE TABLE archives (
@@ -136,34 +115,29 @@ val archived = db.rawQuery("SELECT id, dynamic_dto(record_type, payload) AS reco
     .fetchObjects<Archived>()
 ```
 
-A single value goes in the same way, as `SELECT (@r).type_name, (@r).data_payload`. What this costs is the
-column doing it for you: every statement that touches the table spells the conversion out itself.
+A single value goes in as `SELECT (@r).type_name, (@r).data_payload`. Neither direction touches the document, since
+the discriminator sits beside the payload rather than inside it. The price is that every statement touching the
+table spells the conversion out itself.
 
 ## Creating the Type
 
-The type and its constructor functions are **not** created behind your back:
+The type is **not** created behind your back:
 
 ```sql
 CREATE TYPE public.dynamic_dto AS (type_name text, data_payload jsonb);
 ```
 
-`DYNAMIC_DTO_DDL` is that, plus a `dynamic_dto(text, jsonb)` constructor function and two `to_dynamic_dto`
-overloads, written so that running it twice is harmless. PostgreSQL creates no constructor function for a
-composite on its own, which is why the function is there and why SQL can say `dynamic_dto('land_grant', …)` at
-all.
-
-Put it in a migration, which is the reading this library prefers, or call `install()` where a migration would be
-ceremony:
+`DYNAMIC_DTO_DDL` is that, plus the `dynamic_dto(text, jsonb)` constructor the SQL above calls, which PostgreSQL does
+not create for a composite, and two `to_dynamic_dto` overloads; running it twice is harmless. Put it in a migration,
+or call `install()` where a migration would be ceremony:
 
 ```kotlin
 db.dynamicTypes.install()
 ```
 
-`install()` also reloads the driver's type catalogue. That catalogue is loaded **once per database**, on the
-first connection opened to it, and every session after that shares it — so a type created later is one the
-driver has never heard of, and opening a fresh connection does not help, which is the whole reason a reload
-exists at all. A column of such a type comes back as an unknown OID rather than as anything. A type that was
-already there before anything connected needs no reload.
+`install()` also reloads the driver's type catalogue. The catalogue is read once per database, on the first
+connection, so a type created after that is unknown to every session until a reload, and a column of it comes back
+as an unknown OID. A type that existed before anything connected needs no reload.
 
 ## Registering a Class
 
@@ -173,17 +147,13 @@ db.dynamicTypes.register<LandGrant>()                 // reads @DynamicallyMappa
 db.dynamicTypes.register(kClass, "land_grant")        // for a scanner that found the class
 ```
 
-The class has to be `@Serializable`. The name is **stated**, not derived from the class — the discriminator is
-stored in the data, so tying it to a Kotlin identifier means a rename silently orphans every row written before
-it, at runtime, on whichever query reaches one first. `@DynamicallyMappable` is a declaration rather than a
-derivation and moves with the class instead of tracking it; stating the name at the call still works and wins
-where both are present.
+The class has to be `@Serializable`. The name is stated rather than derived from the class, because it is stored in
+every row and a rename must not orphan them; stated at the call, it wins over `@DynamicallyMappable`.
 
-Registration is **global to the database**, the driver's type registry being keyed that way, so it belongs at
-startup and not per request. Every client on the database reads the same names, and a class is read and written
-on the `Json` and the write strategy of the client that registered it, whichever client a query runs through.
-Two names for one class, or one name for two classes, is refused, and so is the same class registered again on
-another strategy. Registered again under the same name, it changes nothing — its `Json` included.
+Registration is **global to the database**, so it belongs at startup. Every client on the database reads the same
+names, and a class is read and written on the `Json` and the write strategy of the client that registered it,
+whichever client a query runs through. Two names for one class, one name for two classes, and the same class on
+another strategy are refused; the same class under the same name again changes nothing, its `Json` included.
 
 ## Reading
 
@@ -195,20 +165,9 @@ another strategy. Registered again under the same name, it changes nothing — i
 | `DynamicDto`         | the raw form: the discriminator and the payload as text |
 | `Map<String, Any?>`  | the composite's own two attributes                      |
 
-Nothing about the read path needs the value to have come from Kotlin. SQL naming the type and building the
-payload is the whole contract, which is what makes an ad-hoc projection work without a schema change:
-
-```kotlin
-db.rawQuery("SELECT dynamic_dto('land_grant', jsonb_build_object('province', @p, 'iugera', @i))")
-    .fetchFieldStrict<Benefit>("p" to "Britannia", "i" to 75)
-```
-
-A name nothing is registered under, and a payload that does not fit the class, are both `MappingException`s
-naming what they found rather than half-filling an object.
-
-`DynamicDto.dataPayload` is JSON **text**, not a `JsonElement`: `jsonb`'s codec encodes and decodes a `String`,
-so text is the form both directions already pass through, and building a tree would be one materialisation each
-way that nothing asked for. `Json.parseToJsonElement` is one call away.
+A name nothing is registered under, and a payload that does not fit the class, are both `MappingException`s naming
+what they found rather than half-filling an object. `DynamicDto.dataPayload` is the JSON as text;
+`Json.parseToJsonElement` makes a tree of it.
 
 ## Writing
 
@@ -225,26 +184,22 @@ OctaviusClient.fromDataSource(dataSource, dynamicWriteStrategy = DynamicWriteStr
 | `PREFER_DYNAMIC_DTO`         | Written as a `dynamic_dto` either way                                                                    |
 | `EXPLICIT_ONLY`              | Refused by name, pointing at the wrapper                                                                 |
 
-`AUTOMATIC_WHEN_UNAMBIGUOUS` is the default, and under it a class registered one way only — which is nearly all
-of them — needs no wrapping anywhere.
+`AUTOMATIC_WHEN_UNAMBIGUOUS` is the default, and under it a class registered one way only needs no wrapping anywhere.
 
-**`toDynamicDto(value)` overrides all three**, and is what settles the one case they disagree about:
+**`toDynamicDto(value)` overrides all three**, and settles the one case they disagree about:
 
 ```kotlin
 db.insertInto("veterans").values(listOf("name", "benefit"))
     .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(honour))
 ```
 
-It is also the only way to make a `DynamicDto`, which is what keeps the discriminator honest: the name is
-checked against the registry there and nowhere else. The column is a plain `(text, jsonb)` and the server has
-never had the registry mentioned to it, so a value built with a name nothing is registered under would store
-cleanly and fail on whichever read reached it first, in some other process, much later.
+It is also the only way to make a `DynamicDto`, and it checks the name against the registry. The server knows nothing
+of the registry and would store any name, leaving it to fail on whichever read reached it.
 
 ### What the modes do not reach
 
-A mode answers one question — what a parameter whose type nothing declares was meant to be — and that is the
-only question it answers. An attribute of a composite, an element of an array, and a value wrapped in
-`withPgType` all carry the type they are going into, and **that type decides**, under every mode alike:
+A mode decides only for a parameter whose type nothing declares. An attribute of a composite, an element of an array
+and a value wrapped in `withPgType` carry the type they are going into, and **that type decides**, under every mode:
 
 ```kotlin
 data class Decoration(val award: Honour, val citation: Triumph)   // public.decoration
@@ -252,29 +207,20 @@ data class Decoration(val award: Honour, val citation: Triumph)   // public.deco
 // citation is declared public.dynamic_dto  → written as a dynamic_dto
 ```
 
-So naming the type is the counterpart of `toDynamicDto`: the wrapper asks for the dynamic form under every
-mode, and naming the type asks for the other one. It is how a class registered both ways reaches its composite
-under `PREFER_DYNAMIC_DTO`, which would otherwise be the one mode with a destination nothing could reach:
+Naming the type is therefore the counterpart of `toDynamicDto`, and how a class registered both ways reaches its
+composite under `PREFER_DYNAMIC_DTO`:
 
 ```kotlin
 db.insertInto("veterans").values(listOf("name", "honour"))
     .executeUpdate("name" to "Marcus", "honour" to honour.withPgType("honour", "public"))
 ```
 
-Where the destination is known and the value does not belong in it, this is a `MappingException`
-(`NO_CONVERTER_FOUND`) naming both — rather than a `dynamic_dto` sent where a composite was declared, which the
-server refuses a moment later with `42804` and nothing pointing at the class responsible.
-
-> A mode is given to a client and goes with every class registered through it: that class is written on that
-> mode whichever client a query runs through. A class is registered once per database, so a second client
-> registering it on another mode is refused rather than overriding the first.
+A value that does not belong in the declared destination is a `MappingException(NO_CONVERTER_FOUND)` naming both.
 
 ## What JSON Does Not Carry
 
-The payload is [JSON](../driver/arrays-ranges-json.md#json-and-jsonb), and a few kinds of value mean less there
-than they do in a column of their own. The driver maps every one of them correctly in a `numeric`, a `date`, a
-`timestamptz` or an enum column; put the same value in a `jsonb` payload and the default serializer writes
-something else.
+The payload is [JSON](../driver/arrays-ranges-json.md#json-and-jsonb), and a few values the driver maps correctly in a
+column of their own come out differently under the default serializer:
 
 | Type              | What the default serializer writes    | What that costs                                                   |
 |:------------------|:--------------------------------------|:------------------------------------------------------------------|
@@ -285,28 +231,7 @@ something else.
 | any date at all   | ISO-8601                              | outside years `0001`..`9999`, PostgreSQL will not read it back    |
 | a registered enum | the Kotlin constant's own name        | `Praetor` in the payload where the enum column holds `PRAETOR`    |
 
-The last row is the one that is not about markers. ISO-8601 and PostgreSQL spell a year differently as soon
-as it leaves `0001`..`9999`, and no single string satisfies both:
-
-| Year  | ISO-8601 / kotlinx | PostgreSQL      |
-|:------|:-------------------|:----------------|
-| 2024  | `2024-01-02`       | the same        |
-| 10000 | `+10000-01-02`     | `10000-01-02`   |
-| 1 BC  | `0000-01-02`       | `0001-01-02 BC` |
-| 2 BC  | `-0001-01-02`      | `0002-01-02 BC` |
-
-ISO requires a sign past four digits and PostgreSQL reads that sign as the start of a timezone offset, so it
-refuses `+10000-01-02` — and `-0001-01-02`, and even `+5874897-12-31`, which is a year a `date` holds
-perfectly well. ISO also counts through a year zero where PostgreSQL counts BC from one, which is where the
-off-by-one comes from. The serializers write PostgreSQL's spelling and read **either** back, so a payload
-built in SQL still decodes.
-
-None of that widens what a column holds: `date` reaches 4713 BC to 5874897 AD and `timestamp`/`timestamptz`
-294276 AD, and a value past that is out of range however it is spelled — which is what the markers are, at
-year 999999999.
-
-Every one of them is answered already, and the whole of what a class has to say is one annotation on the
-property:
+Each is answered by one annotation on the property:
 
 ```kotlin
 @PgEnumType                               // labels are SNAKE_CASE_UPPER in the database
@@ -322,28 +247,18 @@ data class LandGrant(
 )
 ```
 
-`@Contextual` is what selects a contextual serializer; without it the property keeps the default and nothing
-above applies. That is deliberate — nothing changes that you have not asked to change.
+Without `@Contextual` a property keeps the default serializer. The first four come from `octaviusSerializersModule`,
+which the client's `dynamicJson` carries; they write PostgreSQL's spelling and read either spelling back, so a payload
+built in SQL still decodes. The enum's labels are the ones it was **registered** under, read off the driver's
+registry, so `typeManager.registerEnum` and a scan by `@PgEnumType` both cover it, and the enum needs no
+`@Serializable` of its own. An enum the driver has never been told about keeps the default, and one registered
+between two queries applies to the second.
 
-The first four come from `octaviusSerializersModule`, which the client's `dynamicJson` carries. The enum comes
-from somewhere else, because its labels are not a fixed rule: they are whatever that enum was **registered**
-under. The client reads them straight off the driver's registry, so the enum named at
-`typeManager.registerEnum` and the one a scan found by `@PgEnumType` are covered alike — and the enum itself
-needs no `@Serializable` and no serializer of its own. Registration is what turns it on; an enum the driver
-has never been told about keeps the default.
+`BigDecimal` is `io.github.octaviusframework.type.BigDecimal` from `pg-model`, on the JVM a `typealias` for
+`java.math.BigDecimal`; see [`BigDecimal` in a Shared Class](../driver/type-system.md#bigdecimal-in-a-shared-class).
 
-> Registration happens **after** the client is built — that is the only order there is — so the enum
-> serializers are resolved per conversion rather than composed once. An enum registered between two queries
-> applies to the second.
-
-`BigDecimal` here is `io.github.octaviusframework.type.BigDecimal` from `pg-model`, which on the JVM is a
-`typealias` for `java.math.BigDecimal` — the same class the driver decodes a `numeric` into, so backend code
-can go on writing either name. It exists so that a class in `commonMain` can declare the property at all: on
-JS it holds the decimal's text, because a `Number` there is a 64-bit float and would round what `numeric` was
-chosen to keep.
-
-A `Json` you build yourself — for an HTTP layer, or for the frontend reading the same classes — needs both
-modules put on it, since they are the client's default and not a global:
+A `Json` you build yourself — for an HTTP layer, or for a frontend reading the same classes — needs both modules,
+since they are the client's default and not a global:
 
 ```kotlin
 val json = Json {
@@ -352,12 +267,11 @@ val json = Json {
 }
 ```
 
-`octaviusJson` is the first of those on a stock `Json` and nothing else, for the case where nothing else is
-being configured. `enumSerializers` answers for the enums registered at the moment it is read, so build that
-`Json` after startup registration rather than during it.
+`octaviusJson` is the first of those on a stock `Json`. `enumSerializers` answers for the enums registered when it
+is read, so build that `Json` after startup registration.
 
-The frontend has no driver and therefore no registry. There, write the enum's labels out once — the same two
-conventions the registration states — and share the class:
+The frontend has no registry, so there the enum's labels are written out once, with `registerEnum`'s defaults, and
+the class is shared:
 
 ```kotlin
 // commonMain, next to the enum itself
@@ -371,15 +285,14 @@ object MagistratureSerializer : EnumWithCaseConventionSerializer<Magistrature>(
 )
 ```
 
-Its defaults are `registerEnum`'s, so an enum that took them there takes them here. `@Serializable(with = …)`
-binds tighter than a contextual module, so the backend uses this one too and both ends agree by construction —
-which is the point of writing it rather than letting each side derive its own.
+`@Serializable(with = …)` binds tighter than a contextual module, so the backend uses this one too and both ends
+agree.
 
 ## A Different `Json` for One Query
 
-The client's `Json` is `octaviusJson`: strict, so a payload carrying a field the class does not declare is an
-error rather than something dropped. A payload built in SQL with `jsonb_build_object` is named the way SQL names
-things, against classes whose properties are not — so for that one query, hand over a different one:
+The client's `Json` is `octaviusJson`: strict, so a payload carrying a field the class does not declare is an error
+rather than something dropped. A payload built with `jsonb_build_object` is named the way SQL names things, so for
+that one query, hand over a different one:
 
 ```kotlin
 val snakeCase = Json { namingStrategy = JsonNamingStrategy.SnakeCase }
@@ -389,17 +302,11 @@ db.rawQuery("SELECT dynamic_dto('stipend', jsonb_build_object('province_name', @
     .fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
 ```
 
-`parameterConverter(json)` is the write-side mirror, and `toDynamicDto(value, json)` takes one directly for a
-value wrapped by hand. Query registries sit ahead of the session's and are discarded with the query, so the
-rest of the application goes on reading the way it did — see
-[Per-Query Converters](queries.md#per-query-converters).
-
-A `Json` built here replaces the one the class was registered with rather than adding to it, so put
-`octaviusSerializersModule` on it too where the class has a `@Contextual` property — otherwise that one query
-reads the payload differently from every other.
-
-The one a class is registered with is `dynamicJson` on `fromDataSource` or `fromSessionProvider`, of the
-client that registered it.
+`parameterConverter(json)` is the write-side mirror, and `toDynamicDto(value, json)` takes one for a value wrapped by
+hand. Query registries sit ahead of the session's and are discarded with the query; see
+[Per-Query Converters](queries.md#per-query-converters). A `Json` given here replaces the one the class was registered
+with (`dynamicJson` on `fromDataSource` or `fromSessionProvider`), so put `octaviusSerializersModule` on it too where
+the class has a `@Contextual` property.
 
 ## Next
 
