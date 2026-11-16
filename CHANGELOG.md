@@ -26,6 +26,14 @@
   class rode on the `Range`, and suggested `withPgType`, which the first case had already used and which for an
   unregistered class only moves the failure to encoding the bounds.
 
+- A parameter converter that returns a value its codec cannot take fails with `MappingException(CONVERSION_ERROR)`,
+  as the exceptions page says of a converter returning the wrong type, and its details name the converter and the
+  class it returned. The codec is the declared type's, or with none declared the one for the returned class. With no
+  type declared it raised `TypeException(MISSING_CODEC)`, and with one it raised `CodecException(ENCODING)` caused by
+  a `ClassCastException`. In a list it raised `CONVERSION_ERROR` caused by `TypeException(TYPE_NOT_FOUND)`, which
+  took the list for empty. None of them named the converter. A `PgContainer`, and a value whose type
+  `getDefaultTypeName` supplied, still go to their codec unchecked.
+
 ## Version 2.11.0 (v2.11.0) (2026-11-13)
 
 ### Driver

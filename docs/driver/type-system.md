@@ -571,6 +571,10 @@ known](#one-default-per-kotlin-class) would go out as `text`, and a `jsonb` colu
 and [the one place](composites-reflection.md#getdefaulttypename-is-not-for-the-composite) its `getDefaultTypeName` still
 matters.
 
+What a converter hands on is checked against the codec it is headed for: the declared type's, or with none declared the
+one for its class. A value that codec cannot take raises `MappingException(CONVERSION_ERROR)` naming the converter. A
+`PgContainer` is not checked, and neither is a value whose type `getDefaultTypeName` supplied.
+
 The `canConvert` above checks both the PostgreSQL type and the Kotlin type, and each check alone leaks:
 
 * **The PostgreSQL type alone** makes the converter global. Result converters are indexed by the decoded class, `String`

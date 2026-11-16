@@ -1,6 +1,8 @@
 package io.github.octaviusframework.driver.converter
 
 import io.github.octaviusframework.driver.container.PgComposite
+import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
+import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.session.OctaviusSession
@@ -19,7 +21,8 @@ import org.junit.jupiter.api.assertThrows
  * scalar its codec accepts as it stands and for a raw container, which names its own type. Where the target OID is
  * known and its codec cannot take that class, or no OID is known and no codec takes the class at all, the driver
  * reports it as `NO_CONVERTER_FOUND` with the attribute in the path — the same shape the read direction uses for the
- * same mistake — instead of letting it fail one layer down with no path at all.
+ * same mistake — instead of letting it fail one layer down with no path at all. What a converter returns is held to
+ * the same codec, and refused as `CONVERSION_ERROR` naming the converter.
  */
 class ParameterMismatchTest : AbstractIntegrationTest() {
 
@@ -28,6 +31,15 @@ class ParameterMismatchTest : AbstractIntegrationTest() {
 
     data class NarrowInt(val big: Int)      // against an int8 attribute
     data class MatchingLong(val big: Long)  // against an int8 attribute too, correctly
+
+    class Cognomen(val value: String)
+
+    /** Returns a `StringBuilder`, which no codec encodes. */
+    object CognomenConverter : ParameterConverter<Cognomen> {
+        override val supportedClass = Cognomen::class
+        override fun convert(source: Cognomen, expectedOid: Int, context: SerializationContext): Any =
+            StringBuilder(source.value)
+    }
 
     private lateinit var session: OctaviusSession
 
@@ -46,6 +58,7 @@ class ParameterMismatchTest : AbstractIntegrationTest() {
         session.typeManager.registerAutoComposite<NarrowInt>("holder", schema = "parammm")
         session.typeManager.registerAutoComposite<MatchingLong>("long_holder", schema = "parammm")
         // Tribute deliberately left unregistered
+        session.typeManager.registerParameterConverter(CognomenConverter)
     }
 
     @AfterAll
@@ -116,6 +129,31 @@ class ParameterMismatchTest : AbstractIntegrationTest() {
     fun `an ordinary scalar parameter is unaffected`() {
         val back = session.createNativeQuery("SELECT $1 AS s").fetchRowStrict("Cicero").get<String>("s")
         assertEquals("Cicero", back)
+    }
+
+    private fun assertConverterRefused(block: () -> Any?) {
+        val ex = assertThrows<MappingException> { block() }
+        assertEquals(MappingExceptionReason.CONVERSION_ERROR, ex.reason)
+        assertTrue(ex.details.contains("CognomenConverter") && ex.details.contains("StringBuilder"), ex.details)
+    }
+
+    @Test
+    fun `a converter's result no codec encodes is refused naming the converter`() {
+        assertConverterRefused { session.createNativeQuery("SELECT $1 AS c").fetchRowStrict(Cognomen("Cato")) }
+    }
+
+    @Test
+    fun `a converter's result the declared type's codec cannot take is refused naming the converter`() {
+        assertConverterRefused {
+            session.createNativeQuery("SELECT $1 AS c").fetchRowStrict(Cognomen("Cato").withPgType(PgStandardType.TEXT))
+        }
+    }
+
+    @Test
+    fun `a converter's result no codec encodes is refused in a list too`() {
+        assertConverterRefused {
+            session.createNativeQuery("SELECT $1 AS cs").fetchRowStrict(listOf(Cognomen("Cato")))
+        }
     }
 
     @Test
