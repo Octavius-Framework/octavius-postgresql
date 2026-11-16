@@ -409,7 +409,7 @@ nothing not being a location; the name asked for is in the message.
 |:----------------------------------|:-----------------------------------------------------------------------------------------------------------------|
 | `COLUMN_NOT_FOUND`                | No column, composite attribute, record field or array element by that name or at that position                   |
 | `REQUIRED_ATTRIBUTE_MISSING`      | `NULL`, or nothing, for a non-nullable Kotlin property                                                           |
-| `NO_CONVERTER_FOUND`              | No converter for that source and target                                                                          |
+| `NO_CONVERTER_FOUND`              | No converter for that source and target, or for a parameter of a class no codec encodes                          |
 | `CONVERSION_ERROR`                | A conversion failed, or a converter returned a type other than the one asked for                                 |
 | `BLOCK_FAILED`                    | The block given to `forEachRow`, `forEachObject` or `forEachField` threw something of its own; it is the `cause` |
 

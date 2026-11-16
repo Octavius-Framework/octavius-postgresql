@@ -1,8 +1,6 @@
 package io.github.octaviusframework.driver.execution
 
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterMapper
-import io.github.octaviusframework.driver.exception.TypeException
-import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.io.PgByteWriter
 import io.github.octaviusframework.driver.registry.CatalogHolder
 import io.github.octaviusframework.driver.registry.TypeManager
@@ -12,10 +10,8 @@ import io.github.octaviusframework.driver.type.withPgType
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
-/** The OIDs [ParameterSerializer] declares for the values it writes, and a value it has no codec for. */
+/** The OIDs [ParameterSerializer] declares for the values it writes. */
 class ParameterSerializerTest : AbstractIntegrationTest() {
 
     private fun serializer(typeManager: TypeManager) =
@@ -47,16 +43,5 @@ class ParameterSerializerTest : AbstractIntegrationTest() {
         val oids = serializer(typeManager).serializeAll(arrayOf<Any?>(typed), PgByteWriter())
 
         assertContentEquals(intArrayOf(PgStandardType.INT8.oid), oids)
-    }
-
-    @Test
-    fun `a Map has no codec to go out as`() {
-        openSession().use { session ->
-            val thrown = assertFailsWith<TypeException> {
-                session.createNativeQuery("SELECT $1 AS res").fetchRows(mapOf("cognomen" to "Caesar", "legiones" to 10))
-            }
-
-            assertEquals(TypeExceptionReason.MISSING_CODEC, thrown.reason)
-        }
     }
 }

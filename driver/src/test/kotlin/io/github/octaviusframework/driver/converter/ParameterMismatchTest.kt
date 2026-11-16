@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.converter
 
+import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.session.OctaviusSession
@@ -15,9 +16,10 @@ import org.junit.jupiter.api.assertThrows
 
 /**
  * A value that reaches the end of the parameter converter chain unclaimed is passed through, which is right for a
- * scalar its codec accepts as it stands. Where the target OID is known and its codec cannot take that class, the
- * driver reports it as `NO_CONVERTER_FOUND` with the attribute in the path — the same shape the read direction uses
- * for the same mistake — instead of letting it fail one layer down with no path at all.
+ * scalar its codec accepts as it stands and for a raw container, which names its own type. Where the target OID is
+ * known and its codec cannot take that class, or no OID is known and no codec takes the class at all, the driver
+ * reports it as `NO_CONVERTER_FOUND` with the attribute in the path — the same shape the read direction uses for the
+ * same mistake — instead of letting it fail one layer down with no path at all.
  */
 class ParameterMismatchTest : AbstractIntegrationTest() {
 
@@ -69,6 +71,23 @@ class ParameterMismatchTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `an unregistered data class passed on its own is reported as no converter, naming the class`() {
+        val ex = assertThrows<MappingException> {
+            session.createNativeQuery("SELECT $1 AS t").fetchRowStrict(Tribute(10, "denarii"))
+        }
+        assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, ex.reason)
+        assertEquals(listOf("\$1"), ex.path)
+        assertTrue(ex.details.contains("Tribute") && ex.details.contains("registerAutoComposite"), ex.details)
+    }
+
+    @Test
+    fun `a list of an unregistered data class is reported as no converter`() {
+        assertNoConverter("\$1") {
+            session.createNativeQuery("SELECT $1 AS ts").fetchRowStrict(listOf(Tribute(10, "denarii")))
+        }
+    }
+
+    @Test
     fun `a class the attribute's codec cannot encode is reported with the attribute in the path`() {
         assertNoConverter("big") {
             session.createNativeQuery("SELECT $1 AS h").fetchRowStrict(NarrowInt(42))
@@ -80,6 +99,17 @@ class ParameterMismatchTest : AbstractIntegrationTest() {
         val back = session.createNativeQuery("SELECT $1 AS h")
             .fetchRowStrict(MatchingLong(42L)).get<MatchingLong>("h")
         assertEquals(42L, back.big)
+    }
+
+    @Test
+    fun `a list of raw composites goes out as an array of their type`() {
+        val raw = session.createNativeQuery("SELECT ROW(10, 'denarii')::parammm.tribute AS t")
+            .fetchRowStrict().get<PgComposite>("t")
+
+        val back = session.createNativeQuery("SELECT $1 AS ts")
+            .fetchRowStrict(listOf(raw)).get<List<Tribute>>("ts")
+
+        assertEquals(listOf(Tribute(10, "denarii")), back)
     }
 
     @Test

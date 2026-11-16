@@ -1,6 +1,16 @@
-## Version 2.11.1 (v2.11.1)
+## Version 2.12.0 (v2.12.0)
 
 ### Driver
+
+#### Changed
+
+- **[BREAKING]** A parameter of a class that no converter claims and no codec encodes, such as an unregistered data
+  class or a `Map`, fails with `MappingException(NO_CONVERTER_FOUND)`, and its details name the class and the ways to
+  register it. Passed on its own, it raised `TypeException(MISSING_CODEC)`, which is meant for an OID the driver has
+  no codec for, and it named no OID. In a list, it raised `MappingException(CONVERSION_ERROR)` caused by
+  `TypeException(TYPE_NOT_FOUND)`, which suggested `withPgType`; for such a class that only moved the failure to the
+  elements. The same class as a composite attribute or under `withPgType` already failed with `NO_CONVERTER_FOUND`.
+  `MISSING_CODEC` is now only for an OID the driver has no codec for.
 
 #### Fixed
 

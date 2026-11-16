@@ -294,7 +294,7 @@ private class DynamicDtoParameterConverter(overrideJson: Json?) : ParameterConve
 
         // The other two leave a class that is also a registered composite to the composite path. One with no
         // other destination is claimed under both, so EXPLICIT_ONLY refuses it in convert with a message saying
-        // to wrap it, rather than the MISSING_CODEC declining would end in.
+        // to wrap it, rather than the NO_CONVERTER_FOUND declining would end in.
         return context.types.catalog.registeredComposites[sourceClass] == null
     }
 
