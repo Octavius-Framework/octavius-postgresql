@@ -12,6 +12,20 @@
   elements. The same class as a composite attribute or under `withPgType` already failed with `NO_CONVERTER_FOUND`.
   `MISSING_CODEC` is now only for an OID the driver has no codec for.
 
+- **[BREAKING]** A side of a range is infinite exactly where its bound is `null`. `isLowerInfinite` and
+  `isUpperInfinite` are no longer parameters of `Range`, `rangeOf`, `PgRange.create` and
+  `ContainerFactory.createRange`; on `Range` they are properties read from the bounds. `isLowerNull` and `isUpperNull`
+  are gone from all of them and from `PgRange`, since PostgreSQL has no `NULL` range bound: the server never sends the
+  two flags they stood for and drops them on receipt. A range sent with one of them set, or with a `null` bound and
+  `isLowerInfinite = false`, went out without that bound while the server still read one, and failed with
+  `NetworkException(CONNECTION_ERROR)` ("insufficient data left in message"). A bound given with
+  `isLowerInfinite = true` was not sent at all.
+
+- `isLowerInclusive` defaults to whether there is a lower bound, in `Range`, `rangeOf`, `PgRange.create` and
+  `ContainerFactory.createRange`, so `rangeOf(upperBound = 10)` is `(,10)` and reads back equal to itself. It
+  defaulted to `true`, which the server drops from an infinite side, as it drops an inclusive infinite side asked for
+  explicitly.
+
 #### Fixed
 
 - `withPgType(PgStandardType)` names its type in `pg_catalog`. It left the schema empty, so the name was resolved

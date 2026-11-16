@@ -42,10 +42,6 @@ internal object MultiRangeResultConverter : ResultConverter<PgMultirange, MultiR
                 upperBound = upper,
                 isLowerInclusive = pgRange.isLowerInclusive,
                 isUpperInclusive = pgRange.isUpperInclusive,
-                isLowerInfinite = pgRange.isLowerInfinite,
-                isUpperInfinite = pgRange.isUpperInfinite,
-                isLowerNull = pgRange.isLowerNull,
-                isUpperNull = pgRange.isUpperNull,
                 isEmpty = pgRange.isEmpty
             )
         }

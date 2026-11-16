@@ -49,11 +49,7 @@ internal object MultiRangeParameterConverter : ParameterConverter<MultiRange<*>>
                     lower = convertedLower,
                     upper = convertedUpper,
                     isLowerInclusive = range.isLowerInclusive,
-                    isUpperInclusive = range.isUpperInclusive,
-                    isLowerInfinite = range.isLowerInfinite,
-                    isUpperInfinite = range.isUpperInfinite,
-                    isLowerNull = range.isLowerNull,
-                    isUpperNull = range.isUpperNull
+                    isUpperInclusive = range.isUpperInclusive
                 )
             }
         }

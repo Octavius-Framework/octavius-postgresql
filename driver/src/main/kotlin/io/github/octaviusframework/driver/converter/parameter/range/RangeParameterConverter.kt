@@ -46,11 +46,7 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
             lower = convertedLower,
             upper = convertedUpper,
             isLowerInclusive = source.isLowerInclusive,
-            isUpperInclusive = source.isUpperInclusive,
-            isLowerInfinite = source.isLowerInfinite,
-            isUpperInfinite = source.isUpperInfinite,
-            isLowerNull = source.isLowerNull,
-            isUpperNull = source.isUpperNull
+            isUpperInclusive = source.isUpperInclusive
         )
     }
 }

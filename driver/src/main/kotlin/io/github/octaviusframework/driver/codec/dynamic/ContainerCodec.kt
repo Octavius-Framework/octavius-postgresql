@@ -143,19 +143,17 @@ internal object ContainerCodec {
 
         val isEmpty = (flags.toInt() and 0x01) != 0
         val isLowerInfinite = (flags.toInt() and 0x08) != 0
-        val isLowerNull = (flags.toInt() and 0x20) != 0
         val isUpperInfinite = (flags.toInt() and 0x10) != 0
-        val isUpperNull = (flags.toInt() and 0x40) != 0
 
         var lowerBound: Any? = null
-        if (!isEmpty && !isLowerInfinite && !isLowerNull) {
+        if (!isEmpty && !isLowerInfinite) {
             val len = data.getIntBE(localOffset); localOffset += 4
             lowerBound = parseField(data, localOffset, len, pgType.subtypeOid, scope)
             localOffset += len
         }
 
         var upperBound: Any? = null
-        if (!isEmpty && !isUpperInfinite && !isUpperNull) {
+        if (!isEmpty && !isUpperInfinite) {
             val len = data.getIntBE(localOffset); localOffset += 4
             upperBound = parseField(data, localOffset, len, pgType.subtypeOid, scope)
             localOffset += len
@@ -270,10 +268,10 @@ internal object ContainerCodec {
         writer.writeByte(range.flags)
 
         if (!range.isEmpty) {
-            if (!range.isLowerInfinite && !range.isLowerNull) {
+            if (!range.isLowerInfinite) {
                 writeField(range.lowerBound, range.elementOid, writer, scope)
             }
-            if (!range.isUpperInfinite && !range.isUpperNull) {
+            if (!range.isUpperInfinite) {
                 writeField(range.upperBound, range.elementOid, writer, scope)
             }
         }

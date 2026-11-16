@@ -77,13 +77,23 @@ class RangeTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `a range with no lower bound reads back equal to the one sent`() {
+        val session = openSession()
+
+        val sent = rangeOf<Int>(upperBound = 10)
+
+        assertEquals(sent, session.createNativeQuery("SELECT $1::int4range").fetchRowStrict(sent).get<Range<Int>>(0))
+        session.close()
+    }
+
+    @Test
     fun `a MultiRange goes out as a multirange, an unbounded side included`() {
         val session = openSession()
 
         val inputMultiRange = multiRangeOf(
             listOf(
                 rangeOf(lowerBound = 1, upperBound = 5, isLowerInclusive = true, isUpperInclusive = false),
-                rangeOf(lowerBound = 10, upperBound = null, isLowerInclusive = false, isUpperInfinite = true)
+                rangeOf(lowerBound = 10, upperBound = null, isLowerInclusive = false)
             )
         )
 
