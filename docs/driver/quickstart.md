@@ -65,19 +65,19 @@ Once you have a session, you can execute named queries and extract strongly-type
 
 ```kotlin
 // Run a query with named parameters
-val rows = session.createNamedQuery("SELECT id, name FROM users WHERE active = @active")
+val rows = session.createNamedQuery("SELECT id, cognomen FROM senators WHERE active = @active")
     .fetchRows("active" to true)
 
 // Strongly typed extraction
 for (row in rows) {
     val id: Int = row.get("id")
-    val name: String = row.get("name")
-    println("User: $id - $name")
+    val cognomen: String = row.get("cognomen")
+    println("Senator: $id - $cognomen")
 }
 
 // Inserting data
-session.createNamedQuery("INSERT INTO users (id, name, active) VALUES (@id, @name, @active)")
-    .executeUpdate("id" to 1, "name" to "Marcus", "active" to true)
+session.createNamedQuery("INSERT INTO senators (id, cognomen, active) VALUES (@id, @cognomen, @active)")
+    .executeUpdate("id" to 1, "cognomen" to "Cicero", "active" to true)
 ```
 
 ## Next Steps
