@@ -28,6 +28,12 @@
 
 #### Fixed
 
+- A row or a composite asked for as a `Map` whose key type is not `String` or `Any`, such as `Map<Int, Any?>`, fails
+  with `MappingException(CONVERSION_ERROR)`, and its details say it is keyed by its column or attribute names and
+  name the type asked for. It came back keyed by those names anyway, typed as the key asked for, so the failure was a
+  `ClassCastException` in the caller's code at the first key read. The same holds under `compositesAsMaps()`. A
+  `ROW(...)` read as a `Map` still converts its keys to the key type asked for.
+
 - `withPgType(PgStandardType)` names its type in `pg_catalog`. It left the schema empty, so the name was resolved
   through the search path, and a type of the same name in a schema the path puts ahead of `pg_catalog` was sent
   in place of the built-in one.

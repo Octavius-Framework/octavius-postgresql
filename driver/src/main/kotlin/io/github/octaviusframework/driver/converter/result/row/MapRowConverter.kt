@@ -4,6 +4,7 @@ import io.github.octaviusframework.driver.converter.result.mapper.Deserializatio
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
 import io.github.octaviusframework.driver.row.Row
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.driver.util.reflection.requireStringKeys
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
@@ -18,6 +19,7 @@ internal object MapRowConverter : ResultConverter<Row, Map<String, Any?>> {
     }
 
     override fun convert(source: Row, expectedType: KType, sourceType: PgType, context: DeserializationContext): Map<String, Any?> {
+        requireStringKeys(expectedType, "A row is keyed by its column names")
         val valueType = expectedType.arguments.getOrNull(1)?.type ?: typeOf<Any?>()
 
         val result = mutableMapOf<String, Any?>()

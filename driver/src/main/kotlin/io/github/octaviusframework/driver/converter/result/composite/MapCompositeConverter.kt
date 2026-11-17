@@ -4,6 +4,7 @@ import io.github.octaviusframework.driver.container.PgComposite
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
 import io.github.octaviusframework.driver.type.PgType
+import io.github.octaviusframework.driver.util.reflection.requireStringKeys
 import kotlin.reflect.KClass
 import kotlin.reflect.KType
 import kotlin.reflect.typeOf
@@ -19,6 +20,7 @@ internal object MapCompositeConverter : ResultConverter<PgComposite, Map<String,
     }
 
     override fun convert(source: PgComposite, expectedType: KType, sourceType: PgType, context: DeserializationContext): Map<String, Any?> {
+        requireStringKeys(expectedType, "A composite is keyed by its attribute names")
         val valueType = expectedType.arguments.getOrNull(1)?.type ?: typeOf<Any?>()
         return source.attributesAsMap(valueType, context)
     }

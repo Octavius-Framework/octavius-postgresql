@@ -9,6 +9,8 @@ import io.github.octaviusframework.driver.converter.result.composite.ReflectionC
 import io.github.octaviusframework.driver.converter.result.composite.compositesAsMaps
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
+import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.registry.TypeManager
 import io.github.octaviusframework.driver.registry.CatalogHolder
@@ -17,7 +19,9 @@ import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import kotlin.reflect.typeOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 /**
  * Covers [compositesAsMaps]: reading composites as maps for one query, whatever they are registered as.
@@ -99,6 +103,20 @@ class CompositesAsMapsTest : AbstractIntegrationTest() {
             .deserialize(anAssessment, typeOf<Assessment>(), assessment)
 
         assertEquals(Assessment("census", Tribute(40, "denarius")), assessed)
+    }
+
+    @Test
+    fun `a composite is a map only under a key an attribute name fits`() {
+        for (mapper in listOf(sessionMapper, queryMapper(compositesAsMaps()))) {
+            val mapped: Map<Any, Any?> = mapper.deserialize(composite(tribute, 40, "denarius"), typeOf<Map<Any, Any?>>(), tribute)
+            assertEquals<Map<*, *>>(mapOf("amount" to 40, "currency" to "denarius"), mapped)
+
+            val e = assertFailsWith<MappingException> {
+                mapper.deserialize<Map<Int, Any?>>(composite(tribute, 40, "denarius"), typeOf<Map<Int, Any?>>(), tribute)
+            }
+            assertEquals(MappingExceptionReason.CONVERSION_ERROR, e.reason)
+            assertTrue(e.details.contains("not kotlin.Int"), e.details)
+        }
     }
 
     @Test

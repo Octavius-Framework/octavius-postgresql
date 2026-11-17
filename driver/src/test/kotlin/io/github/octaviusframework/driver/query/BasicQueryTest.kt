@@ -10,6 +10,7 @@ import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 data class FetchedSenator(val id: Int, val cognomen: String)
 
@@ -23,6 +24,20 @@ class BasicQueryTest : AbstractIntegrationTest() {
             assertEquals(session.createNativeQuery(sql).fetchObject<FetchedSenator>(), row.toObject<FetchedSenator>())
             assertEquals(FetchedSenator(7, "Cicero"), row.toObject<FetchedSenator>())
             assertEquals(mapOf("id" to 7, "cognomen" to "Cicero"), row.toObject<Map<String, Any?>>())
+        }
+    }
+
+    @Test
+    fun `a row is a map only under a key a column name fits`() {
+        openSession().use { session ->
+            val row = session.createNativeQuery("SELECT 7 AS id, 'Cicero' AS cognomen").fetchRowStrict()
+
+            assertEquals<Map<*, *>>(mapOf("id" to 7, "cognomen" to "Cicero"), row.toObject<Map<Any, Any?>>())
+            assertEquals<Map<*, *>>(mapOf("id" to 7, "cognomen" to "Cicero"), row.toObject<Map<*, *>>())
+
+            val e = assertFailsWith<MappingException> { row.toObject<Map<Int, Any?>>() }
+            assertEquals(MappingExceptionReason.CONVERSION_ERROR, e.reason)
+            assertTrue(e.details.contains("not kotlin.Int"), e.details)
         }
     }
 

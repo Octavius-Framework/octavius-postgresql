@@ -113,6 +113,9 @@ The `Any` row is how a composite nested inside a `Map<String, Any?>`, a `ROW(...
 as your own type rather than a container. A hand-written converter can cover every row of this table too — see
 [Claim `Any` as well as the class](#claim-any-as-well-as-the-class).
 
+The `Map` row is keyed by attribute name, so its key type is `String`, or `Any`. Any other key type, `Map<Int, Any?>`
+say, fails with `MappingException(CONVERSION_ERROR)`. Only a [`ROW(...)`](#pgrecord--anonymous-row) converts its keys.
+
 The table is what one column answers. To move the whole column — and everything under it — to the `Map` row for one
 query, without touching what the class is registered as anywhere else, see
 [Reading them all as maps](#reading-them-all-as-maps).
