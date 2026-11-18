@@ -7,7 +7,6 @@ import io.github.octaviusframework.type.BigDecimal
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNamingStrategy
 import kotlinx.serialization.modules.SerializersModule
@@ -78,7 +77,6 @@ val octaviusJson: Json = Json {
  * otherwise its name in `snake_case`, so `annualAmount` is `annual_amount`. The client's default for `dynamic_dto`
  * payloads. A `@SerialName` is converted like a property's own name, since the strategy cannot tell the two apart.
  */
-@OptIn(ExperimentalSerializationApi::class)
 val octaviusSnakeCaseJson: Json = Json(octaviusJson) {
     namingStrategy = JsonNamingStrategy { descriptor, index, serialName ->
         descriptor.getElementAnnotations(index).firstNotNullOfOrNull { (it as? PgName)?.name }

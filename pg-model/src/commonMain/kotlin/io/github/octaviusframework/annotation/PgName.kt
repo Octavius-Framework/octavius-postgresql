@@ -1,6 +1,5 @@
 package io.github.octaviusframework.annotation
 
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialInfo
 
 /**
@@ -18,7 +17,6 @@ import kotlinx.serialization.SerialInfo
  *
  * @property name The attribute or key name to use instead of the converted property name.
  */
-@OptIn(ExperimentalSerializationApi::class)
 @SerialInfo
 @Target(AnnotationTarget.PROPERTY)
 @Retention(AnnotationRetention.RUNTIME)

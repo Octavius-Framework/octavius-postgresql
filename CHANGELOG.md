@@ -1,5 +1,14 @@
 ## Version 2.12.0 (v2.12.0)
 
+### Project
+
+#### Changed
+
+- Dependencies a consumer gets: Spring Boot 4.1.2, an `api` dependency of `driver-spring-integration`, up from
+  4.1.0; ClassGraph 4.8.200, a backport on the 4.x line `client-scanner` and `migrations` stay on; kotlin-logging
+  8.0.7 and SLF4J 2.0.20. Build, tests and benchmarks: Gradle 9.9.1 in both wrappers, JUnit 6.1.3, Logback 1.6.7,
+  Dokka 2.3.0, the JMH plugin 0.7.4, and pgjdbc 42.7.14 and Jdbi 3.55.0 as the benchmarks' reference points.
+
 ### Driver
 
 #### Changed
@@ -109,6 +118,9 @@
 #### Changed
 
 - `@PgName` is a `@SerialInfo` annotation, so a naming strategy can read it from the serial descriptor.
+
+- kotlinx.serialization is 1.13.0, up from 1.11.0, and `pg-model` passes it on as an `api` dependency. 1.12.0
+  made `JsonNamingStrategy` and `@SerialInfo` stable, so `octaviusSnakeCaseJson` and `@PgName` need no opt-in.
 
 ## Version 2.11.0 (v2.11.0) (2026-11-13)
 
