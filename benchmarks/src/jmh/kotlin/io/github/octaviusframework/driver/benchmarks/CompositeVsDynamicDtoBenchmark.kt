@@ -23,11 +23,10 @@ import kotlin.reflect.KType
  * Four ways to put a structure in one column, each with a family of classes of its own, and a fifth family for
  * an anonymous record of keys and values, which no column can hold and the query builds instead.
  *
- * The families are not duplication for its own sake. `DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS` hands a
- * class that is also a registered composite to the composite path, and `registerAutoComposite` is registered
- * per class - so one shared family would leave rungs serving each other and the benchmark would report ties it
- * had arranged itself. The same reason `CompositeInsertBenchmark` keeps `SenatorReflect` apart from
- * `SenatorExplicit`.
+ * The families are not duplication for its own sake. Registrations are per class, and a class registered both as
+ * a composite and as a dynamic type is refused as a parameter until its type is named - so one shared family
+ * would have each rung either failing or carrying a `withPgType` the others do not pay for. The same reason
+ * `CompositeInsertBenchmark` keeps `SenatorReflect` apart from `SenatorExplicit`.
  *
  * Every family exists in two shapes: nested, where `stats` is a structure of its own, and flat, where its
  * three fields sit beside `id` and `name`. The shape is a `@Param`, so each rung is measured in both.
@@ -472,9 +471,8 @@ open class CompositeVsDynamicDtoBenchmark {
     /**
      * Proves each rung is on the path it is named for before any of them is timed.
      *
-     * The failure this guards against is silent: a converter that did not claim its value, or a registration
-     * the write strategy handed elsewhere, would leave a rung measuring a neighbour and reporting a tie rather
-     * than an error.
+     * The failure this guards against is silent: a converter that did not claim its value would leave a rung
+     * measuring a neighbour and reporting a tie rather than an error.
      */
     private fun verifyEveryPath() {
         val expectedMatches = (1..rowCount).count { it % 100 > STRENGTH_THRESHOLD }

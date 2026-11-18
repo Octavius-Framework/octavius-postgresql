@@ -54,6 +54,30 @@
   took the list for empty. None of them named the converter. A `PgContainer`, and a value whose type
   `getDefaultTypeName` supplied, still go to their codec unchecked.
 
+### Client
+
+#### Changed
+
+- **[BREAKING]** `DynamicWriteStrategy` is gone, and with it `dynamicWriteStrategy` on `fromDataSource` and
+  `fromSessionProvider` and `DynamicTypes.strategy`. An instance of a registered class is written as a `dynamic_dto`
+  without wrapping, as under the default `AUTOMATIC_WHEN_UNAMBIGUOUS`. `EXPLICIT_ONLY` refused that write although
+  the class could go in as nothing else. A class registered through a second client is no longer refused for being
+  on another mode.
+
+- **[BREAKING]** A class registered both as a composite and as a dynamic type fails with
+  `MappingException(CONVERSION_ERROR)` where nothing declares which of the two it goes in as: a parameter on its own,
+  or the first element of a list, whose array type it decides. Its details name both registrations and the two
+  `withPgType` calls that choose. The default mode gave it to the composite whichever column it was going into, so
+  the server refused it in a `dynamic_dto` column, and where the server takes either type, as `jsonb_build_object` or
+  a function on `anyelement` does, it went in as the composite without a word. `PREFER_DYNAMIC_DTO` gave it to the
+  `dynamic_dto`. An attribute of a composite, an element of an array and a value under `withPgType` take the type
+  they are declared as, as before.
+
+- **[BREAKING]** `DynamicTypes.toDynamicDto` is gone. `withPgType("dynamic_dto", "public")` sends a value as a
+  `dynamic_dto` where the form has to be chosen, and a query's values go out with another `Json` through
+  `registerParameterConverter(db.dynamicTypes.parameterConverter(json))`, as one value did through
+  `toDynamicDto(value, json)`. Only a read makes a `DynamicDto` now, and one written back goes as it is.
+
 ## Version 2.11.0 (v2.11.0) (2026-11-13)
 
 ### Driver

@@ -5,6 +5,7 @@ import io.github.octaviusframework.client.AbstractClientIntegrationTest
 import io.github.octaviusframework.client.OctaviusClient
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.type.withPgType
 import io.github.octaviusframework.type.BigDecimal
 import io.github.octaviusframework.type.datetime.DISTANT_FUTURE
 import kotlinx.datetime.LocalDate
@@ -168,17 +169,6 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
             ),
             benefits
         )
-    }
-
-    @Test
-    fun `a wrapped value writes the same as an unwrapped one`() {
-        // toDynamicDto stops being required under the default mode, but it does not stop working: it is still
-        // what settles a class registered as a composite as well, and it takes the same path here.
-        val grant = LandGrant("Gallia Narbonensis", 120)
-        db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
-            .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(grant))
-
-        assertEquals(grant, db.select("benefit").from("dyn_veterans").fetchFieldStrict<LandGrant>())
     }
 
     @Test
@@ -409,21 +399,16 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     }
 
     @Test
-    fun `the write side takes a Json the same two ways`() {
+    fun `the write side takes a Json through a converter given to the query`() {
         val stipend = Stipend("Cyrenaica", 220)
 
-        // Once through the wrapper, which takes one directly...
-        db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
-            .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(stipend, snakeCase))
-        // ...and once unwrapped, through a converter given to this query alone.
         db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
             .registerParameterConverter(db.dynamicTypes.parameterConverter(snakeCase))
             .executeUpdate("name" to "Lucius", "benefit" to stipend)
 
         assertEquals(
-            listOf("Cyrenaica", "Cyrenaica"),
-            db.select("(benefit).data_payload ->> 'province_name'").from("dyn_veterans").orderBy("id")
-                .fetchFields<String>()
+            "Cyrenaica",
+            db.select("(benefit).data_payload ->> 'province_name'").from("dyn_veterans").fetchFieldStrict<String>()
         )
     }
 
@@ -636,13 +621,14 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     }
 
     @Test
-    fun `wrapping an unregistered class points at the fix`() {
+    fun `an unregistered class sent as a dynamic_dto points at the fix`() {
         data class Unregistered(val x: Int)
 
-        val thrown = assertFailsWith<InvalidOperationException> {
-            db.dynamicTypes.toDynamicDto(Unregistered(1))
+        val thrown = assertFailsWith<MappingException> {
+            db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
+                .executeUpdate("name" to "Marcus", "benefit" to Unregistered(1).withPgType("dynamic_dto", "public"))
         }
-        assertTrue(thrown.details!!.contains("register"))
+        assertTrue(thrown.details.contains("register"), thrown.details)
     }
 
     @Test

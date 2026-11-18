@@ -91,12 +91,13 @@ internal fun declaredTypeNameOf(kClass: KClass<*>): String =
         )
 
 /**
- * The `dynamic_dto` types this client knows: where they are registered, and where a value is wrapped for writing.
+ * The `dynamic_dto` types this client knows, and where they are registered.
  *
  * A `dynamic_dto` carrying a registered name reads as that class, several names read as the supertype asked for,
- * and an instance of a registered class is written as a `dynamic_dto` unwrapped, on the terms [strategy] sets.
- * The name is stated at registration or by [DynamicallyMappable], never derived from the class: it is stored in
- * the data, and a renamed class must still read it.
+ * and an instance of a registered class is written as a `dynamic_dto` as it is. A class registered as a composite
+ * too is refused where nothing declares which of the two it goes in as; `withPgType` names one. The name is
+ * stated at registration or by [DynamicallyMappable], never derived from the class: it is stored in the data, and
+ * a renamed class must still read it.
  *
  * ```kotlin
  * db.dynamicTypes.install()                      // or put DYNAMIC_DTO_DDL in a migration
@@ -110,20 +111,18 @@ internal fun declaredTypeNameOf(kClass: KClass<*>): String =
  * ```
  *
  * A registration belongs to the database, not to this client, so it is done at startup: every client on the
- * database reads the same names, and a class registered here is written and read with this client's [json] and
- * [strategy] whichever client runs the query.
+ * database reads the same names, and a class registered here is written and read with this client's [json]
+ * whichever client runs the query.
  *
  * @property json How payloads of classes registered here are read and written. The default,
  * [octaviusJson][io.github.octaviusframework.serializer.octaviusJson], is strict and carries the serializers a
  * `@Contextual BigDecimal` or date needs. A payload built in SQL with `jsonb_build_object` has to use the Kotlin
  * property names, or be read with a [Json] using `JsonNamingStrategy.SnakeCase` - and carrying
  * [octaviusSerializersModule][io.github.octaviusframework.serializer.octaviusSerializersModule] too.
- * @property strategy When an unwrapped instance of a class registered here is written as a `dynamic_dto`.
  */
 class DynamicTypes internal constructor(
     private val client: OctaviusClient,
-    val json: Json = octaviusJson,
-    val strategy: DynamicWriteStrategy = DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS
+    val json: Json = octaviusJson
 ) {
 
     /** [json] with the driver's enum serializers folded in, which is what everything here actually encodes with. */
@@ -169,8 +168,7 @@ class DynamicTypes internal constructor(
      * Registers [kClass] with [serializer], for a caller that found the class rather than named it.
      *
      * @throws InvalidOperationException `INVALID_ARGUMENT` where the name is blank, the name is taken by another
-     * class, the class is registered under another name, or another client registered it on another
-     * [DynamicWriteStrategy].
+     * class, or the class is registered under another name.
      */
     fun <T : Any> register(kClass: KClass<T>, serializer: KSerializer<T>, typeName: String) {
         if (typeName.isBlank()) {
@@ -180,7 +178,7 @@ class DynamicTypes internal constructor(
             )
         }
 
-        val registration = Registration(typeName, kClass, serializer, enumAwareJson, strategy)
+        val registration = Registration(typeName, kClass, serializer, enumAwareJson)
         client.execute {
             // Primed while a session is open anyway.
             this@DynamicTypes.typeLookupHandle = typeManager.detached()
@@ -211,26 +209,6 @@ class DynamicTypes internal constructor(
     }
 
     /**
-     * Wraps [value] so it is written as a `dynamic_dto` whatever [strategy] says. Needed under
-     * [EXPLICIT_ONLY][DynamicWriteStrategy.EXPLICIT_ONLY], and for a class also registered as a composite under
-     * [AUTOMATIC_WHEN_UNAMBIGUOUS][DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS].
-     *
-     * @throws InvalidOperationException `INVALID_ARGUMENT` where [value]'s class was never registered.
-     */
-    fun toDynamicDto(value: Any, json: Json = this.json): DynamicDto {
-        val catalog = catalog()
-        val registration = catalog.attachment(DynamicRegistry::class)?.forClass(value::class)
-            ?: throw InvalidOperationException(
-                InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                details = "${value::class.simpleName} is not a registered dynamic type; call " +
-                    "dynamicTypes.register<${value::class.simpleName}>(\"…\") at startup."
-            )
-        val effective =
-            if (json === this.json) enumAwareJson.resolve(catalog) else EnumAwareJson(json).resolve(catalog)
-        return DynamicDto(registration.name, registration.encode(value, effective))
-    }
-
-    /**
      * A read converter for the registered types that decodes payloads with [json] instead of each class's own,
      * for a query whose payloads are shaped differently - built with `jsonb_build_object`, or by another service.
      * Register it on that query alone with
@@ -244,7 +222,10 @@ class DynamicTypes internal constructor(
      */
     fun resultConverter(json: Json): ResultConverter<*, *> = DynamicDtoResultConverter(json)
 
-    /** The write-side mirror of [resultConverter]. [toDynamicDto] takes a [Json] of its own for the same purpose. */
+    /**
+     * The write-side mirror of [resultConverter], registered on a query with
+     * [registerParameterConverter][io.github.octaviusframework.client.query.RunnableQuery.registerParameterConverter].
+     */
     fun parameterConverter(json: Json): ParameterConverter<*> = DynamicDtoParameterConverter(json)
 
     /**
@@ -279,23 +260,17 @@ private class DynamicDtoParameterConverter(overrideJson: Json?) : ParameterConve
     override val supportedClass: KClass<Any> = Any::class
 
     override fun canConvert(sourceClass: KClass<*>, expectedOid: Int, context: SerializationContext): Boolean {
-        // A known destination type - a composite attribute, an array element, a PgTyped value - decides, and no
-        // mode outranks it. A mode only answers for a top-level parameter, whose type nothing declares.
+        // A known destination type - a composite attribute, an array element, a PgTyped value - decides.
         if (expectedOid.isKnownOid) {
             val target = context.types.dictionary.getPgType(expectedOid)
             return target.name == DYNAMIC_DTO_NAME && target.schema == DYNAMIC_DTO_SCHEMA
         }
 
-        // Wrapping says which form was meant, so a wrapped value is claimed under every mode.
+        // With none declared, the raw form read earlier goes back as it came, and a registered class is claimed.
+        // One registered as a composite too is claimed as well, so convert refuses it naming both types, rather
+        // than the composite path taking it on a guess.
         if (sourceClass == DynamicDto::class) return true
-        val registration = context.types.catalog.attachment(DynamicRegistry::class)?.forClass(sourceClass)
-            ?: return false
-        if (registration.strategy == DynamicWriteStrategy.PREFER_DYNAMIC_DTO) return true
-
-        // The other two leave a class that is also a registered composite to the composite path. One with no
-        // other destination is claimed under both, so EXPLICIT_ONLY refuses it in convert with a message saying
-        // to wrap it, rather than the NO_CONVERTER_FOUND declining would end in.
-        return context.types.catalog.registeredComposites[sourceClass] == null
+        return context.types.catalog.attachment(DynamicRegistry::class)?.forClass(sourceClass) != null
     }
 
     override fun convert(source: Any, expectedOid: Int, context: SerializationContext): Any {
@@ -312,12 +287,15 @@ private class DynamicDtoParameterConverter(overrideJson: Json?) : ParameterConve
                     details = "${source::class.simpleName} is not a registered dynamic type; call " +
                         "dynamicTypes.register<${source::class.simpleName}>(\"…\") at startup."
                 )
-            if (registration.strategy == DynamicWriteStrategy.EXPLICIT_ONLY) {
+            val composite =
+                if (expectedOid.isKnownOid) null else context.types.catalog.registeredComposites[source::class]
+            if (composite != null) {
                 throw MappingException(
                     MappingExceptionReason.CONVERSION_ERROR,
-                    details = "${source::class.simpleName} is registered as the dynamic type " +
-                        "'${registration.name}' on EXPLICIT_ONLY: wrap it in dynamicTypes.toDynamicDto(…), or " +
-                        "register it through a client built on another DynamicWriteStrategy."
+                    details = "${source::class.simpleName} is registered both as the composite $composite and as " +
+                        "the dynamic type '${registration.name}', and nothing declares which this value goes in " +
+                        "as: name it with withPgType(\"${composite.name}\", \"${composite.schema}\") or " +
+                        "withPgType(\"$DYNAMIC_DTO_NAME\", \"$DYNAMIC_DTO_SCHEMA\")."
                 )
             }
             typeName = registration.name

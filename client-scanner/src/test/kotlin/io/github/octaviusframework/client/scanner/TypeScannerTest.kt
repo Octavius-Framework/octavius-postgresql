@@ -110,7 +110,7 @@ class TypeScannerTest : AbstractIntegrationTest() {
             .executeUpdate(
                 "rank" to ScanRank.Praetor,
                 "home" to ScanProvince("Hispania", "Tarraco"),
-                "benefit" to db.dynamicTypes.toDynamicDto(ScanGrant(120))
+                "benefit" to ScanGrant(120)
             )
 
         assertEquals(

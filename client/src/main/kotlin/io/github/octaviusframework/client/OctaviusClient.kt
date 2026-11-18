@@ -12,7 +12,6 @@
 package io.github.octaviusframework.client
 
 import io.github.octaviusframework.client.dynamic.DynamicTypes
-import io.github.octaviusframework.client.dynamic.DynamicWriteStrategy
 import io.github.octaviusframework.client.query.DeleteQuery
 import io.github.octaviusframework.client.query.InsertQuery
 import io.github.octaviusframework.client.query.RawQuery
@@ -214,14 +213,11 @@ interface OctaviusClient : AutoCloseable {
          *
          * @param ownsDataSource Whether [close] closes [dataSource] too.
          * @param dynamicJson How `dynamic_dto` payloads are read and written, as [DynamicTypes.json].
-         * @param dynamicWriteStrategy When an unwrapped instance of a registered class is written as a
-         * `dynamic_dto`.
          */
         fun fromDataSource(
             dataSource: DataSource,
             ownsDataSource: Boolean = false,
-            dynamicJson: Json = octaviusJson,
-            dynamicWriteStrategy: DynamicWriteStrategy = DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS
+            dynamicJson: Json = octaviusJson
         ): OctaviusClient {
             val provider = DefaultSessionProvider(dataSource)
             return OctaviusClientImpl(
@@ -230,8 +226,7 @@ interface OctaviusClient : AutoCloseable {
                     provider.close()
                     if (ownsDataSource) (dataSource as? AutoCloseable)?.close()
                 },
-                dynamicJson = dynamicJson,
-                dynamicWriteStrategy = dynamicWriteStrategy
+                dynamicJson = dynamicJson
             )
         }
 
@@ -241,18 +236,15 @@ interface OctaviusClient : AutoCloseable {
          *
          * @param ownsProvider Whether [close] closes [provider] too.
          * @param dynamicJson As on [fromDataSource].
-         * @param dynamicWriteStrategy As on [fromDataSource].
          */
         fun fromSessionProvider(
             provider: SessionProvider,
             ownsProvider: Boolean = true,
-            dynamicJson: Json = octaviusJson,
-            dynamicWriteStrategy: DynamicWriteStrategy = DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS
+            dynamicJson: Json = octaviusJson
         ): OctaviusClient = OctaviusClientImpl(
             provider,
             onClose = if (ownsProvider) ({ provider.close() }) else null,
-            dynamicJson = dynamicJson,
-            dynamicWriteStrategy = dynamicWriteStrategy
+            dynamicJson = dynamicJson
         )
     }
 }

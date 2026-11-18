@@ -151,9 +151,9 @@ The class has to be `@Serializable`. The name is stated rather than derived from
 every row and a rename must not orphan them; stated at the call, it wins over `@DynamicallyMappable`.
 
 Registration is **global to the database**, so it belongs at startup. Every client on the database reads the same
-names, and a class is read and written on the `Json` and the write strategy of the client that registered it,
-whichever client a query runs through. Two names for one class, one name for two classes, and the same class on
-another strategy are refused; the same class under the same name again changes nothing, its `Json` included.
+names, and a class is read and written with the `Json` of the client that registered it, whichever client a query
+runs through. Two names for one class and one name for two classes are refused; the same class under the same name
+again changes nothing, its `Json` included.
 
 ## Reading
 
@@ -171,35 +171,9 @@ what they found rather than half-filling an object. `DynamicDto.dataPayload` is 
 
 ## Writing
 
-An instance of a registered class is written as a `dynamic_dto` **without being wrapped**. When that happens is
-`DynamicWriteStrategy`, given to the client when it is built:
-
-```kotlin
-OctaviusClient.fromDataSource(dataSource, dynamicWriteStrategy = DynamicWriteStrategy.EXPLICIT_ONLY)
-```
-
-| Mode                         | A registered class, unwrapped                                                                            |
-|------------------------------|----------------------------------------------------------------------------------------------------------|
-| `AUTOMATIC_WHEN_UNAMBIGUOUS` | Written as a `dynamic_dto`, unless the class is a registered composite too — then the composite takes it |
-| `PREFER_DYNAMIC_DTO`         | Written as a `dynamic_dto` either way                                                                    |
-| `EXPLICIT_ONLY`              | Refused by name, pointing at the wrapper                                                                 |
-
-`AUTOMATIC_WHEN_UNAMBIGUOUS` is the default, and under it a class registered one way only needs no wrapping anywhere.
-
-**`toDynamicDto(value)` overrides all three**, and settles the one case they disagree about:
-
-```kotlin
-db.insertInto("veterans").values(listOf("name", "benefit"))
-    .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(honour))
-```
-
-It is also the only way to make a `DynamicDto`, and it checks the name against the registry. The server knows nothing
-of the registry and would store any name, leaving it to fail on whichever read reached it.
-
-### What the modes do not reach
-
-A mode decides only for a parameter whose type nothing declares. An attribute of a composite, an element of an array
-and a value wrapped in `withPgType` carry the type they are going into, and **that type decides**, under every mode:
+An instance of a registered class is written as a `dynamic_dto` **as it is**, with nothing wrapped around it. Where
+the value goes into something that declares its type — an attribute of a composite, an element of an array, a value
+wrapped in `withPgType` — **that type decides**:
 
 ```kotlin
 data class Decoration(val award: Honour, val citation: Triumph)   // public.decoration
@@ -207,15 +181,28 @@ data class Decoration(val award: Honour, val citation: Triumph)   // public.deco
 // citation is declared public.dynamic_dto  → written as a dynamic_dto
 ```
 
-Naming the type is therefore the counterpart of `toDynamicDto`, and how a class registered both ways reaches its
-composite under `PREFER_DYNAMIC_DTO`:
+A value that does not belong in the declared destination is a `MappingException(NO_CONVERTER_FOUND)` naming both.
+
+A `DynamicDto` read earlier goes back as it is, its name not checked against the registry. Nothing but a read
+makes one.
+
+### A class registered as a composite too
+
+Such a class can go in as either, so where nothing declares which — a parameter on its own, or the first element of
+a list whose array type it would decide — it is refused with a `MappingException(CONVERSION_ERROR)` naming both
+registrations. That holds whichever column the value is going into: the driver states each parameter's type before
+the server has looked at the statement. `withPgType` names the one meant:
 
 ```kotlin
-db.insertInto("veterans").values(listOf("name", "honour"))
-    .executeUpdate("name" to "Marcus", "honour" to honour.withPgType("honour", "public"))
+db.insertInto("veterans").values(listOf("name", "honour", "benefit"))
+    .executeUpdate(
+        "name" to "Marcus",
+        "honour" to honour.withPgType("honour", "public"),
+        "benefit" to honour.withPgType("dynamic_dto", "public")
+    )
 ```
 
-A value that does not belong in the declared destination is a `MappingException(NO_CONVERTER_FOUND)` naming both.
+A list of it is named once, with `isArray = true`.
 
 ## What JSON Does Not Carry
 
@@ -302,8 +289,8 @@ db.rawQuery("SELECT dynamic_dto('stipend', jsonb_build_object('province_name', @
     .fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
 ```
 
-`parameterConverter(json)` is the write-side mirror, and `toDynamicDto(value, json)` takes one for a value wrapped by
-hand. Query registries sit ahead of the session's and are discarded with the query; see
+`parameterConverter(json)` is the write-side mirror, registered with `registerParameterConverter`. Query registries
+sit ahead of the session's and are discarded with the query; see
 [Per-Query Converters](queries.md#per-query-converters). A `Json` given here replaces the one the class was registered
 with (`dynamicJson` on `fromDataSource` or `fromSessionProvider`), so put `octaviusSerializersModule` on it too where
 the class has a `@Contextual` property.

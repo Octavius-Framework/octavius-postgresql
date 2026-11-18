@@ -2,7 +2,6 @@ package io.github.octaviusframework.client.dynamic
 
 import io.github.octaviusframework.client.OctaviusClient
 import io.github.octaviusframework.driver.exception.InvalidOperationException
-import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.serializer.octaviusJson
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
@@ -47,15 +46,13 @@ class DynamicTypesAcrossClientsTest : AbstractIntegrationTest() {
 
     /** Runs [block] with two clients on the same database, each on a pool of its own. */
     private fun withTwoClients(
-        first: DynamicWriteStrategy = DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS,
-        second: DynamicWriteStrategy = DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS,
         firstJson: Json = octaviusJson,
         block: (OctaviusClient, OctaviusClient) -> Unit
     ) {
         TestDatabase.dataSource().use { dsA ->
             TestDatabase.dataSource().use { dsB ->
-                OctaviusClient.fromDataSource(dsA, dynamicJson = firstJson, dynamicWriteStrategy = first).use { a ->
-                    OctaviusClient.fromDataSource(dsB, dynamicWriteStrategy = second).use { b -> block(a, b) }
+                OctaviusClient.fromDataSource(dsA, dynamicJson = firstJson).use { a ->
+                    OctaviusClient.fromDataSource(dsB).use { b -> block(a, b) }
                 }
             }
         }
@@ -145,36 +142,7 @@ class DynamicTypesAcrossClientsTest : AbstractIntegrationTest() {
         }
     }
 
-    @Test
-    fun `a class registered again on another write strategy is refused`() {
-        withTwoClients(second = DynamicWriteStrategy.PREFER_DYNAMIC_DTO) { a, b ->
-            a.dynamicTypes.register<Grant>("grant")
-
-            val thrown = assertFailsWith<InvalidOperationException> { b.dynamicTypes.register<Grant>("grant") }
-            assertTrue(
-                thrown.details!!.contains("AUTOMATIC_WHEN_UNAMBIGUOUS") && thrown.details!!.contains("PREFER_DYNAMIC_DTO"),
-                thrown.details
-            )
-        }
-    }
-
     // --- The terms travel with the class ----------------------------------------------------------
-
-    @Test
-    fun `a class is written on the strategy it was registered on, whichever client writes it`() {
-        withTwoClients(first = DynamicWriteStrategy.EXPLICIT_ONLY) { a, b ->
-            a.dynamicTypes.register<Grant>("grant")
-            b.dynamicTypes.register<Citation>("citation")
-
-            val thrown = assertFailsWith<MappingException> {
-                b.rawQuery("SELECT @x").fetchFieldStrict<Any>("x" to Grant("Asia", 7))
-            }
-            assertTrue(thrown.details.contains("toDynamicDto"), thrown.details)
-
-            // And the other way round: b's class unwrapped through a, which writes its own on EXPLICIT_ONLY.
-            assertEquals(Citation("ob civem servatum"), a.rawQuery("SELECT @x").fetchFieldStrict<Any>("x" to Citation("ob civem servatum")))
-        }
-    }
 
     @Test
     @OptIn(ExperimentalSerializationApi::class)
