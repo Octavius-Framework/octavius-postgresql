@@ -1,19 +1,19 @@
 package io.github.octaviusframework.client.dynamic
 
 import io.github.octaviusframework.annotation.PgEnumType
+import io.github.octaviusframework.annotation.PgName
 import io.github.octaviusframework.client.AbstractClientIntegrationTest
 import io.github.octaviusframework.client.OctaviusClient
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.serializer.octaviusJson
 import io.github.octaviusframework.type.BigDecimal
 import io.github.octaviusframework.type.datetime.DISTANT_FUTURE
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNamingStrategy
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.BeforeAll
@@ -30,9 +30,6 @@ import kotlin.test.assertTrue
  */
 class DynamicDtoTest : AbstractClientIntegrationTest() {
 
-    @OptIn(ExperimentalSerializationApi::class)
-    private val snakeCase = Json { namingStrategy = JsonNamingStrategy.SnakeCase }
-
     sealed interface Benefit
 
     @Serializable
@@ -44,9 +41,17 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     @Serializable
     data class Citation(val text: String)
 
-    /** camelCase properties, so a payload SQL built the way SQL names things does not fit the default Json. */
+    /** Two-word properties, keyed differently by the default Json and by one keyed by the Kotlin names. */
     @Serializable
     data class Stipend(val provinceName: String, val annualAmount: Int)
+
+    /** A digit followed by a lowercase letter, where the driver's and kotlinx's `snake_case` disagree. */
+    @Serializable
+    data class Garrison(val legio3gallica: Int)
+
+    /** One key named by hand and one converted, as the driver names a composite's attributes. */
+    @Serializable
+    data class Proconsul(@PgName("gov") val governorName: String, val provinceName: String)
 
     /** Labels are `SNAKE_CASE_UPPER` in the database and `PascalCase` here, which is what the defaults assume. */
     @PgEnumType(name = "magistrature")
@@ -96,6 +101,8 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         db.dynamicTypes.register<MilitaryPension>("military_pension")
         db.dynamicTypes.register<Citation>("citation")
         db.dynamicTypes.register<Stipend>("stipend")
+        db.dynamicTypes.register<Garrison>("garrison")
+        db.dynamicTypes.register<Proconsul>("proconsul")
         db.dynamicTypes.register<TributeAssessment>("tribute_assessment")
         db.dynamicTypes.register<Appointment>("appointment")
         db.dynamicTypes.register<Deployment>("deployment")
@@ -374,14 +381,69 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         assertTrue(thrown.details.contains("Duplicate key"), thrown.details)
     }
 
+    //---------------------------------------------------PAYLOAD KEYS---------------------------------------------------
+
+    @Test
+    fun `a payload is keyed by the property names in snake_case`() {
+        db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
+            .executeUpdate("name" to "Lucius", "benefit" to Stipend("Cyrenaica", 220))
+
+        assertEquals(
+            "Cyrenaica",
+            db.select("(benefit).data_payload ->> 'province_name'").from("dyn_veterans").fetchFieldStrict<String>()
+        )
+    }
+
+    @Test
+    fun `a row made a payload by to_dynamic_dto reads back with nothing configured`() {
+        val stipend = db.rawQuery(
+            "SELECT to_dynamic_dto('stipend', s) FROM (SELECT @p AS province_name, @a AS annual_amount) s"
+        ).fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
+
+        assertEquals(Stipend("Aegyptus", 500), stipend)
+    }
+
+    @Test
+    fun `a key splits where the driver splits a column name`() {
+        // A digit followed by a lowercase letter starts a word for the driver and not for kotlinx's own SnakeCase.
+        db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
+            .executeUpdate("name" to "Lucius", "benefit" to Garrison(5000))
+
+        assertEquals(
+            5000,
+            db.select("((benefit).data_payload ->> 'legio3_gallica')::int").from("dyn_veterans").fetchFieldStrict<Int>()
+        )
+    }
+
+    @Test
+    fun `PgName names a key as it names a column`() {
+        val proconsul = Proconsul("Quintus Cicero", "Asia")
+        db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
+            .executeUpdate("name" to "Lucius", "benefit" to proconsul)
+
+        assertEquals(
+            "Quintus Cicero",
+            db.select("(benefit).data_payload ->> 'gov'").from("dyn_veterans").fetchFieldStrict<String>()
+        )
+        assertEquals(
+            "Asia",
+            db.select("(benefit).data_payload ->> 'province_name'").from("dyn_veterans").fetchFieldStrict<String>()
+        )
+        assertEquals(
+            proconsul,
+            db.rawQuery("SELECT to_dynamic_dto('proconsul', p) FROM (SELECT @g AS gov, @p AS province_name) p")
+                .fetchFieldStrict<Proconsul>("g" to "Quintus Cicero", "p" to "Asia")
+        )
+    }
+
     // --- A different Json, for one query --------------------------------------------------------------
 
     @Test
-    fun `a payload named the way SQL names things reads under a Json given to that query alone`() {
+    fun `a payload keyed by the Kotlin property names reads under a Json given to that query alone`() {
         val out = db.rawQuery(
-            "SELECT dynamic_dto('stipend', jsonb_build_object('province_name', @p, 'annual_amount', @a))"
+            "SELECT dynamic_dto('stipend', jsonb_build_object('provinceName', @p, 'annualAmount', @a))"
         )
-            .registerResultConverter(db.dynamicTypes.resultConverter(snakeCase))
+            .registerResultConverter(db.dynamicTypes.resultConverter(octaviusJson))
             .fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
 
         assertEquals(Stipend("Aegyptus", 500), out)
@@ -393,22 +455,20 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         // shorter, has to fail - the default Json being strict about a key the class does not declare.
         assertFailsWith<MappingException> {
             db.rawQuery(
-                "SELECT dynamic_dto('stipend', jsonb_build_object('province_name', @p, 'annual_amount', @a))"
+                "SELECT dynamic_dto('stipend', jsonb_build_object('provinceName', @p, 'annualAmount', @a))"
             ).fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
         }
     }
 
     @Test
     fun `the write side takes a Json through a converter given to the query`() {
-        val stipend = Stipend("Cyrenaica", 220)
-
         db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
-            .registerParameterConverter(db.dynamicTypes.parameterConverter(snakeCase))
-            .executeUpdate("name" to "Lucius", "benefit" to stipend)
+            .registerParameterConverter(db.dynamicTypes.parameterConverter(octaviusJson))
+            .executeUpdate("name" to "Lucius", "benefit" to Stipend("Cyrenaica", 220))
 
         assertEquals(
             "Cyrenaica",
-            db.select("(benefit).data_payload ->> 'province_name'").from("dyn_veterans").fetchFieldStrict<String>()
+            db.select("(benefit).data_payload ->> 'provinceName'").from("dyn_veterans").fetchFieldStrict<String>()
         )
     }
 

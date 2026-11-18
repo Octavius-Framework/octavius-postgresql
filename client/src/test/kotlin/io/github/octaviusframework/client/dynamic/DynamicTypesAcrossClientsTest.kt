@@ -4,12 +4,11 @@ import io.github.octaviusframework.client.OctaviusClient
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.serializer.octaviusJson
+import io.github.octaviusframework.serializer.octaviusSnakeCaseJson
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.octaviusframework.testsupport.TestDatabase
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNamingStrategy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -46,7 +45,7 @@ class DynamicTypesAcrossClientsTest : AbstractIntegrationTest() {
 
     /** Runs [block] with two clients on the same database, each on a pool of its own. */
     private fun withTwoClients(
-        firstJson: Json = octaviusJson,
+        firstJson: Json = octaviusSnakeCaseJson,
         block: (OctaviusClient, OctaviusClient) -> Unit
     ) {
         TestDatabase.dataSource().use { dsA ->
@@ -145,17 +144,16 @@ class DynamicTypesAcrossClientsTest : AbstractIntegrationTest() {
     // --- The terms travel with the class ----------------------------------------------------------
 
     @Test
-    @OptIn(ExperimentalSerializationApi::class)
     fun `a payload is read with the Json its class was registered with, whichever client reads it`() {
-        val snakeCase = Json(octaviusJson) { namingStrategy = JsonNamingStrategy.SnakeCase }
-        withTwoClients(firstJson = snakeCase) { a, b ->
+        // b's own Json keys in snake_case, so only a's can read this payload.
+        withTwoClients(firstJson = octaviusJson) { a, b ->
             a.dynamicTypes.register<Stipend>("stipend")
             b.dynamicTypes.register<Citation>("citation")
 
+            val payload = "jsonb_build_object('provinceName', 'Aegyptus', 'annualAmount', 500)"
             assertEquals(
                 Stipend("Aegyptus", 500),
-                b.rawQuery("SELECT dynamic_dto('stipend', jsonb_build_object('province_name', 'Aegyptus', 'annual_amount', 500))")
-                    .fetchFieldStrict<Any>()
+                b.rawQuery("SELECT dynamic_dto('stipend', $payload)").fetchFieldStrict<Any>()
             )
         }
     }

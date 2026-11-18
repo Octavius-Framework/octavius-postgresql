@@ -87,6 +87,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [Where It Goes](dynamic-dto.md#where-it-goes) — Arrays, a class chosen by the query, plain columns
 - [Creating the Type](dynamic-dto.md#creating-the-type) — `DYNAMIC_DTO_DDL`, a migration, or `install()`
 - [Registering a Class](dynamic-dto.md#registering-a-class) — And why the name is stated rather than derived
+- [Payload Keys](dynamic-dto.md#payload-keys) — `snake_case` and `@PgName`, as the driver names columns
 - [Reading](dynamic-dto.md#reading) — As the class, as a supertype, as the raw form, as a map
 - [Writing](dynamic-dto.md#writing) — Unwrapped, and naming the type for a class registered as a composite too
 - [A Different `Json` for One Query](dynamic-dto.md#a-different-json-for-one-query) — Payloads named the way SQL names things

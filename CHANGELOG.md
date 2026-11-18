@@ -78,6 +78,26 @@
   `registerParameterConverter(db.dynamicTypes.parameterConverter(json))`, as one value did through
   `toDynamicDto(value, json)`. Only a read makes a `DynamicDto` now, and one written back goes as it is.
 
+- **[BREAKING]** A `dynamic_dto` payload is keyed the way the driver names a composite's attributes: each property
+  under its name in `snake_case`, or under its `@PgName`. The default `dynamicJson` on `fromDataSource` and
+  `fromSessionProvider` is `octaviusSnakeCaseJson`, where it was `octaviusJson`, which keys by the Kotlin names. A
+  stored payload with a property of more than one word no longer reads under the default; `dynamicJson =
+  octaviusJson` keeps the Kotlin names. A payload built in SQL from column names, with `jsonb_build_object` or
+  `to_dynamic_dto(name, row)`, reads with nothing configured, where any column of more than one word needed a `Json`
+  with a naming strategy. A `@SerialName` is converted like a property's own name.
+
+### pg-model
+
+#### Added
+
+- `octaviusSnakeCaseJson`: `octaviusJson` with each key named as the driver names a column, `@PgName` or the
+  property's name in `snake_case` split as `CaseConverter` splits it. kotlinx's own `JsonNamingStrategy.SnakeCase`
+  splits differently after a digit, writing `legio3gallica` where the driver's column is `legio3_gallica`.
+
+#### Changed
+
+- `@PgName` is a `@SerialInfo` annotation, so a naming strategy can read it from the serial descriptor.
+
 ## Version 2.11.0 (v2.11.0) (2026-11-13)
 
 ### Driver

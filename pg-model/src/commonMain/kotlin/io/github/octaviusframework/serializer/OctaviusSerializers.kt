@@ -1,9 +1,14 @@
 package io.github.octaviusframework.serializer
 
+import io.github.octaviusframework.annotation.PgName
+import io.github.octaviusframework.identifier.CaseConvention
+import io.github.octaviusframework.identifier.CaseConverter
 import io.github.octaviusframework.type.BigDecimal
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNamingStrategy
 import kotlinx.serialization.modules.SerializersModule
 import kotlin.time.Instant
 
@@ -55,12 +60,25 @@ val octaviusSerializersModule: SerializersModule = SerializersModule {
  * A [Json] carrying [octaviusSerializersModule] and otherwise left alone.
  *
  * Strict, as `Json` is: a payload carrying a field the class does not declare is an error rather than
- * something dropped. That is the client's default for `dynamic_dto` too, and this is the same instance to
- * reach for on the other side of the wire - a JS frontend decoding a class the backend wrote.
+ * something dropped. This is the instance to reach for on the other side of the wire - a JS frontend decoding a
+ * class the backend wrote; a `dynamic_dto` payload goes through [octaviusSnakeCaseJson].
  *
  * Anything further - `ignoreUnknownKeys`, a naming strategy, a module of your own - is a `Json { }` of your
  * own with [octaviusSerializersModule] in it.
  */
 val octaviusJson: Json = Json {
     serializersModule = octaviusSerializersModule
+}
+
+/**
+ * [octaviusJson] with each key named as the driver names a column: [PgName] where the property has one, and
+ * otherwise its name in `snake_case`, so `annualAmount` is `annual_amount`. The client's default for `dynamic_dto`
+ * payloads. A `@SerialName` is converted like a property's own name, since the strategy cannot tell the two apart.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+val octaviusSnakeCaseJson: Json = Json(octaviusJson) {
+    namingStrategy = JsonNamingStrategy { descriptor, index, serialName ->
+        descriptor.getElementAnnotations(index).firstNotNullOfOrNull { (it as? PgName)?.name }
+            ?: CaseConverter.convert(serialName, CaseConvention.CAMEL_CASE, CaseConvention.SNAKE_CASE_LOWER)
+    }
 }

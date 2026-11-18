@@ -86,8 +86,8 @@ val veterans = db.rawQuery(
 ).fetchObjects<Veteran>()
 ```
 
-The keys `jsonb_build_object` is given are the class's property names; a payload named the way SQL names things
-reads under [a `Json` of its own](#a-different-json-for-one-query).
+The keys `jsonb_build_object` is given are the property names in `snake_case`, as the driver names columns; see
+[Payload Keys](#payload-keys).
 
 ### Plain columns, the type only in transit
 
@@ -154,6 +154,33 @@ Registration is **global to the database**, so it belongs at startup. Every clie
 names, and a class is read and written with the `Json` of the client that registered it, whichever client a query
 runs through. Two names for one class and one name for two classes are refused; the same class under the same name
 again changes nothing, its `Json` included.
+
+## Payload Keys
+
+A payload is keyed the way the driver names a composite's attributes: each property under its name in `snake_case`,
+or under its `@PgName`.
+
+```kotlin
+@Serializable
+data class Stipend(@PgName("prov") val provinceName: String, val annualAmount: Int)
+// {"prov": "Aegyptus", "annual_amount": 500}
+```
+
+A payload built in SQL therefore uses the names the schema already has, whether written out with
+`jsonb_build_object` or made from a whole row by `to_dynamic_dto`:
+
+```kotlin
+val stipends = db.rawQuery("SELECT to_dynamic_dto('stipend', s) FROM stipends s").fetchFields<Stipend>()
+```
+
+A `bytea`, an `interval` and a range are the exceptions. `to_jsonb` writes them in PostgreSQL's text form —
+`"\\xdead"`, `"1 day 02:00:00"`, `"[1,5)"` — and nothing in `octaviusSerializersModule` turns that text into a
+`ByteArray`, a `PgInterval` or a `Range`. Such a column stays out of the payload, or the object is built as a
+[`ROW(...)`](../driver/composites-reflection.md#pgrecord--anonymous-row), whose fields keep their types.
+
+A `@SerialName` is converted like the property's own name, so `@PgName` is the way to give a key as it is. These are
+the keys of `octaviusSnakeCaseJson`, the client's default; a payload keyed by the Kotlin names, as a stock `Json`
+writes it, reads under `octaviusJson`, given to the client or [to one query](#a-different-json-for-one-query).
 
 ## Reading
 
@@ -277,23 +304,26 @@ agree.
 
 ## A Different `Json` for One Query
 
-The client's `Json` is `octaviusJson`: strict, so a payload carrying a field the class does not declare is an error
-rather than something dropped. A payload built with `jsonb_build_object` is named the way SQL names things, so for
-that one query, hand over a different one:
+The client's `Json` is `octaviusSnakeCaseJson`: strict, so a payload carrying a field the class does not declare is an
+error rather than something dropped. A query reading payloads that were written some other way hands over a `Json` of
+its own. A frontend posting its documents through `octaviusJson` keys them by the Kotlin names, and a `jsonb` column
+that keeps them as they came holds those keys:
 
 ```kotlin
-val snakeCase = Json { namingStrategy = JsonNamingStrategy.SnakeCase }
-
-db.rawQuery("SELECT dynamic_dto('stipend', jsonb_build_object('province_name', @p, 'annual_amount', @a))")
-    .registerResultConverter(db.dynamicTypes.resultConverter(snakeCase))
-    .fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
+// stipend_requests.body: each request as the frontend posted it
+val requests = db.rawQuery("SELECT dynamic_dto('stipend', body) FROM stipend_requests")
+    .registerResultConverter(db.dynamicTypes.resultConverter(octaviusJson))
+    .fetchFields<Stipend>()
 ```
+
+Payloads that still carry a property the class has since lost read the same way, under
+`Json(octaviusSnakeCaseJson) { ignoreUnknownKeys = true }`.
 
 `parameterConverter(json)` is the write-side mirror, registered with `registerParameterConverter`. Query registries
 sit ahead of the session's and are discarded with the query; see
 [Per-Query Converters](queries.md#per-query-converters). A `Json` given here replaces the one the class was registered
-with (`dynamicJson` on `fromDataSource` or `fromSessionProvider`), so put `octaviusSerializersModule` on it too where
-the class has a `@Contextual` property.
+with (`dynamicJson` on `fromDataSource` or `fromSessionProvider`), so build it on `octaviusJson` or
+`octaviusSnakeCaseJson`, which carry `octaviusSerializersModule`, where the class has a `@Contextual` property.
 
 ## Next
 

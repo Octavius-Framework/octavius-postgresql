@@ -28,7 +28,7 @@ import io.github.octaviusframework.client.transaction.validatePlan
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.driver.session.TransactionIsolationLevel
-import io.github.octaviusframework.serializer.octaviusJson
+import io.github.octaviusframework.serializer.octaviusSnakeCaseJson
 import kotlinx.serialization.json.Json
 import javax.sql.DataSource
 import kotlin.time.Duration
@@ -217,7 +217,7 @@ interface OctaviusClient : AutoCloseable {
         fun fromDataSource(
             dataSource: DataSource,
             ownsDataSource: Boolean = false,
-            dynamicJson: Json = octaviusJson
+            dynamicJson: Json = octaviusSnakeCaseJson
         ): OctaviusClient {
             val provider = DefaultSessionProvider(dataSource)
             return OctaviusClientImpl(
@@ -240,7 +240,7 @@ interface OctaviusClient : AutoCloseable {
         fun fromSessionProvider(
             provider: SessionProvider,
             ownsProvider: Boolean = true,
-            dynamicJson: Json = octaviusJson
+            dynamicJson: Json = octaviusSnakeCaseJson
         ): OctaviusClient = OctaviusClientImpl(
             provider,
             onClose = if (ownsProvider) ({ provider.close() }) else null,

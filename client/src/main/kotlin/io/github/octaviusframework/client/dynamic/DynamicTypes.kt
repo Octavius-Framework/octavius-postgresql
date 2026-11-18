@@ -15,7 +15,7 @@ import io.github.octaviusframework.driver.registry.TypeCatalog
 import io.github.octaviusframework.driver.registry.TypeLookup
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.type.isKnownOid
-import io.github.octaviusframework.serializer.octaviusJson
+import io.github.octaviusframework.serializer.octaviusSnakeCaseJson
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
@@ -115,14 +115,14 @@ internal fun declaredTypeNameOf(kClass: KClass<*>): String =
  * whichever client runs the query.
  *
  * @property json How payloads of classes registered here are read and written. The default,
- * [octaviusJson][io.github.octaviusframework.serializer.octaviusJson], is strict and carries the serializers a
- * `@Contextual BigDecimal` or date needs. A payload built in SQL with `jsonb_build_object` has to use the Kotlin
- * property names, or be read with a [Json] using `JsonNamingStrategy.SnakeCase` - and carrying
- * [octaviusSerializersModule][io.github.octaviusframework.serializer.octaviusSerializersModule] too.
+ * [octaviusSnakeCaseJson][io.github.octaviusframework.serializer.octaviusSnakeCaseJson], is strict, keys each
+ * property by its name in `snake_case` as the driver does a column, and carries the serializers a
+ * `@Contextual BigDecimal` or date needs. A payload keyed by the Kotlin property names is read with
+ * [octaviusJson][io.github.octaviusframework.serializer.octaviusJson].
  */
 class DynamicTypes internal constructor(
     private val client: OctaviusClient,
-    val json: Json = octaviusJson
+    val json: Json = octaviusSnakeCaseJson
 ) {
 
     /** [json] with the driver's enum serializers folded in, which is what everything here actually encodes with. */

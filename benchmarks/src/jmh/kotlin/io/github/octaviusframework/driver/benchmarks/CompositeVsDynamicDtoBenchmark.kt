@@ -12,7 +12,7 @@ import io.github.octaviusframework.driver.converter.result.mapper.ResultConverte
 import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.type.isKnownOid
-import io.github.octaviusframework.serializer.octaviusJson
+import io.github.octaviusframework.serializer.octaviusSnakeCaseJson
 import kotlinx.serialization.Serializable
 import org.openjdk.jmh.annotations.*
 import java.util.concurrent.TimeUnit
@@ -77,14 +77,14 @@ data class FlatRecord(val id: Int, val name: String, val strength: Int, val agil
  *
  * Not something the library offers - they exist so the ladder has a rung between a composite and a
  * `dynamic_dto`, and they are deliberately the thinnest pair that can carry a JSON document: the same
- * `octaviusJson` a `dynamic_dto` payload goes through, and nothing else. What separates this rung from the
+ * `octaviusSnakeCaseJson` a `dynamic_dto` payload goes through, and nothing else. What separates this rung from the
  * dynamic one is therefore the envelope alone.
  */
 
 internal class CharacterJsonParameterConverter : ParameterConverter<CharacterJson> {
     override val supportedClass = CharacterJson::class
     override fun convert(source: CharacterJson, expectedOid: Int, context: SerializationContext): Any =
-        octaviusJson.encodeToString(CharacterJson.serializer(), source)
+        octaviusSnakeCaseJson.encodeToString(CharacterJson.serializer(), source)
 
     override fun getDefaultTypeName(sourceClass: KClass<*>, context: SerializationContext) =
         QualifiedName("pg_catalog", "jsonb")
@@ -93,7 +93,7 @@ internal class CharacterJsonParameterConverter : ParameterConverter<CharacterJso
 internal class FlatJsonParameterConverter : ParameterConverter<FlatJson> {
     override val supportedClass = FlatJson::class
     override fun convert(source: FlatJson, expectedOid: Int, context: SerializationContext): Any =
-        octaviusJson.encodeToString(FlatJson.serializer(), source)
+        octaviusSnakeCaseJson.encodeToString(FlatJson.serializer(), source)
 
     override fun getDefaultTypeName(sourceClass: KClass<*>, context: SerializationContext) =
         QualifiedName("pg_catalog", "jsonb")
@@ -107,7 +107,7 @@ internal object CharacterJsonResultConverter : ResultConverter<String, Character
 
     override fun convert(
         source: String, expectedType: KType, sourceType: PgType, context: DeserializationContext
-    ): CharacterJson = octaviusJson.decodeFromString(CharacterJson.serializer(), source)
+    ): CharacterJson = octaviusSnakeCaseJson.decodeFromString(CharacterJson.serializer(), source)
 }
 
 internal object FlatJsonResultConverter : ResultConverter<String, FlatJson> {
@@ -118,7 +118,7 @@ internal object FlatJsonResultConverter : ResultConverter<String, FlatJson> {
 
     override fun convert(
         source: String, expectedType: KType, sourceType: PgType, context: DeserializationContext
-    ): FlatJson = octaviusJson.decodeFromString(FlatJson.serializer(), source)
+    ): FlatJson = octaviusSnakeCaseJson.decodeFromString(FlatJson.serializer(), source)
 }
 
 /*
