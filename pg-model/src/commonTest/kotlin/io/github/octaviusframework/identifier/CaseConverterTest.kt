@@ -35,9 +35,11 @@ class CaseConverterTest {
     }
 
     @Test
-    fun `a digit-to-letter boundary starts a word`() {
+    fun `a digit stays in the word it follows`() {
         assertEquals("user1_id", CaseConverter.convert("user1Id", CAMEL_CASE, SNAKE_CASE_LOWER))
         assertEquals("v1_api", CaseConverter.convert("V1Api", PASCAL_CASE, SNAKE_CASE_LOWER))
+        assertEquals("b2b_customer", CaseConverter.convert("b2bCustomer", CAMEL_CASE, SNAKE_CASE_LOWER))
+        assertEquals("b2bCustomer", CaseConverter.convert("b2b_customer", SNAKE_CASE_LOWER, CAMEL_CASE))
     }
 
     @Test

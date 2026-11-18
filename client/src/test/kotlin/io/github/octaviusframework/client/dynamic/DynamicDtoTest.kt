@@ -45,10 +45,6 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
     @Serializable
     data class Stipend(val provinceName: String, val annualAmount: Int)
 
-    /** A digit followed by a lowercase letter, where the driver's and kotlinx's `snake_case` disagree. */
-    @Serializable
-    data class Garrison(val legio3gallica: Int)
-
     /** One key named by hand and one converted, as the driver names a composite's attributes. */
     @Serializable
     data class Proconsul(@PgName("gov") val governorName: String, val provinceName: String)
@@ -101,7 +97,6 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         db.dynamicTypes.register<MilitaryPension>("military_pension")
         db.dynamicTypes.register<Citation>("citation")
         db.dynamicTypes.register<Stipend>("stipend")
-        db.dynamicTypes.register<Garrison>("garrison")
         db.dynamicTypes.register<Proconsul>("proconsul")
         db.dynamicTypes.register<TributeAssessment>("tribute_assessment")
         db.dynamicTypes.register<Appointment>("appointment")
@@ -401,18 +396,6 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         ).fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
 
         assertEquals(Stipend("Aegyptus", 500), stipend)
-    }
-
-    @Test
-    fun `a key splits where the driver splits a column name`() {
-        // A digit followed by a lowercase letter starts a word for the driver and not for kotlinx's own SnakeCase.
-        db.insertInto("dyn_veterans").values(listOf("name", "benefit"))
-            .executeUpdate("name" to "Lucius", "benefit" to Garrison(5000))
-
-        assertEquals(
-            5000,
-            db.select("((benefit).data_payload ->> 'legio3_gallica')::int").from("dyn_veterans").fetchFieldStrict<Int>()
-        )
     }
 
     @Test

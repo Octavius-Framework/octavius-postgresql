@@ -26,6 +26,13 @@
   defaulted to `true`, which the server drops from an infinite side, as it drops an inclusive infinite side asked for
   explicitly.
 
+- **[BREAKING]** A digit stays in the word it follows when a name is converted to `snake_case`, so a property
+  `b2bCustomer` maps to the column, attribute or map key `b2b_customer`, and the same holds for an enum label and
+  for a type name taken from a class name. `CaseConverter` started a word at every lowercase letter after a digit,
+  giving `b2_b_customer`, which converted back as `b2BCustomer`. A digit followed by an uppercase letter still ends
+  its word, so `user1Id` is `user1_id` as before. Only a name with a lowercase letter right after a digit maps
+  differently, and one mapped to the old form needs `@PgName` or a renamed column.
+
 #### Fixed
 
 - A row or a composite asked for as a `Map` whose key type is not `String` or `Any`, such as `Map<Int, Any?>`, fails
@@ -91,8 +98,7 @@
 #### Added
 
 - `octaviusSnakeCaseJson`: `octaviusJson` with each key named as the driver names a column, `@PgName` or the
-  property's name in `snake_case` split as `CaseConverter` splits it. kotlinx's own `JsonNamingStrategy.SnakeCase`
-  splits differently after a digit, writing `legio3gallica` where the driver's column is `legio3_gallica`.
+  property's name in `snake_case` split as `CaseConverter` splits it.
 
 #### Changed
 
