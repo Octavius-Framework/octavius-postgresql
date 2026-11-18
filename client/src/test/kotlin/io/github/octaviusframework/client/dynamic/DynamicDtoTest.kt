@@ -10,7 +10,9 @@ import io.github.octaviusframework.driver.type.withPgType
 import io.github.octaviusframework.serializer.octaviusJson
 import io.github.octaviusframework.type.BigDecimal
 import io.github.octaviusframework.type.datetime.DISTANT_FUTURE
+import io.github.octaviusframework.type.datetime.MAX
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalTime
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -75,6 +77,10 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         @Contextual val until: LocalDate
     ) : Benefit
 
+    /** A `time` that can be `24:00:00`, which a stock `Json` cannot read. */
+    @Serializable
+    data class Vigil(@Contextual val until: LocalTime) : Benefit
+
     data class Decorated(val id: Int, val name: String, val award: LandGrant)
 
     data class Awarded(val id: Int, val name: String, val awards: List<LandGrant>)
@@ -99,6 +105,7 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         db.dynamicTypes.register<Stipend>("stipend")
         db.dynamicTypes.register<Proconsul>("proconsul")
         db.dynamicTypes.register<TributeAssessment>("tribute_assessment")
+        db.dynamicTypes.register<Vigil>("vigil")
         db.dynamicTypes.register<Appointment>("appointment")
         db.dynamicTypes.register<Deployment>("deployment")
 
@@ -549,6 +556,30 @@ class DynamicDtoTest : AbstractClientIntegrationTest() {
         assertEquals(
             listOf(far, old),
             db.select("benefit").from("dyn_veterans").orderBy("id").fetchFields<TributeAssessment>()
+        )
+    }
+
+    @Test
+    fun `the end of the day is the same value in a payload as in a time column`() {
+        // The column reads 24:00:00 as LocalTime.MAX and writes it back as 24:00:00, and a payload built from that
+        // column has to read the same.
+        assertEquals(LocalTime.MAX, db.rawQuery("SELECT '24:00:00'::time").fetchFieldStrict<LocalTime>())
+        assertEquals(
+            true,
+            db.rawQuery("SELECT @t = '24:00:00'::time").fetchFieldStrict<Boolean>("t" to LocalTime.MAX)
+        )
+        assertEquals(
+            Vigil(LocalTime.MAX),
+            db.rawQuery("SELECT to_dynamic_dto('vigil', v) FROM (SELECT '24:00:00'::time AS until) v")
+                .fetchFieldStrict<Vigil>()
+        )
+
+        // Written back, it is PostgreSQL's spelling and not 23:59:59.999999999, which a cast would round to the
+        // same time but no reader of the text would recognise.
+        record("Marcus", Vigil(LocalTime.MAX))
+        assertEquals(
+            "24:00:00",
+            db.select("(benefit).data_payload ->> 'until'").from("dyn_veterans").fetchFieldStrict<String>()
         )
     }
 

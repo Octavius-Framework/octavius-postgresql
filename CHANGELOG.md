@@ -100,6 +100,12 @@
 - `octaviusSnakeCaseJson`: `octaviusJson` with each key named as the driver names a column, `@PgName` or the
   property's name in `snake_case` split as `CaseConverter` splits it.
 
+- `LocalTimeWithEndOfDaySerializer`, in `octaviusSerializersModule`: a `@Contextual LocalTime` that is
+  `LocalTime.MAX` is written as `24:00:00`, the end of the day the driver maps it to in a `time` column, and
+  `24:00:00` reads back as `LocalTime.MAX`. The default serializer wrote `23:59:59.999999999` and refused
+  `24:00:00`, so a payload built from a `time` column holding the end of the day did not decode. Every other time
+  is ISO-8601 as before, and a payload holding `23:59:59.999999999` still reads as `LocalTime.MAX`.
+
 #### Changed
 
 - `@PgName` is a `@SerialInfo` annotation, so a naming strategy can read it from the serial descriptor.

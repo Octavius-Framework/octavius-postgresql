@@ -242,6 +242,7 @@ column of their own come out differently under the default serializer:
 | `LocalDate`       | `+999999999-12-31` for `infinity`     | past what a `date` holds, so reading it back raises               |
 | `LocalDateTime`   | `+999999999-12-31T23:59:59.999999999` | the same, a `timestamp` stopping at 294276 AD                     |
 | `Instant`         | `+100000-01-01T00:00:00Z`             | a year a `timestamptz` does hold — so it comes back quietly wrong |
+| `LocalTime`       | `23:59:59.999999999` for `24:00:00`   | the `24:00:00` that `to_jsonb` writes does not read back at all   |
 | any date at all   | ISO-8601                              | outside years `0001`..`9999`, PostgreSQL will not read it back    |
 | a registered enum | the Kotlin constant's own name        | `Praetor` in the payload where the enum column holds `PRAETOR`    |
 
@@ -261,7 +262,7 @@ data class LandGrant(
 )
 ```
 
-Without `@Contextual` a property keeps the default serializer. The first four come from `octaviusSerializersModule`,
+Without `@Contextual` a property keeps the default serializer. The first five come from `octaviusSerializersModule`,
 which the client's `dynamicJson` carries; they write PostgreSQL's spelling and read either spelling back, so a payload
 built in SQL still decodes. The enum's labels are the ones it was **registered** under, read off the driver's
 registry, so `typeManager.registerEnum` and a scan by `@PgEnumType` both cover it, and the enum needs no

@@ -4,14 +4,17 @@ import io.github.octaviusframework.identifier.CaseConvention
 import io.github.octaviusframework.type.BigDecimal
 import io.github.octaviusframework.type.datetime.DISTANT_FUTURE
 import io.github.octaviusframework.type.datetime.DISTANT_PAST
+import io.github.octaviusframework.type.datetime.MAX
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.time.Instant
 
@@ -126,6 +129,38 @@ class InfinitySerializerTest {
 
     @Serializable
     data class Edict(@Contextual val issued: Instant)
+}
+
+class EndOfDaySerializerTest {
+
+    @Test
+    fun `the end of the day is written as PostgreSQL writes it and read back as the same constant`() {
+        val encoded = octaviusJson.encodeToString(Vigil.serializer(), Vigil(LocalTime.MAX))
+        assertEquals("""{"until":"24:00:00"}""", encoded)
+        assertEquals(LocalTime.MAX, octaviusJson.decodeFromString(Vigil.serializer(), encoded).until)
+    }
+
+    @Test
+    fun `an ordinary time reads in PostgreSQL's spelling and round-trips`() {
+        val halfPast = LocalTime(12, 30, 0, 500_000_000)
+        assertEquals(halfPast, octaviusJson.decodeFromString(Vigil.serializer(), """{"until":"12:30:00.5"}""").until)
+        assertEquals(
+            halfPast,
+            octaviusJson.decodeFromString(
+                Vigil.serializer(),
+                octaviusJson.encodeToString(Vigil.serializer(), Vigil(halfPast))
+            ).until
+        )
+    }
+
+    @Test
+    fun `without the module the default serializer cannot read the end of the day`() {
+        // What to_jsonb writes for a time column holding the end of the day.
+        assertFails { Json.decodeFromString(Vigil.serializer(), """{"until":"24:00:00"}""") }
+    }
+
+    @Serializable
+    data class Vigil(@Contextual val until: LocalTime)
 }
 
 class EnumWithCaseConventionSerializerTest {

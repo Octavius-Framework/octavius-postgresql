@@ -6,6 +6,7 @@ import io.github.octaviusframework.identifier.CaseConverter
 import io.github.octaviusframework.type.BigDecimal
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNamingStrategy
@@ -13,16 +14,17 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlin.time.Instant
 
 /**
- * The contextual serializers for the four types whose JSON form does not match their column form.
+ * The contextual serializers for the five types whose JSON form does not match their column form.
  *
  * Every one of them is a type the driver already maps correctly in a column of its own, and gets wrong the
  * moment the same value goes through JSON instead - a `numeric` rounded to a `Double`, an unbounded date
- * written as the year 999999999. A `dynamic_dto` payload and a `jsonb` column are both JSON, so both are
- * where that happens.
+ * written as the year 999999999, a `24:00:00` that does not read back. A `dynamic_dto` payload and a `jsonb`
+ * column are both JSON, so both are where that happens.
  *
  * - [BigDecimal] through [BigDecimalAsNumberSerializer], keeping the digits and the JSON number type.
  * - [LocalDate], [LocalDateTime] and [Instant] through the `WithInfinity` serializers, keeping PostgreSQL's
  *   `infinity` and `-infinity`.
+ * - [LocalTime] through [LocalTimeWithEndOfDaySerializer], keeping `24:00:00`.
  *
  * Contextual, so it changes nothing until a property asks for it:
  *
@@ -54,6 +56,7 @@ val octaviusSerializersModule: SerializersModule = SerializersModule {
     contextual(LocalDate::class, LocalDateWithInfinitySerializer)
     contextual(LocalDateTime::class, LocalDateTimeWithInfinitySerializer)
     contextual(Instant::class, InstantWithInfinitySerializer)
+    contextual(LocalTime::class, LocalTimeWithEndOfDaySerializer)
 }
 
 /**

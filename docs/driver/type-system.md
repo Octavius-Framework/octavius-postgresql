@@ -340,6 +340,10 @@ properties from `pg-model`, imported from `io.github.octaviusframework.type.date
 standard library's. Each is the extreme value its class can hold, so an infinity is recognised by comparing with the
 constant. `interval` has cases of its own instead; see [PgInterval](#pginterval).
 
+`time` has no infinity, but it holds `24:00:00`, the end of the day, which no `LocalTime` does. It reads as
+`LocalTime.MAX`, one nanosecond before midnight and a `pg-model` extension property like the four above, and
+`LocalTime.MAX` is written as `24:00:00`.
+
 ### Numeric (BigDecimal) Special Values
 
 `BigDecimal` has no non-finite values, so reading a `numeric` that holds `NaN`, `Infinity` or `-Infinity` throws `CodecException(DECODING)` rather than produce a number it is not.
