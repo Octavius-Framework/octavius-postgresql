@@ -1,126 +1,75 @@
-## Version 2.12.0 (v2.12.0)
+## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project
 
 #### Changed
 
-- Dependencies a consumer gets: Spring Boot 4.1.2, an `api` dependency of `driver-spring-integration`, up from
-  4.1.0; ClassGraph 4.8.200, a backport on the 4.x line `client-scanner` and `migrations` stay on; kotlin-logging
-  8.0.7 and SLF4J 2.0.20. Build, tests and benchmarks: Gradle 9.9.1 in both wrappers, JUnit 6.1.3, Logback 1.6.7,
-  Dokka 2.3.0, the JMH plugin 0.7.4, and pgjdbc 42.7.14 and Jdbi 3.55.0 as the benchmarks' reference points.
+- Dependencies move to their current releases: kotlinx.serialization 1.13.0, Spring Boot 4.1.2 in
+  `driver-spring-integration`, ClassGraph 4.8.200, kotlin-logging 8.0.7 and SLF4J 2.0.20.
 
 ### Driver
 
 #### Changed
 
 - **[BREAKING]** A parameter of a class that no converter claims and no codec encodes, such as an unregistered data
-  class or a `Map`, fails with `MappingException(NO_CONVERTER_FOUND)`, and its details name the class and the ways to
-  register it. Passed on its own, it raised `TypeException(MISSING_CODEC)`, which is meant for an OID the driver has
-  no codec for, and it named no OID. In a list, it raised `MappingException(CONVERSION_ERROR)` caused by
-  `TypeException(TYPE_NOT_FOUND)`, which suggested `withPgType`; for such a class that only moved the failure to the
-  elements. The same class as a composite attribute or under `withPgType` already failed with `NO_CONVERTER_FOUND`.
-  `MISSING_CODEC` is now only for an OID the driver has no codec for.
+  class or a `Map`, fails with `MappingException(NO_CONVERTER_FOUND)` naming the class, as it already did as a
+  composite attribute.
 
-- **[BREAKING]** A side of a range is infinite exactly where its bound is `null`. `isLowerInfinite` and
-  `isUpperInfinite` are no longer parameters of `Range`, `rangeOf`, `PgRange.create` and
-  `ContainerFactory.createRange`; on `Range` they are properties read from the bounds. `isLowerNull` and `isUpperNull`
-  are gone from all of them and from `PgRange`, since PostgreSQL has no `NULL` range bound: the server never sends the
-  two flags they stood for and drops them on receipt. A range sent with one of them set, or with a `null` bound and
-  `isLowerInfinite = false`, went out without that bound while the server still read one, and failed with
-  `NetworkException(CONNECTION_ERROR)` ("insufficient data left in message"). A bound given with
-  `isLowerInfinite = true` was not sent at all.
+- **[BREAKING]** A side of a range is infinite exactly where its bound is `null`. `Range`, `rangeOf`,
+  `PgRange.create` and `ContainerFactory.createRange` no longer take `isLowerInfinite` and `isUpperInfinite`, which
+  `Range` still has as properties, and `isLowerNull` and `isUpperNull` are gone.
 
-- `isLowerInclusive` defaults to whether there is a lower bound, in `Range`, `rangeOf`, `PgRange.create` and
-  `ContainerFactory.createRange`, so `rangeOf(upperBound = 10)` is `(,10)` and reads back equal to itself. It
-  defaulted to `true`, which the server drops from an infinite side, as it drops an inclusive infinite side asked for
-  explicitly.
+- `isLowerInclusive` defaults to whether there is a lower bound, so `rangeOf(upperBound = 10)` is `(,10)` and reads
+  back equal to itself. It defaulted to `true`, which the server drops from an infinite side.
 
-- **[BREAKING]** A digit stays in the word it follows when a name is converted to `snake_case`, so a property
-  `b2bCustomer` maps to the column, attribute or map key `b2b_customer`, and the same holds for an enum label and
-  for a type name taken from a class name. `CaseConverter` started a word at every lowercase letter after a digit,
-  giving `b2_b_customer`, which converted back as `b2BCustomer`. A digit followed by an uppercase letter still ends
-  its word, so `user1Id` is `user1_id` as before. Only a name with a lowercase letter right after a digit maps
-  differently, and one mapped to the old form needs `@PgName` or a renamed column.
+- **[BREAKING]** A digit stays in the word it follows wherever a name is converted to `snake_case`, so `b2bCustomer`
+  maps to `b2b_customer`, where it was `b2_b_customer`. Only a name with a lowercase letter right after a digit maps
+  differently; one mapped to the old form needs `@PgName` or a renamed column.
 
 #### Fixed
 
-- A row or a composite asked for as a `Map` whose key type is not `String` or `Any`, such as `Map<Int, Any?>`, fails
-  with `MappingException(CONVERSION_ERROR)`, and its details say it is keyed by its column or attribute names and
-  name the type asked for. It came back keyed by those names anyway, typed as the key asked for, so the failure was a
-  `ClassCastException` in the caller's code at the first key read. The same holds under `compositesAsMaps()`. A
-  `ROW(...)` read as a `Map` still converts its keys to the key type asked for.
+- A row or a composite read as a `Map` whose key type is not `String` or `Any` fails with
+  `MappingException(CONVERSION_ERROR)`. It came back keyed by its names anyway, so the caller got a
+  `ClassCastException` at the first key read.
 
-- `withPgType(PgStandardType)` names its type in `pg_catalog`. It left the schema empty, so the name was resolved
-  through the search path, and a type of the same name in a schema the path puts ahead of `pg_catalog` was sent
-  in place of the built-in one.
+- `withPgType(PgStandardType)` names its type in `pg_catalog`, so a type of the same name earlier on the search path
+  is no longer sent in its place.
 
-- A `Range` or `MultiRange` sent as a type that is not a range or a multirange still fails with
-  `MappingException(CONVERSION_ERROR)`, now caused by `TypeException(NOT_A_CONTAINER)` naming that type, where the
-  cause was `TYPE_NOT_FOUND`. One over a class with no PostgreSQL type keeps `TYPE_NOT_FOUND` as the cause, and its
-  details name the class and the two ways to give it a type: registering it, or `getDefaultTypeName` on its parameter
-  converter. Both causes had said the range was empty or its bounds were null, which stopped deciding the type once the
-  class rode on the `Range`, and suggested `withPgType`, which the first case had already used and which for an
-  unregistered class only moves the failure to encoding the bounds.
+- A `Range` or `MultiRange` sent as a type that is not a range or a multirange fails with
+  `MappingException(CONVERSION_ERROR)` caused by `TypeException(NOT_A_CONTAINER)`, where the cause was
+  `TYPE_NOT_FOUND`.
 
-- A parameter converter that returns a value its codec cannot take fails with `MappingException(CONVERSION_ERROR)`,
-  as the exceptions page says of a converter returning the wrong type, and its details name the converter and the
-  class it returned. The codec is the declared type's, or with none declared the one for the returned class. With no
-  type declared it raised `TypeException(MISSING_CODEC)`, and with one it raised `CodecException(ENCODING)` caused by
-  a `ClassCastException`. In a list it raised `CONVERSION_ERROR` caused by `TypeException(TYPE_NOT_FOUND)`, which
-  took the list for empty. None of them named the converter. A `PgContainer`, and a value whose type
-  `getDefaultTypeName` supplied, still go to their codec unchecked.
+- A parameter converter that returns a value its codec cannot take fails with `MappingException(CONVERSION_ERROR)`
+  naming the converter and the class it returned.
 
 ### Client
 
 #### Changed
 
-- **[BREAKING]** `DynamicWriteStrategy` is gone, and with it `dynamicWriteStrategy` on `fromDataSource` and
-  `fromSessionProvider` and `DynamicTypes.strategy`. An instance of a registered class is written as a `dynamic_dto`
-  without wrapping, as under the default `AUTOMATIC_WHEN_UNAMBIGUOUS`. `EXPLICIT_ONLY` refused that write although
-  the class could go in as nothing else. A class registered through a second client is no longer refused for being
-  on another mode.
+- **[BREAKING]** `DynamicWriteStrategy` is gone, with `dynamicWriteStrategy` on `fromDataSource` and
+  `fromSessionProvider` and `DynamicTypes.strategy`. A registered class is written as a `dynamic_dto` without
+  wrapping, as under the default mode; `EXPLICIT_ONLY` refused that write.
 
 - **[BREAKING]** A class registered both as a composite and as a dynamic type fails with
-  `MappingException(CONVERSION_ERROR)` where nothing declares which of the two it goes in as: a parameter on its own,
-  or the first element of a list, whose array type it decides. Its details name both registrations and the two
-  `withPgType` calls that choose. The default mode gave it to the composite whichever column it was going into, so
-  the server refused it in a `dynamic_dto` column, and where the server takes either type, as `jsonb_build_object` or
-  a function on `anyelement` does, it went in as the composite without a word. `PREFER_DYNAMIC_DTO` gave it to the
-  `dynamic_dto`. An attribute of a composite, an element of an array and a value under `withPgType` take the type
-  they are declared as, as before.
+  `MappingException(CONVERSION_ERROR)` where nothing declares which of the two it goes in as. Under the default mode
+  it went in as the composite, which a `dynamic_dto` column refused. `withPgType` chooses.
 
 - **[BREAKING]** `DynamicTypes.toDynamicDto` is gone. `withPgType("dynamic_dto", "public")` sends a value as a
-  `dynamic_dto` where the form has to be chosen, and a query's values go out with another `Json` through
-  `registerParameterConverter(db.dynamicTypes.parameterConverter(json))`, as one value did through
-  `toDynamicDto(value, json)`. Only a read makes a `DynamicDto` now, and one written back goes as it is.
+  `dynamic_dto`, and another `Json` goes in through
+  `registerParameterConverter(db.dynamicTypes.parameterConverter(json))`.
 
-- **[BREAKING]** A `dynamic_dto` payload is keyed the way the driver names a composite's attributes: each property
-  under its name in `snake_case`, or under its `@PgName`. The default `dynamicJson` on `fromDataSource` and
-  `fromSessionProvider` is `octaviusSnakeCaseJson`, where it was `octaviusJson`, which keys by the Kotlin names. A
-  stored payload with a property of more than one word no longer reads under the default; `dynamicJson =
-  octaviusJson` keeps the Kotlin names. A payload built in SQL from column names, with `jsonb_build_object` or
-  `to_dynamic_dto(name, row)`, reads with nothing configured, where any column of more than one word needed a `Json`
-  with a naming strategy. A `@SerialName` is converted like a property's own name.
+- **[BREAKING]** A `dynamic_dto` payload is keyed as the driver names columns, in `snake_case` or by `@PgName`: the
+  default `dynamicJson` is `octaviusSnakeCaseJson`, where it was `octaviusJson`.
 
 ### pg-model
 
 #### Added
 
-- `octaviusSnakeCaseJson`: `octaviusJson` with each key named as the driver names a column, `@PgName` or the
-  property's name in `snake_case` split as `CaseConverter` splits it.
+- `octaviusSnakeCaseJson`: `octaviusJson` with each key named as the driver names a column, by `@PgName` or in
+  `snake_case`. `@PgName` is a `@SerialInfo` annotation, so a naming strategy of one's own can read it too.
 
 - `LocalTimeWithEndOfDaySerializer`, in `octaviusSerializersModule`: a `@Contextual LocalTime` that is
-  `LocalTime.MAX` is written as `24:00:00`, the end of the day the driver maps it to in a `time` column, and
-  `24:00:00` reads back as `LocalTime.MAX`. The default serializer wrote `23:59:59.999999999` and refused
-  `24:00:00`, so a payload built from a `time` column holding the end of the day did not decode. Every other time
-  is ISO-8601 as before, and a payload holding `23:59:59.999999999` still reads as `LocalTime.MAX`.
-
-#### Changed
-
-- `@PgName` is a `@SerialInfo` annotation, so a naming strategy can read it from the serial descriptor.
-
-- kotlinx.serialization is 1.13.0, up from 1.11.0, and `pg-model` passes it on as an `api` dependency. 1.12.0
-  made `JsonNamingStrategy` and `@SerialInfo` stable, so `octaviusSnakeCaseJson` and `@PgName` need no opt-in.
+  `LocalTime.MAX` goes into JSON as `24:00:00`, the end of the day a `time` column holds, and `24:00:00` reads back.
 
 ## Version 2.11.0 (v2.11.0) (2026-11-13)
 
