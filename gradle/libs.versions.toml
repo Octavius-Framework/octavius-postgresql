@@ -1,16 +1,16 @@
 [versions]
 kotlin = "2.4.20"
 coroutines = "1.11.0"
-junit = "6.1.0"
-serialization = "1.11.0"
+junit = "6.1.3"
+serialization = "1.13.0"
 datetime = "0.8.0"
-kotlin-logging = "8.0.4"
-logback = "1.5.38"
-slf4j = "2.0.18"
-classgraph = "4.8.199"
-dokka = "2.2.0"
+kotlin-logging = "8.0.7"
+logback = "1.6.7"
+slf4j = "2.0.20"
+classgraph = "4.8.200"
+dokka = "2.3.0"
 vanniktech-publish = "0.37.0"
-jmh = "0.7.2"
+jmh = "0.7.4"
 [libraries]
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }

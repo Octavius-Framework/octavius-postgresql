@@ -137,9 +137,8 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Configuration Recipes](logging.md#configuration-recipes) — Logback snippets for the usual questions
 
 ### Spring Integration
-- [Setup](spring-integration.md#setup) — Dependencies and what gets wired
+- [Setup](spring-integration.md#setup) — The dependency, `application.yml`, and driver settings on the URL
 - [Auto-Configuration](spring-integration.md#auto-configuration) — With Spring Boot, and without it
-- [Configuring from `application.yml`](spring-integration.md#configuring-the-driver-from-applicationyml) — Driver properties in Spring's config
 - [Using `OctaviusTemplate`](spring-integration.md#using-octaviustemplate) — The template API and connection lifetime
 - [Registering Types at Startup](spring-integration.md#registering-types-at-startup) — Enums and composites in a Spring context
 - [Transaction Management](spring-integration.md#transaction-management) — `@Transactional`, read-only, isolation, nesting

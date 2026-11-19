@@ -41,14 +41,16 @@ nothing else — the same class the driver decodes `numeric` into, so nothing co
 the decimal's text, because JavaScript's `Number` is a 64-bit float and would round exactly what `numeric` was
 chosen to keep.
 
-**Serializers for the four types whose JSON form does not match their column form.** The driver maps all four
+**Serializers for the five types whose JSON form does not match their column form.** The driver maps all five
 correctly in a column of their own and the default serializer loses them the moment the same value travels as
-JSON instead — a `jsonb` column, or a `dynamic_dto` payload. Three separate ways of losing them:
+JSON instead — a `jsonb` column, or a `dynamic_dto` payload. Four separate ways of losing them:
 
 - `BigDecimal` written as a JSON number that rounds to a `Double`, dropping exactly the digits `numeric` was
   chosen to keep.
 - `LocalDate` / `LocalDateTime` / `Instant` holding `infinity`, written out as the year ±999999999 — a year no
   `date` holds, and not `infinity` in any case.
+- `LocalTime` holding `24:00:00`, the end of the day, which `to_jsonb` writes out as such and the default
+  serializer refuses on the way back, an hour of 24 being past what `LocalTime` holds.
 - **And the ordinary years too**, outside `0001`..`9999`, where the two spellings disagree in a way no single
   string satisfies. ISO-8601 puts a sign on a year past four digits and PostgreSQL reads that sign as the start
   of a timezone offset; ISO has a year zero and PostgreSQL has none, so BC years are off by one on top. Every

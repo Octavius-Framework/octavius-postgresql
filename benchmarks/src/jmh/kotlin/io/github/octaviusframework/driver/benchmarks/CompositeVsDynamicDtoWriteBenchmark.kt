@@ -147,10 +147,9 @@ open class CompositeVsDynamicDtoWriteBenchmark {
     /**
      * Proves each rung writes what it is named for before any of them is timed.
      *
-     * A converter that failed to claim its value, or a registration the write strategy handed to the composite
-     * path, would leave a rung measuring its neighbour and reporting a tie rather than an error. Reading each
-     * column back through its own SQL expression is what makes the encoding visible: a row written as a
-     * composite has no `data_payload` to find.
+     * A converter that failed to claim its value would leave a rung measuring its neighbour and reporting a tie
+     * rather than an error. Reading each column back through its own SQL expression is what makes the encoding
+     * visible: a row written as a composite has no `data_payload` to find.
      */
     private fun verifyEveryPath() {
         writeAuto.executeUpdate("v" to autoRows)

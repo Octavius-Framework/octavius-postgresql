@@ -1,0 +1,81 @@
+package io.github.octaviusframework.driver.exception
+
+import io.github.octaviusframework.testsupport.AbstractIntegrationTest
+import io.github.oshai.kotlinlogging.KotlinLogging
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertNotNull
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+
+class RoutineAssertionExceptionTest : AbstractIntegrationTest() {
+    companion object {
+        private val logger = KotlinLogging.logger {}
+    }
+
+    @Test
+    fun `INTO STRICT finding no row is INCORRECT_RESULT_SIZE`() {
+        openSession().use { session ->
+            val exception = assertFailsWith<RoutineAssertionException> {
+                session.createNativeQuery("""
+                    DO $$
+                    DECLARE
+                        dictator TEXT;
+                    BEGIN
+                        -- a year with no dictator named
+                        SELECT name INTO STRICT dictator FROM (VALUES ('Cincinnatus')) AS dictators(name) WHERE false;
+                    END;
+                    $$;
+                """).execute()
+            }
+            logger.error(exception) { "" }
+            assertEquals("P0002", exception.sqlState)
+            assertEquals(RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE, exception.reason)
+            assertNotNull(exception.where)
+            assertTrue(exception.where!!.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `INTO STRICT finding two rows is INCORRECT_RESULT_SIZE`() {
+        openSession().use { session ->
+            val exception = assertFailsWith<RoutineAssertionException> {
+                session.createNativeQuery("""
+                    DO $$
+                    DECLARE
+                        consul TEXT;
+                    BEGIN
+                        -- a year always has two, and STRICT wants one
+                        SELECT name INTO STRICT consul FROM (VALUES ('Caesar'), ('Bibulus')) AS consuls(name);
+                    END;
+                    $$;
+                """).execute()
+            }
+            logger.error(exception) { "" }
+            assertEquals("P0003", exception.sqlState)
+            assertEquals(RoutineAssertionExceptionReason.INCORRECT_RESULT_SIZE, exception.reason)
+            assertNotNull(exception.where)
+            assertTrue(exception.where!!.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `should throw ASSERT_FAILURE`() {
+        openSession().use { session ->
+            val exception = assertFailsWith<RoutineAssertionException> {
+                session.createNativeQuery("""
+                    DO $$
+                    BEGIN
+                        ASSERT false, 'The auspices were not taken';
+                    END;
+                    $$;
+                """).execute()
+            }
+            logger.error(exception) { "" }
+            assertEquals("P0004", exception.sqlState)
+            assertEquals(RoutineAssertionExceptionReason.ASSERT_FAILURE, exception.reason)
+            assertNotNull(exception.where)
+            assertTrue(exception.where!!.isNotEmpty())
+        }
+    }
+}

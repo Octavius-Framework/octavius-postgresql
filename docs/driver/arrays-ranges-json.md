@@ -216,7 +216,8 @@ session.createNativeQuery("INSERT INTO censuses (id, period) VALUES ($1, $2)")
 ```
 
 The default bounds are PostgreSQL's own convention — lower inclusive, upper exclusive — and omitting a bound makes that
-side infinite. `Range<T>` carries the element class (that is what `rangeOf`'s `reified` parameter captures), and the
+side infinite. An infinite side is never inclusive, in any range type: the lower side is inclusive by default only where
+it has a bound, and the server drops the flag from an infinite side that asks for it. `Range<T>` carries the element class (that is what `rangeOf`'s `reified` parameter captures), and the
 driver resolves the range type from it: `Int` → `int4range`.
 
 > [!WARNING]
@@ -254,7 +255,7 @@ driver resolves the range type from it: `Int` → `int4range`.
 > So a `rangeOf(lowerBound = 5, upperBound = 15, isUpperInclusive = true)` comes back as `[5,16)` — `upperBound == 16`
 > and `isUpperInclusive == false`. Nothing was lost and the two describe the same set of integers, but comparing the
 > returned object field-by-field against the one you sent will not match. Continuous types (`numrange`, `tsrange`,
-`tstzrange`) have no canonical form and are stored as written.
+`tstzrange`) have no canonical form and are stored as written, apart from an infinite side asked to be inclusive.
 
 ### Multiranges
 

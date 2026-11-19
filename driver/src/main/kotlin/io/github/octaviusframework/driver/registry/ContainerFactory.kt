@@ -37,12 +37,8 @@ class ContainerFactory internal constructor(
         schema: String = "",
         lower: Any? = null,
         upper: Any? = null,
-        isLowerInclusive: Boolean = true,
-        isUpperInclusive: Boolean = false,
-        isLowerInfinite: Boolean = (lower == null),
-        isUpperInfinite: Boolean = (upper == null),
-        isLowerNull: Boolean = false,
-        isUpperNull: Boolean = false
+        isLowerInclusive: Boolean = lower != null,
+        isUpperInclusive: Boolean = false
     ): PgRange {
         val resolvedOid = types.resolveOid(typeName, schema)
         return createRange(
@@ -50,11 +46,7 @@ class ContainerFactory internal constructor(
             lower = lower,
             upper = upper,
             isLowerInclusive = isLowerInclusive,
-            isUpperInclusive = isUpperInclusive,
-            isLowerInfinite = isLowerInfinite,
-            isUpperInfinite = isUpperInfinite,
-            isLowerNull = isLowerNull,
-            isUpperNull = isUpperNull
+            isUpperInclusive = isUpperInclusive
         )
     }
 
@@ -63,27 +55,19 @@ class ContainerFactory internal constructor(
         oid: Int,
         lower: Any? = null,
         upper: Any? = null,
-        isLowerInclusive: Boolean = true,
-        isUpperInclusive: Boolean = false,
-        isLowerInfinite: Boolean = (lower == null),
-        isUpperInfinite: Boolean = (upper == null),
-        isLowerNull: Boolean = false,
-        isUpperNull: Boolean = false
+        isLowerInclusive: Boolean = lower != null,
+        isUpperInclusive: Boolean = false
     ): PgRange {
         val rangeType = types.dictionary.getPgType(oid) as? PgType.Range
             ?: throw TypeException(TypeExceptionReason.NOT_A_CONTAINER, oid = oid, details = "Type is not a range")
-            
+
         return PgRange.create(
             rangeOid = rangeType.oid,
             elementOid = rangeType.subtypeOid,
             lowerBound = lower,
             upperBound = upper,
             isLowerInclusive = isLowerInclusive,
-            isUpperInclusive = isUpperInclusive,
-            isLowerInfinite = isLowerInfinite,
-            isUpperInfinite = isUpperInfinite,
-            isLowerNull = isLowerNull,
-            isUpperNull = isUpperNull
+            isUpperInclusive = isUpperInclusive
         )
     }
 

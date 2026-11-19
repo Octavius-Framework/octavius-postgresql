@@ -12,7 +12,7 @@ import io.github.octaviusframework.driver.converter.result.mapper.ResultConverte
 import io.github.octaviusframework.driver.identifier.QualifiedName
 import io.github.octaviusframework.driver.type.PgType
 import io.github.octaviusframework.driver.type.isKnownOid
-import io.github.octaviusframework.serializer.octaviusJson
+import io.github.octaviusframework.serializer.octaviusSnakeCaseJson
 import kotlinx.serialization.Serializable
 import org.openjdk.jmh.annotations.*
 import java.util.concurrent.TimeUnit
@@ -20,13 +20,13 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
 /*
- * Four ways to put a structure in one column, each with a family of classes of its own.
+ * Four ways to put a structure in one column, each with a family of classes of its own, and a fifth family for
+ * an anonymous record of keys and values, which no column can hold and the query builds instead.
  *
- * The families are not duplication for its own sake. `DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS` hands a
- * class that is also a registered composite to the composite path, and `registerAutoComposite` is registered
- * per class - so one shared family would leave rungs serving each other and the benchmark would report ties it
- * had arranged itself. The same reason `CompositeInsertBenchmark` keeps `SenatorReflect` apart from
- * `SenatorExplicit`.
+ * The families are not duplication for its own sake. Registrations are per class, and a class registered both as
+ * a composite and as a dynamic type is refused as a parameter until its type is named - so one shared family
+ * would have each rung either failing or carrying a `withPgType` the others do not pay for. The same reason
+ * `CompositeInsertBenchmark` keeps `SenatorReflect` apart from `SenatorExplicit`.
  *
  * Every family exists in two shapes: nested, where `stats` is a structure of its own, and flat, where its
  * three fields sit beside `id` and `name`. The shape is a `@Param`, so each rung is measured in both.
@@ -66,19 +66,25 @@ data class CharacterJson(val id: Int, val name: String, val stats: StatsJson)
 @Serializable
 data class FlatJson(val id: Int, val name: String, val strength: Int, val agility: Int, val intelligence: Int)
 
+// -- Anonymous ROW of keys and values, read with nothing registered -----------------------------------
+
+data class StatsRecord(val strength: Int, val agility: Int, val intelligence: Int)
+data class CharacterRecord(val id: Int, val name: String, val stats: StatsRecord)
+data class FlatRecord(val id: Int, val name: String, val strength: Int, val agility: Int, val intelligence: Int)
+
 /*
  * The jsonb rungs' converters.
  *
  * Not something the library offers - they exist so the ladder has a rung between a composite and a
  * `dynamic_dto`, and they are deliberately the thinnest pair that can carry a JSON document: the same
- * `octaviusJson` a `dynamic_dto` payload goes through, and nothing else. What separates this rung from the
+ * `octaviusSnakeCaseJson` a `dynamic_dto` payload goes through, and nothing else. What separates this rung from the
  * dynamic one is therefore the envelope alone.
  */
 
 internal class CharacterJsonParameterConverter : ParameterConverter<CharacterJson> {
     override val supportedClass = CharacterJson::class
     override fun convert(source: CharacterJson, expectedOid: Int, context: SerializationContext): Any =
-        octaviusJson.encodeToString(CharacterJson.serializer(), source)
+        octaviusSnakeCaseJson.encodeToString(CharacterJson.serializer(), source)
 
     override fun getDefaultTypeName(sourceClass: KClass<*>, context: SerializationContext) =
         QualifiedName("pg_catalog", "jsonb")
@@ -87,7 +93,7 @@ internal class CharacterJsonParameterConverter : ParameterConverter<CharacterJso
 internal class FlatJsonParameterConverter : ParameterConverter<FlatJson> {
     override val supportedClass = FlatJson::class
     override fun convert(source: FlatJson, expectedOid: Int, context: SerializationContext): Any =
-        octaviusJson.encodeToString(FlatJson.serializer(), source)
+        octaviusSnakeCaseJson.encodeToString(FlatJson.serializer(), source)
 
     override fun getDefaultTypeName(sourceClass: KClass<*>, context: SerializationContext) =
         QualifiedName("pg_catalog", "jsonb")
@@ -101,7 +107,7 @@ internal object CharacterJsonResultConverter : ResultConverter<String, Character
 
     override fun convert(
         source: String, expectedType: KType, sourceType: PgType, context: DeserializationContext
-    ): CharacterJson = octaviusJson.decodeFromString(CharacterJson.serializer(), source)
+    ): CharacterJson = octaviusSnakeCaseJson.decodeFromString(CharacterJson.serializer(), source)
 }
 
 internal object FlatJsonResultConverter : ResultConverter<String, FlatJson> {
@@ -112,7 +118,7 @@ internal object FlatJsonResultConverter : ResultConverter<String, FlatJson> {
 
     override fun convert(
         source: String, expectedType: KType, sourceType: PgType, context: DeserializationContext
-    ): FlatJson = octaviusJson.decodeFromString(FlatJson.serializer(), source)
+    ): FlatJson = octaviusSnakeCaseJson.decodeFromString(FlatJson.serializer(), source)
 }
 
 /*
@@ -244,6 +250,20 @@ internal const val SHAPE_FLAT = "flat"
  *    `type_name` on the way back to decide which class to decode into. Against rung 3 that difference is the
  *    envelope and nothing else.
  *
+ * ## Built by the query
+ *
+ * A record cannot be the type of a column, so a `ROW` of keys and values has nothing stored to be read back: the
+ * query builds it from `c`'s attributes. The two rungs it is set against are built from the same attributes in
+ * the same scan, so that between the three the difference is what is built and not whether it is built.
+ *
+ * 5. `project_composite` - `ROW(...)` cast to the composite type and read like `compositeAuto`. Against
+ *    `compositeAuto` it is the price of building the value on the server.
+ * 6. `project_record` - `ROW('id', ..., 'name', ..., ...)` with no cast, read into a class nothing was registered
+ *    for, by its keys. Against `project_composite` the difference is the keys: one more `text` field per
+ *    attribute, on the wire and matched by name.
+ * 7. `project_dynamicDto` - the same projection as a `jsonb_build_object` document in a `dynamic_dto` envelope.
+ *    Against `project_record` it is a JSON document against binary fields.
+ *
  * ## The two shapes
  *
  * `nested` puts `strength`, `agility` and `intelligence` inside a `stats` structure; `flat` puts all five
@@ -258,6 +278,9 @@ internal const val SHAPE_FLAT = "flat"
  * ## What is measured
  *
  * **Reading** - 10 000 rows back, decoded into the data class.
+ *
+ * **Projecting** - the same 10 000 rows, the structure built by the query out of the stored composite's
+ * attributes, then decoded into the data class.
  *
  * **Filtering** - the server reaches into the structure and only a few rows come back. This is the direction
  * that has nothing to do with codecs: PostgreSQL reading a composite attribute against PostgreSQL parsing a
@@ -301,6 +324,10 @@ open class CompositeVsDynamicDtoBenchmark {
     private lateinit var filterAuto: RawQuery
     private lateinit var filterJsonbQuery: RawQuery
     private lateinit var filterDynamic: RawQuery
+
+    private lateinit var projectComposite: RawQuery
+    private lateinit var projectRecord: RawQuery
+    private lateinit var projectDynamic: RawQuery
 
     private val rowCount = 10000
 
@@ -382,6 +409,28 @@ open class CompositeVsDynamicDtoBenchmark {
         filterDynamic = client.rawQuery(
             "SELECT d FROM bench_cvd_read WHERE ((d).data_payload $jsonPath)::int > @min"
         )
+
+        // All three are built from the stored composite's attributes, the stats ones in a level of their own when
+        // the shape is nested.
+        val stats = listOf("strength", "agility", "intelligence")
+        val statsSource = if (nested) "((c).stats)" else "(c)"
+        val positional = stats.joinToString { "$statsSource.$it" }
+        val keyed = stats.joinToString { "'$it', $statsSource.$it" }
+
+        val composite =
+            if (nested) "ROW((c).id, (c).name, ROW($positional)::$NESTED_STATS_TYPE)::$NESTED_CHARACTER_TYPE"
+            else "ROW((c).id, (c).name, $positional)::$FLAT_TYPE"
+        val record =
+            if (nested) "ROW('id', (c).id, 'name', (c).name, 'stats', ROW($keyed))"
+            else "ROW('id', (c).id, 'name', (c).name, $keyed)"
+        val document =
+            if (nested) "jsonb_build_object('id', (c).id, 'name', (c).name, 'stats', jsonb_build_object($keyed))"
+            else "jsonb_build_object('id', (c).id, 'name', (c).name, $keyed)"
+        val dynamicTypeName = if (nested) "bench_cvd_character_dyn" else "bench_cvd_flat_dyn"
+
+        projectComposite = client.rawQuery("SELECT $composite FROM bench_cvd_read")
+        projectRecord = client.rawQuery("SELECT $record FROM bench_cvd_read")
+        projectDynamic = client.rawQuery("SELECT dynamic_dto('$dynamicTypeName', $document) FROM bench_cvd_read")
     }
 
     /**
@@ -422,9 +471,8 @@ open class CompositeVsDynamicDtoBenchmark {
     /**
      * Proves each rung is on the path it is named for before any of them is timed.
      *
-     * The failure this guards against is silent: a converter that did not claim its value, or a registration
-     * the write strategy handed elsewhere, would leave a rung measuring a neighbour and reporting a tie rather
-     * than an error.
+     * The failure this guards against is silent: a converter that did not claim its value would leave a rung
+     * measuring a neighbour and reporting a tie rather than an error.
      */
     private fun verifyEveryPath() {
         val expectedMatches = (1..rowCount).count { it % 100 > STRENGTH_THRESHOLD }
@@ -432,7 +480,10 @@ open class CompositeVsDynamicDtoBenchmark {
             "the filter has to match some rows and leave others, or it is not a filter"
         }
 
-        val sizes = listOf(readWholeAuto(), readWholeManual(), readWholeJsonb(), readWholeDynamic())
+        val sizes = listOf(
+            readWholeAuto(), readWholeManual(), readWholeJsonb(), readWholeDynamic(),
+            projectWholeComposite(), projectWholeRecord(), projectWholeDynamic()
+        )
         check(sizes.all { it == rowCount }) { "every path must read back all $rowCount rows, got $sizes" }
 
         val matches = listOf(filterWithAuto(), filterWithJsonb(), filterWithDynamic())
@@ -480,6 +531,18 @@ open class CompositeVsDynamicDtoBenchmark {
         if (nested) filterDynamic.fetchFields<CharacterDynamic>("min" to STRENGTH_THRESHOLD).size
         else filterDynamic.fetchFields<FlatDynamic>("min" to STRENGTH_THRESHOLD).size
 
+    private fun projectWholeComposite(): Int =
+        if (nested) projectComposite.fetchFields<CharacterAuto>().size
+        else projectComposite.fetchFields<FlatAuto>().size
+
+    private fun projectWholeRecord(): Int =
+        if (nested) projectRecord.fetchFields<CharacterRecord>().size
+        else projectRecord.fetchFields<FlatRecord>().size
+
+    private fun projectWholeDynamic(): Int =
+        if (nested) projectDynamic.fetchFields<CharacterDynamic>().size
+        else projectDynamic.fetchFields<FlatDynamic>().size
+
     // --- Reading whole ---------------------------------------------------------------------------------
 
     @Benchmark
@@ -504,4 +567,15 @@ open class CompositeVsDynamicDtoBenchmark {
 
     @Benchmark
     fun filter_dynamicDto(): Int = filterWithDynamic()
+
+    //----------------------------------------------------PROJECTING----------------------------------------------------
+
+    @Benchmark
+    fun project_composite(): Int = projectWholeComposite()
+
+    @Benchmark
+    fun project_record(): Int = projectWholeRecord()
+
+    @Benchmark
+    fun project_dynamicDto(): Int = projectWholeDynamic()
 }

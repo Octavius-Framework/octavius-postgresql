@@ -9,7 +9,8 @@ object CaseConverter {
      *
      * The string is split into words according to [from] and rejoined according to [to]. An acronym is
      * kept whole where the next character makes that unambiguous — `parseXMLDocument` splits as
-     * `parse` / `XML` / `Document` — and a digit-to-letter boundary starts a new word.
+     * `parse` / `XML` / `Document` — and a digit stays in the word it follows, so `b2bCustomer` splits as
+     * `b2b` / `Customer`.
      *
      * @param value The identifier to rewrite.
      * @param from The convention [value] is written in.
@@ -45,7 +46,6 @@ object CaseConverter {
                         when {
                             (prev.isLowerCase() || prev.isDigit()) && c.isUpperCase() -> true
                             prev.isUpperCase() && c.isUpperCase() && next?.isLowerCase() == true -> true
-                            prev.isDigit() && c.isLetter() -> true
                             else -> false
                         }
                     } else false

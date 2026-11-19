@@ -46,7 +46,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testCopyInAndCopyOutWithStreams() {
+    fun `COPY IN and COPY OUT work through streams`() {
         val copyManager = session.copy
 
         // 1. COPY IN
@@ -69,7 +69,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testCopyInAndCopyOutManualChunks() {
+    fun `COPY IN and COPY OUT work in chunks written by hand`() {
         val copyManager = session.copy
 
         // 1. COPY IN manually
@@ -92,7 +92,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testQueriesAreRejectedWhileCopyIsInProgress() {
+    fun `a query is refused while a COPY is in progress`() {
         val copyIn = session.copy.copyIn("COPY census FROM STDIN WITH (FORMAT CSV)")
         copyIn.writeToCopy("6,Titus\n".toByteArray(Charsets.UTF_8))
 
@@ -109,7 +109,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testSecondCopyOnTheSameSessionIsRejected() {
+    fun `a second COPY on the same session is refused`() {
         val copyIn = session.copy.copyIn("COPY census FROM STDIN WITH (FORMAT CSV)")
         try {
             val error = assertFailsWith<InvalidOperationException> {
@@ -123,7 +123,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testNonPositiveBufferSizeIsRejectedBeforeTheCopyStarts() {
+    fun `a buffer size of zero or less is refused before the COPY starts`() {
         val error = assertFailsWith<InvalidOperationException> {
             session.copy.copyIn(
                 "COPY census FROM STDIN WITH (FORMAT CSV)",
@@ -138,7 +138,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testClosingSessionWithAnUnfinishedCopyDropsTheConnection() {
+    fun `closing a session with an unfinished COPY drops the connection`() {
         val copyIn = session.copy.copyIn("COPY census FROM STDIN WITH (FORMAT CSV)")
         copyIn.writeToCopy("7,Gnaeus\n".toByteArray(Charsets.UTF_8))
 
@@ -153,7 +153,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testACopyCanBeWhatBeginsATransaction() {
+    fun `a COPY can be what begins a transaction`() {
         // Nothing has run since auto-commit went off, so the BEGIN is still waiting - and a COPY starts on the
         // stream rather than through an ordinary statement. It has to send that BEGIN itself, or the rows would
         // land in a transaction of their own and survive the rollback.
@@ -166,7 +166,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testCancellingACopyInATransactionLeavesTheTransactionStateFailed() {
+    fun `cancelling a COPY inside a transaction leaves the transaction failed`() {
         session.autoCommit = false
         session.createNativeQuery("INSERT INTO census VALUES (9, 'Sextus')").executeUpdate()
         assertEquals(TransactionState.IN_TRANSACTION, session.transactionState)
@@ -187,7 +187,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testARowTheServerRejectsIsReportedByTheNextWrite() {
+    fun `a row the server rejects is reported by the next write`() {
         // A session of its own with a read timeout, so a driver that waits for a reply the server has already
         // sent fails here rather than hanging the suite.
         openSession { socketTimeout = 5 }.use { copying ->
@@ -213,7 +213,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testTheStreamOverloadStopsReadingOnceTheServerRejectsARow() {
+    fun `the stream overload stops reading once the server rejects a row`() {
         openSession { socketTimeout = 5 }.use { copying ->
             val pid = copying.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict<Int>()
             var chunksRead = 0
@@ -241,7 +241,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testAForeignKeyIsCheckedOnlyByEndCopy() {
+    fun `a foreign key is checked only by endCopy`() {
         val pid = session.createNativeQuery("SELECT pg_backend_pid()").fetchFieldStrict<Int>()
         val copyIn = session.copy.copyIn("COPY miles FROM STDIN WITH (FORMAT CSV)")
         copyIn.writeToCopy("1,99\n".toByteArray(Charsets.UTF_8))
@@ -268,7 +268,7 @@ class CopyManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testFinishingACopyInATransactionLeavesTheTransactionStateIntact() {
+    fun `finishing a COPY inside a transaction leaves the transaction as it was`() {
         session.autoCommit = false
         val copyIn = session.copy.copyIn("COPY census FROM STDIN WITH (FORMAT CSV)")
         copyIn.writeToCopy("11,Servius\n".toByteArray(Charsets.UTF_8))

@@ -35,10 +35,6 @@ internal object RangeResultConverter : ResultConverter<PgRange, Range<*>> {
             upperBound = upper,
             isLowerInclusive = source.isLowerInclusive,
             isUpperInclusive = source.isUpperInclusive,
-            isLowerInfinite = source.isLowerInfinite,
-            isUpperInfinite = source.isUpperInfinite,
-            isLowerNull = source.isLowerNull,
-            isUpperNull = source.isUpperNull,
             isEmpty = source.isEmpty
         )
     }

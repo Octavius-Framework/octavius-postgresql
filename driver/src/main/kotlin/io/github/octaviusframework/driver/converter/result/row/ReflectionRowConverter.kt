@@ -24,18 +24,18 @@ internal object ReflectionRowConverter : ResultConverter<Row, Any> {
         val kClass = expectedType.classifier as KClass<Any>
 
         val metadata = ReflectionCache.getOrCreateDataObjectMetadata(kClass)
+        val rowMetadata = source.metadata
 
         return instantiateDataObject(kClass, metadata) { meta ->
             val columnName = meta.keyName
-            val index = source.columnNames.indexOf(columnName)
+            val index = rowMetadata.getColumnIndexOrNull(columnName)
 
-            if (index != -1) {
+            if (index != null) {
                 val rawValue = source.getRaw(index)
-                val oid = source.getOid(index)
                 if (rawValue == null) {
                     null
                 } else {
-                    context.convert<Any>(rawValue, meta.type, oid, columnName)
+                    context.convert<Any>(rawValue, meta.type, rowMetadata.columns[index].type, columnName)
                 }
             } else {
                 MissingToken

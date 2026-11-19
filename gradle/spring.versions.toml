@@ -1,5 +1,5 @@
 [versions]
-spring-boot = "4.1.0"
+spring-boot = "4.1.2"
 
 [libraries]
 spring-boot-starter-test = { group = "org.springframework.boot", name = "spring-boot-starter-test", version.ref = "spring-boot" }

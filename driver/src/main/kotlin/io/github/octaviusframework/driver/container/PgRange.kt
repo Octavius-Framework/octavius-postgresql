@@ -34,24 +34,18 @@ class PgRange internal constructor(
     /** The range extends without limit upwards, written `,)`. */
     val isUpperInfinite: Boolean get() = (flags.toInt() and 0x10) != 0
 
-    /** The lower bound is present but `NULL`, which is distinct from being unbounded. */
-    val isLowerNull: Boolean get() = (flags.toInt() and 0x20) != 0
-
-    /** The upper bound is present but `NULL`, which is distinct from being unbounded. */
-    val isUpperNull: Boolean get() = (flags.toInt() and 0x40) != 0
-
     /**
-     * Returns the lower bound, cast to [T]. An empty range, an unbounded side and a `NULL` bound all give `null`.
+     * Returns the lower bound, cast to [T]. An empty range and an unbounded side give `null`.
      *
      * @throws MappingException `CONVERSION_ERROR` if there is no bound and [T] is not nullable, or the
      *   bound is not a [T].
      */
     inline fun <reified T> lowerBound(): T {
-        if (isEmpty || isLowerInfinite || isLowerNull) {
+        if (isEmpty || isLowerInfinite) {
             if (null is T) return null as T
             throw conversionErrorAt(
                 "lower",
-                "Lower bound is null or infinite (missing) but requested type is non-nullable"
+                "Lower bound is missing (infinite, or the range is empty) but requested type is non-nullable"
             )
         }
         val value = lowerBound
@@ -63,17 +57,17 @@ class PgRange internal constructor(
     }
 
     /**
-     * Returns the upper bound, cast to [T]. An empty range, an unbounded side and a `NULL` bound all give `null`.
+     * Returns the upper bound, cast to [T]. An empty range and an unbounded side give `null`.
      *
      * @throws MappingException `CONVERSION_ERROR` if there is no bound and [T] is not nullable, or the
      *   bound is not a [T].
      */
     inline fun <reified T> upperBound(): T {
-        if (isEmpty || isUpperInfinite || isUpperNull) {
+        if (isEmpty || isUpperInfinite) {
             if (null is T) return null as T
             throw conversionErrorAt(
                 "upper",
-                "Upper bound is null or infinite (missing) but requested type is non-nullable"
+                "Upper bound is missing (infinite, or the range is empty) but requested type is non-nullable"
             )
         }
         val value = upperBound
@@ -97,37 +91,23 @@ class PgRange internal constructor(
         }
 
         /**
-         * A range of [rangeOid]. The defaults give PostgreSQL's `[)`, and a `null` bound is unbounded unless
-         * `isLowerNull` or `isUpperNull` says it is a `NULL`; unbounded wins where both are asked for.
+         * A range of [rangeOid]. A `null` bound makes its side infinite, and the defaults give PostgreSQL's `[)`,
+         * the lower side inclusive only where it has a bound.
          */
         fun create(
             rangeOid: Int,
             elementOid: Int,
             lowerBound: Any? = null,
             upperBound: Any? = null,
-            isLowerInclusive: Boolean = true,
-            isUpperInclusive: Boolean = false,
-            isLowerInfinite: Boolean = (lowerBound == null),
-            isUpperInfinite: Boolean = (upperBound == null),
-            isLowerNull: Boolean = false,
-            isUpperNull: Boolean = false
+            isLowerInclusive: Boolean = lowerBound != null,
+            isUpperInclusive: Boolean = false
         ): PgRange {
             var flags = 0
 
             if (isLowerInclusive) flags = flags or 0x02
             if (isUpperInclusive) flags = flags or 0x04
-
-            if (isLowerInfinite) {
-                flags = flags or 0x08
-            } else if (isLowerNull || lowerBound == null) {
-                flags = flags or 0x20
-            }
-
-            if (isUpperInfinite) {
-                flags = flags or 0x10
-            } else if (isUpperNull || upperBound == null) {
-                flags = flags or 0x40
-            }
+            if (lowerBound == null) flags = flags or 0x08
+            if (upperBound == null) flags = flags or 0x10
 
             return PgRange(rangeOid, elementOid, flags.toByte(), lowerBound, upperBound)
         }

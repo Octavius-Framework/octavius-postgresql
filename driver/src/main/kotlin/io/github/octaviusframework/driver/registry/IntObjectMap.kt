@@ -48,8 +48,8 @@ internal class IntObjectMap<V> {
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
     /** The value under [key], or `null`; `null` for `0` too. */
+    @Suppress("UNCHECKED_CAST")
     operator fun get(key: Int): V? {
         if (key == 0) return null
         val mask = keys.size - 1

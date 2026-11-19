@@ -26,7 +26,10 @@ interface ParameterConverter<T : Any> {
         return supportedClass == sourceClass || supportedClass.java.isAssignableFrom(sourceClass.java)
     }
 
-    /** Converts a claimed value into one a codec encodes. */
+    /**
+     * Converts a claimed value into one a codec encodes. A result no codec takes raises `MappingException`
+     * (`CONVERSION_ERROR`) naming the converter.
+     */
     fun convert(source: T, expectedOid: Int, context: SerializationContext): Any
 
     /**

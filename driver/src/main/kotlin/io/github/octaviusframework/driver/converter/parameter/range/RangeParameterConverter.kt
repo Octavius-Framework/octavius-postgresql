@@ -15,20 +15,20 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
 
     override fun convert(source: Range<*>, expectedOid: Int, context: SerializationContext): Any {
         val pgType = if (expectedOid.isKnownOid) {
-            context.types.dictionary.getBaseType(expectedOid) as? PgType.Range
-        } else {
-            val elementOid = context.defaultOidForClass(source.elementClass)
-
-            if (elementOid != null && elementOid.isKnownOid) {
-                context.types.dictionary.getRangeType(elementOid)
-            } else null
-        }
-
-        if (pgType == null) {
-            throw TypeException(
-                TypeExceptionReason.TYPE_NOT_FOUND,
-                details = "Cannot infer range type. The range is empty or bounds are null. Use explicit typing (e.g. .withPgType(...))."
+            val type = context.types.dictionary.getBaseType(expectedOid)
+            type as? PgType.Range ?: throw TypeException(
+                TypeExceptionReason.NOT_A_CONTAINER,
+                oid = expectedOid,
+                details = "Type '${type.name}' is not a range"
             )
+        } else {
+            val elementClass = source.elementClass
+            val elementOid = context.defaultOidForClass(elementClass)?.takeIf { it.isKnownOid } ?: throw TypeException(
+                TypeExceptionReason.TYPE_NOT_FOUND,
+                details = "No PostgreSQL type for range bounds of ${elementClass.qualifiedName ?: elementClass}: " +
+                    "register the class (registerAutoComposite, registerEnum) or give its parameter converter a getDefaultTypeName"
+            )
+            context.types.dictionary.getRangeType(elementOid)
         }
 
         val elementOid = pgType.subtypeOid
@@ -46,11 +46,7 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
             lower = convertedLower,
             upper = convertedUpper,
             isLowerInclusive = source.isLowerInclusive,
-            isUpperInclusive = source.isUpperInclusive,
-            isLowerInfinite = source.isLowerInfinite,
-            isUpperInfinite = source.isUpperInfinite,
-            isLowerNull = source.isLowerNull,
-            isUpperNull = source.isUpperNull
+            isUpperInclusive = source.isUpperInclusive
         )
     }
 }

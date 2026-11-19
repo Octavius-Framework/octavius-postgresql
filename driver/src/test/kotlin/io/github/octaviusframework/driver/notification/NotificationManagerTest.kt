@@ -15,7 +15,7 @@ import io.github.octaviusframework.driver.exception.SessionTerminatedExceptionRe
 class NotificationManagerTest : AbstractIntegrationTest() {
 
     @Test
-    fun testPollingListener() = runBlocking {
+    fun `the polling loop receives a notification`() = runBlocking {
         val listenerSession = openSession()
         val notifierSession = openSession()
 
@@ -47,7 +47,7 @@ class NotificationManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testInterruptibleListener() = runBlocking {
+    fun `the interruptible loop receives a notification`() = runBlocking {
         val listenerSession = openSession()
         val notifierSession = openSession()
 
@@ -126,7 +126,7 @@ class NotificationManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testPollingListenerThrowsWhenTheServerEndsTheSession() = runBlocking {
+    fun `the polling loop reports a session the server ended`() = runBlocking {
         val listenerSession = openSession()
         val adminSession = openSession()
 
@@ -152,7 +152,7 @@ class NotificationManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testInterruptibleListenerThrowsWhenTheServerEndsTheSession() = runBlocking {
+    fun `the interruptible loop reports a session the server ended`() = runBlocking {
         val listenerSession = openSession()
         val adminSession = openSession()
 
@@ -177,7 +177,7 @@ class NotificationManagerTest : AbstractIntegrationTest() {
     }
 
     @Test
-    fun testPollingListenerReportsIdleSessionTimeout() = runBlocking {
+    fun `the polling loop reports idle_session_timeout`() = runBlocking {
         // The timeout runs out on a multiple of the poll, so the FATAL tends to land just as one read has timed
         // out and before the next begins
         assumeUnreadFatalSurvives()

@@ -1,7 +1,6 @@
 package io.github.octaviusframework.client
 
 import io.github.octaviusframework.client.dynamic.DynamicTypes
-import io.github.octaviusframework.client.dynamic.DynamicWriteStrategy
 import io.github.octaviusframework.client.query.DeleteQuery
 import io.github.octaviusframework.client.query.InsertQuery
 import io.github.octaviusframework.client.query.RawQuery
@@ -12,7 +11,7 @@ import io.github.octaviusframework.client.transaction.TransactionDefinition
 import io.github.octaviusframework.client.transaction.TransactionPropagation
 import io.github.octaviusframework.driver.session.OctaviusSessionOperations
 import io.github.octaviusframework.driver.session.TransactionIsolationLevel
-import io.github.octaviusframework.serializer.octaviusJson
+import io.github.octaviusframework.serializer.octaviusSnakeCaseJson
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration
 
@@ -24,11 +23,10 @@ import kotlin.time.Duration
 internal class OctaviusClientImpl(
     private val provider: SessionProvider,
     private val onClose: (() -> Unit)? = null,
-    dynamicJson: Json = octaviusJson,
-    dynamicWriteStrategy: DynamicWriteStrategy = DynamicWriteStrategy.AUTOMATIC_WHEN_UNAMBIGUOUS
+    dynamicJson: Json = octaviusSnakeCaseJson
 ) : OctaviusClient {
 
-    override val dynamicTypes: DynamicTypes = DynamicTypes(this, dynamicJson, dynamicWriteStrategy)
+    override val dynamicTypes: DynamicTypes = DynamicTypes(this, dynamicJson)
 
     override fun <T> execute(block: OctaviusSessionOperations.() -> T): T = provider.execute(block)
 

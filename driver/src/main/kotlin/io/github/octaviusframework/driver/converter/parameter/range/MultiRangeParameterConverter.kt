@@ -15,21 +15,21 @@ internal object MultiRangeParameterConverter : ParameterConverter<MultiRange<*>>
 
     override fun convert(source: MultiRange<*>, expectedOid: Int, context: SerializationContext): Any {
         val pgType = if (expectedOid.isKnownOid) {
-            context.types.dictionary.getBaseType(expectedOid) as? PgType.Multirange
-        } else {
-            val elementOid = context.defaultOidForClass(source.elementClass)
-
-            if (elementOid != null && elementOid.isKnownOid) {
-                val rangeType = context.types.dictionary.getRangeType(elementOid)
-                context.types.dictionary.getMultirangeType(rangeType.oid)
-            } else null
-        }
-
-        if (pgType == null) {
-            throw TypeException(
-                TypeExceptionReason.TYPE_NOT_FOUND,
-                details = "Cannot infer multirange type. The multirange is empty or bounds are null. Use explicit typing (e.g. .withPgType(...))."
+            val type = context.types.dictionary.getBaseType(expectedOid)
+            type as? PgType.Multirange ?: throw TypeException(
+                TypeExceptionReason.NOT_A_CONTAINER,
+                oid = expectedOid,
+                details = "Type '${type.name}' is not a multirange"
             )
+        } else {
+            val elementClass = source.elementClass
+            val elementOid = context.defaultOidForClass(elementClass)?.takeIf { it.isKnownOid } ?: throw TypeException(
+                TypeExceptionReason.TYPE_NOT_FOUND,
+                details = "No PostgreSQL type for multirange bounds of ${elementClass.qualifiedName ?: elementClass}: " +
+                    "register the class (registerAutoComposite, registerEnum) or give its parameter converter a getDefaultTypeName"
+            )
+            val rangeType = context.types.dictionary.getRangeType(elementOid)
+            context.types.dictionary.getMultirangeType(rangeType.oid)
         }
 
         val rangeOid = pgType.rangeOid
@@ -49,11 +49,7 @@ internal object MultiRangeParameterConverter : ParameterConverter<MultiRange<*>>
                     lower = convertedLower,
                     upper = convertedUpper,
                     isLowerInclusive = range.isLowerInclusive,
-                    isUpperInclusive = range.isUpperInclusive,
-                    isLowerInfinite = range.isLowerInfinite,
-                    isUpperInfinite = range.isUpperInfinite,
-                    isLowerNull = range.isLowerNull,
-                    isUpperNull = range.isUpperNull
+                    isUpperInclusive = range.isUpperInclusive
                 )
             }
         }

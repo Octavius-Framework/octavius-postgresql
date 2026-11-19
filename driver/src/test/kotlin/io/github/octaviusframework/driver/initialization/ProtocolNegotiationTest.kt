@@ -1,12 +1,19 @@
 package io.github.octaviusframework.driver.initialization
 
+import io.github.octaviusframework.driver.ScriptedServer
 import io.github.octaviusframework.driver.auth.Authenticator
 import io.github.octaviusframework.driver.auth.ChannelBinding
+import io.github.octaviusframework.driver.authenticationOk
+import io.github.octaviusframework.driver.backendKey
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
 import io.github.octaviusframework.driver.io.PgStream
 import io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory
+import io.github.octaviusframework.driver.message
 import io.github.octaviusframework.driver.message.frontend.StartupMessage
+import io.github.octaviusframework.driver.negotiate
+import io.github.octaviusframework.driver.parameter
+import io.github.octaviusframework.driver.readyForQuery
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.net.InetAddress

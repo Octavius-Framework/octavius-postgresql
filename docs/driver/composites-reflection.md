@@ -43,7 +43,7 @@ data class Address(val city: String, val street: String)
 session.createNativeQuery("SELECT city, street FROM senators").fetchObjects<Address>()
 session.createNativeQuery("SELECT residence FROM senators").fetchRowStrict().get<Address>("residence")
 
-// TypeException(MISSING_CODEC), until Address is registered
+// MappingException(NO_CONVERTER_FOUND), until Address is registered
 session.createNativeQuery("UPDATE senators SET residence = $1").executeUpdate(Address("Roma", "Via Sacra"))
 ```
 
@@ -113,6 +113,9 @@ The `Any` row is how a composite nested inside a `Map<String, Any?>`, a `ROW(...
 as your own type rather than a container. A hand-written converter can cover every row of this table too — see
 [Claim `Any` as well as the class](#claim-any-as-well-as-the-class).
 
+The `Map` row is keyed by attribute name, so its key type is `String`, or `Any`. Any other key type, `Map<Int, Any?>`
+say, fails with `MappingException(CONVERSION_ERROR)`. Only a [`ROW(...)`](#pgrecord--anonymous-row) converts its keys.
+
 The table is what one column answers. To move the whole column — and everything under it — to the `Map` row for one
 query, without touching what the class is registered as anywhere else, see
 [Reading them all as maps](#reading-them-all-as-maps).
@@ -160,9 +163,8 @@ session.typeManager.registerAutoComposite<Assessment>()
 // Writing:  MappingException(NO_CONVERTER_FOUND), path = payload
 ```
 
-The `path` names the offending attribute — the fastest way to find the class you forgot. A class registered nowhere
-at all and passed at top level has no attribute to name, so it says so directly instead: `TypeException(MISSING_CODEC)`
-— *"Codec not found for: Tribute"*.
+The `path` names the offending attribute — the fastest way to find the class you forgot. Passed on its own or in a
+list, the class has no attribute to name; it fails with the same `NO_CONVERTER_FOUND`, and the details name the class.
 
 ## Writing a whole object as one parameter
 
@@ -503,9 +505,9 @@ val assessed = rangeOf(lowerBound = Tribute(1, "denarii"), upperBound = Tribute(
 session.createNativeQuery("SELECT $1 AS r").fetchRowStrict(assessed)
 ```
 
-Without the override that throws `MappingException(CONVERSION_ERROR)` caused by `TypeException(TYPE_NOT_FOUND)` —
-*"Cannot infer range type. The range is empty or bounds are null."* The range converter has a `Range<Tribute>`, needs
-the OID of `tribute` to find `tribute_range`, and asks the parameter converter for that class what type name it
+Without the override that throws `MappingException(CONVERSION_ERROR)` caused by `TypeException(TYPE_NOT_FOUND)`, whose
+details name `Tribute` as a class with no PostgreSQL type for range bounds. The range converter has a `Range<Tribute>`,
+needs the OID of `tribute` to find `tribute_range`, and asks the parameter converter for that class what type name it
 declares. With the override, or with `registerAutoComposite` (which supplies its own), the same call succeeds. Pinning
 the parameter works too, if you would rather not carry the override:
 

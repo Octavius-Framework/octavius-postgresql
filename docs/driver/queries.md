@@ -126,6 +126,9 @@ val senator: Senator           = row.toObject()
 val columns: Map<String, Any?> = row.toObject()
 ```
 
+A row read as a `Map` is keyed by column name, so its key type is `String`, or `Any`; any other fails with
+`MappingException(CONVERSION_ERROR)`. Each value is converted to the map's value type.
+
 Both have a twin taking a `KType`, `get<T>(index, targetType)` and `toObject<T>(targetType)`, which is the form
 reachable from Java.
 

@@ -20,7 +20,7 @@ object TestNoticeHandler : NoticeHandler {
 class NoticeHandlerTest : AbstractIntegrationTest() {
 
     @Test
-    fun testNoticeHandlerReceivesNotice() = runBlocking {
+    fun `a notice reaches the handler named by class, with the backend that raised it`() = runBlocking {
         TestNoticeHandler.lastNotice = null
         
         val session = openSession { noticeHandlerClassName = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }
@@ -45,7 +45,7 @@ class NoticeHandlerTest : AbstractIntegrationTest() {
      * fills in the ones naming an object.
      */
     @Test
-    fun testNoticeExposesEveryFieldTheServerSends() = runBlocking {
+    fun `a notice carries every field the server sends`() = runBlocking {
         TestNoticeHandler.lastNotice = null
 
         val session = openSession { noticeHandlerClassName = "io.github.octaviusframework.driver.notice.TestNoticeHandler" }

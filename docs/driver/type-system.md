@@ -340,6 +340,10 @@ properties from `pg-model`, imported from `io.github.octaviusframework.type.date
 standard library's. Each is the extreme value its class can hold, so an infinity is recognised by comparing with the
 constant. `interval` has cases of its own instead; see [PgInterval](#pginterval).
 
+`time` has no infinity, but it holds `24:00:00`, the end of the day, which no `LocalTime` does. It reads as
+`LocalTime.MAX`, one nanosecond before midnight and a `pg-model` extension property like the four above, and
+`LocalTime.MAX` is written as `24:00:00`.
+
 ### Numeric (BigDecimal) Special Values
 
 `BigDecimal` has no non-finite values, so reading a `numeric` that holds `NaN`, `Infinity` or `-Infinity` throws `CodecException(DECODING)` rather than produce a number it is not.
@@ -570,6 +574,10 @@ known](#one-default-per-kotlin-class) would go out as `text`, and a `jsonb` colu
 [Writing the converters by hand](composites-reflection.md#writing-the-converters-by-hand) has the pair for a composite,
 and [the one place](composites-reflection.md#getdefaulttypename-is-not-for-the-composite) its `getDefaultTypeName` still
 matters.
+
+What a converter hands on is checked against the codec it is headed for: the declared type's, or with none declared the
+one for its class. A value that codec cannot take raises `MappingException(CONVERSION_ERROR)` naming the converter. A
+`PgContainer` is not checked, and neither is a value whose type `getDefaultTypeName` supplied.
 
 The `canConvert` above checks both the PostgreSQL type and the Kotlin type, and each check alone leaks:
 

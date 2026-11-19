@@ -5,9 +5,28 @@ import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import kotlin.reflect.KClass
 import kotlin.reflect.KParameter
+import kotlin.reflect.KType
 
 /** What a value resolver returns for a name the source does not hold, as opposed to a `NULL`. */
 object MissingToken
+
+/**
+ * Refuses a [mapType] whose key type takes no `String`, for a row or a composite, which are keyed by their names.
+ * A star projection and a class `String` belongs to, such as `Any`, pass.
+ *
+ * @param keyedBy Opens the message: what the map is keyed by.
+ * @throws MappingException `CONVERSION_ERROR` naming [mapType].
+ */
+internal fun requireStringKeys(mapType: KType, keyedBy: String) {
+    val keyType = mapType.arguments.getOrNull(0)?.type ?: return
+    val keyClass = keyType.classifier as? KClass<*>
+    if (keyClass != null && keyClass.java.isAssignableFrom(String::class.java)) return
+
+    throw MappingException(
+        MappingExceptionReason.CONVERSION_ERROR,
+        "$keyedBy, so it reads into a Map with String keys, not $keyType: ask for Map<String, ...> instead of $mapType"
+    )
+}
 
 /**
  * Builds a data class from [metadata], each parameter's value from [resolveValue]. A [MissingToken] takes the

@@ -30,8 +30,7 @@ internal class DynamicRegistry private constructor(
      * This registry with [registration] in it. The same class under the same name again changes nothing, the
      * [Json] it was first registered with included.
      *
-     * @throws InvalidOperationException `INVALID_ARGUMENT` where the name or the class is taken otherwise, or
-     * the class is registered under another write strategy.
+     * @throws InvalidOperationException `INVALID_ARGUMENT` where the name or the class is taken otherwise.
      */
     fun with(registration: Registration<*>): DynamicRegistry {
         val name = registration.name
@@ -58,15 +57,6 @@ internal class DynamicRegistry private constructor(
                     "cannot go under '$name' as well."
             )
         }
-        if (existing.strategy != registration.strategy) {
-            throw InvalidOperationException(
-                InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                details = "${kClass.displayName} is already registered as '$name' by a client writing on " +
-                    "${existing.strategy}, and this one writes on ${registration.strategy}. A class is registered " +
-                    "once per database, so every client registering it has to be built on the same " +
-                    "DynamicWriteStrategy."
-            )
-        }
         return this
     }
 
@@ -78,8 +68,8 @@ internal class DynamicRegistry private constructor(
 private val KClass<*>.displayName: String get() = qualifiedName ?: simpleName ?: toString()
 
 /**
- * One class registered as a `dynamic_dto`, with the terms of the client that registered it: its values are
- * written on [strategy] and through [json] whichever client runs the query.
+ * One class registered as a `dynamic_dto`, with the [Json] of the client that registered it, which its values
+ * are written and read through whichever client runs the query.
  *
  * @property name The discriminator, as the database stores it.
  * @property json The registering client's [Json], with the registered enums folded in as it is resolved.
@@ -88,8 +78,7 @@ internal class Registration<T : Any>(
     val name: String,
     val kClass: KClass<T>,
     private val serializer: KSerializer<T>,
-    val json: EnumAwareJson,
-    val strategy: DynamicWriteStrategy
+    val json: EnumAwareJson
 ) {
     /** The payload as JSON text, which is what the `jsonb` codec encodes. */
     @Suppress("UNCHECKED_CAST")

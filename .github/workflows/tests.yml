@@ -163,7 +163,7 @@ jobs:
           SSL_KEY_EC: ${{ github.workspace }}/.ssl/client-ec.key
           SSL_KEY_ENCRYPTED: ${{ github.workspace }}/.ssl/client-enc.key
           SSL_KEY_PASSWORD: senatus
-        run: ./gradlew :driver:test --tests "*SslIntegrationTest*" --tests "*ChannelBindingIntegrationTest*"
+        run: ./gradlew :driver:test --tests "*SslTest*" --tests "*ChannelBindingTest*"
 
   test-pg17:
     runs-on: ubuntu-latest
@@ -260,11 +260,11 @@ jobs:
         env:
           TEST_PGBOUNCER: "true"
           PGBOUNCER_PORT: "6432"
-        run: ./gradlew :driver:test --tests "*PgBouncerIntegrationTest*"
+        run: ./gradlew :driver:test --tests "*PgBouncerTest*"
 
   test-replication:
     runs-on: ubuntu-latest
-    # Several servers that really are what MultiHostIntegrationTest can only play: a primary, a standby streaming
+    # Several servers that really are what MultiHostTest can only play: a primary, a standby streaming
     # from it, and a server of another cluster - the one the system_identifier check is there to pass over.
 
     steps:
@@ -303,7 +303,7 @@ jobs:
       - name: Run Replication Tests
         env:
           TEST_REPLICATION: "true"
-        run: ./gradlew :driver:test --tests "*ReplicationIntegrationTest*"
+        run: ./gradlew :driver:test --tests "*ReplicationTest*"
 
   test-spring-example:
     runs-on: ubuntu-latest

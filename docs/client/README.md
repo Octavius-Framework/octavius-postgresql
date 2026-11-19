@@ -70,7 +70,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [`SessionProvider`](transactions-failures.md#sessionprovider) — The seam, and Spring in under thirty lines
 
 ### Transaction Plans
-- [When a Block Is Not Enough](plans.md#when-a-block-is-not-enough) — What each has that the other has not
+- [A Block and a Plan](plans.md#a-block-and-a-plan) — What each has that the other has not
 - [Writing a Graph](plans.md#writing-a-graph) — A handle for a key that does not exist yet
 - [Creating or Editing](plans.md#creating-or-editing) — The same save as a block and as a plan
 - [Returning a Fragment](plans.md#returning-a-fragment) — `addPlan`, handles across plans, and merge order
@@ -87,8 +87,9 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [Where It Goes](dynamic-dto.md#where-it-goes) — Arrays, a class chosen by the query, plain columns
 - [Creating the Type](dynamic-dto.md#creating-the-type) — `DYNAMIC_DTO_DDL`, a migration, or `install()`
 - [Registering a Class](dynamic-dto.md#registering-a-class) — And why the name is stated rather than derived
+- [Payload Keys](dynamic-dto.md#payload-keys) — `snake_case` and `@PgName`, as the driver names columns
 - [Reading](dynamic-dto.md#reading) — As the class, as a supertype, as the raw form, as a map
-- [Writing](dynamic-dto.md#writing) — `DynamicWriteStrategy`, and when wrapping is still required
+- [Writing](dynamic-dto.md#writing) — Unwrapped, and naming the type for a class registered as a composite too
 - [A Different `Json` for One Query](dynamic-dto.md#a-different-json-for-one-query) — Payloads named the way SQL names things
 
 ### Annotation Scanning

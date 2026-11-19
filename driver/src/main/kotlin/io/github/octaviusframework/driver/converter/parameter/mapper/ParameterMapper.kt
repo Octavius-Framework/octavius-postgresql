@@ -25,8 +25,9 @@ internal class ParameterMapper(
      * Converts [source] for [expectedOid] into a value a codec encodes. Pass `0` if the OID is not known.
      *
      * @throws MappingException
-     *   `NO_CONVERTER_FOUND` if nothing claims the value and the target codec cannot accept its class,
-     *   `CONVERSION_ERROR` if a converter failed.
+     *   `NO_CONVERTER_FOUND` if nothing claims the value and no codec takes its class: the target's, or with no
+     *   target the one for that class,
+     *   `CONVERSION_ERROR` if a converter failed or returned a value no such codec takes.
      */
     fun convert(source: Any?, expectedOid: Int): Any? {
         if (source == null) return null
@@ -41,26 +42,26 @@ internal class DefaultSerializationContext(
 ) : SerializationContext {
     /**
      * Runs [source] through the first converter that claims it, wrapping the result in [PgTyped] where the OID is
-     * unknown and the converter names a type. A value nothing claims goes on as it is, unless the known OID's
-     * codec cannot take it: that fails here, where the path still names it.
+     * unknown and the converter names a type. A value nothing claims goes on as it is. Either way, a value no codec
+     * takes - the known OID's, or with none known the one for its class - fails here, where the path still names it.
      */
     override fun convert(source: Any, expectedOid: Int, pathSegment: String?): Any {
         try {
             val converter = findConverterByClass(source::class, expectedOid)
             if (converter != null) {
-                var result = converter.convert(source, expectedOid, this)
-                // A PgContainer carries its own OID already.
-                if (result !is PgTyped && result !is PgContainer && !expectedOid.isKnownOid) {
+                val result = converter.convert(source, expectedOid, this)
+                // A PgContainer or a PgTyped names its own OID.
+                if (result is PgTyped || result is PgContainer) return result
+                if (!expectedOid.isKnownOid) {
                     val defaultType = converter.getDefaultTypeName(source::class, this)
-                    if (defaultType != null) {
-                        result = PgTyped(result, defaultType)
-                    }
+                    if (defaultType != null) return PgTyped(result, defaultType)
                 }
+                rejectIfNoCodecTakesResult(converter, result, expectedOid)
                 return result
             }
 
-            // Nothing claimed the value; fail here, while the path still names it, if its codec cannot take it.
-            rejectIfCodecCannotAccept(source, expectedOid)
+            // Nothing claimed the value; fail here, while the path still names it, if no codec takes it.
+            rejectIfNoCodecTakes(source, expectedOid)
             return source
         } catch (e: MappingException) {
             if (pathSegment != null) e.path.add(pathSegment)
@@ -76,8 +77,19 @@ internal class DefaultSerializationContext(
         }
     }
 
-    private fun rejectIfCodecCannotAccept(source: Any, expectedOid: Int) {
-        if (!expectedOid.isKnownOid) return
+    private fun rejectIfNoCodecTakes(source: Any, expectedOid: Int) {
+        if (!expectedOid.isKnownOid) {
+            // A container or a typed value names its own OID.
+            if (source is PgContainer || source is PgTyped) return
+            if (catalog.codecs.getCodecByClass(source::class) != null) return
+
+            throw MappingException(
+                MappingExceptionReason.NO_CONVERTER_FOUND,
+                "No converter found for source class ${source::class.qualifiedName ?: source::class}, and no " +
+                        "codec encodes it: register the class (registerAutoComposite, registerEnum) or a parameter " +
+                        "converter for it"
+            )
+        }
         val codec = catalog.codecs.getCodecByOid<Any>(expectedOid) ?: return
         if (codec.kotlinClass.isInstance(source)) return
 
@@ -86,6 +98,25 @@ internal class DefaultSerializationContext(
             "No converter found for source class ${source::class.qualifiedName ?: source::class} and expected " +
                     "type ${codec.pgTypeName} (OID $expectedOid), which encodes " +
                     "${codec.kotlinClass.qualifiedName ?: codec.kotlinClass}"
+        )
+    }
+
+    /** Refuses what [converter] returned if no codec takes it, so that the failure names the converter. */
+    private fun rejectIfNoCodecTakesResult(converter: ParameterConverter<Any>, result: Any, expectedOid: Int) {
+        val refusal = if (expectedOid.isKnownOid) {
+            val codec = catalog.codecs.getCodecByOid<Any>(expectedOid) ?: return
+            if (codec.kotlinClass.isInstance(result)) return
+            " for type ${codec.pgTypeName} (OID $expectedOid), whose codec encodes " +
+                    "${codec.kotlinClass.qualifiedName ?: codec.kotlinClass}"
+        } else {
+            if (catalog.codecs.getCodecByClass(result::class) != null) return
+            ", which no codec encodes"
+        }
+
+        throw MappingException(
+            MappingExceptionReason.CONVERSION_ERROR,
+            "Converter ${converter::class.qualifiedName ?: converter::class} returned " +
+                    "${result::class.qualifiedName ?: result::class}$refusal"
         )
     }
 

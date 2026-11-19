@@ -86,8 +86,8 @@ val veterans = db.rawQuery(
 ).fetchObjects<Veteran>()
 ```
 
-The keys `jsonb_build_object` is given are the class's property names; a payload named the way SQL names things
-reads under [a `Json` of its own](#a-different-json-for-one-query).
+The keys `jsonb_build_object` is given are the property names in `snake_case`, as the driver names columns; see
+[Payload Keys](#payload-keys).
 
 ### Plain columns, the type only in transit
 
@@ -151,9 +151,36 @@ The class has to be `@Serializable`. The name is stated rather than derived from
 every row and a rename must not orphan them; stated at the call, it wins over `@DynamicallyMappable`.
 
 Registration is **global to the database**, so it belongs at startup. Every client on the database reads the same
-names, and a class is read and written on the `Json` and the write strategy of the client that registered it,
-whichever client a query runs through. Two names for one class, one name for two classes, and the same class on
-another strategy are refused; the same class under the same name again changes nothing, its `Json` included.
+names, and a class is read and written with the `Json` of the client that registered it, whichever client a query
+runs through. Two names for one class and one name for two classes are refused; the same class under the same name
+again changes nothing, its `Json` included.
+
+## Payload Keys
+
+A payload is keyed the way the driver names a composite's attributes: each property under its name in `snake_case`,
+or under its `@PgName`.
+
+```kotlin
+@Serializable
+data class Stipend(@PgName("prov") val provinceName: String, val annualAmount: Int)
+// {"prov": "Aegyptus", "annual_amount": 500}
+```
+
+A payload built in SQL therefore uses the names the schema already has, whether written out with
+`jsonb_build_object` or made from a whole row by `to_dynamic_dto`:
+
+```kotlin
+val stipends = db.rawQuery("SELECT to_dynamic_dto('stipend', s) FROM stipends s").fetchFields<Stipend>()
+```
+
+A `bytea`, an `interval` and a range are the exceptions. `to_jsonb` writes them in PostgreSQL's text form —
+`"\\xdead"`, `"1 day 02:00:00"`, `"[1,5)"` — and nothing in `octaviusSerializersModule` turns that text into a
+`ByteArray`, a `PgInterval` or a `Range`. Such a column stays out of the payload, or the object is built as a
+[`ROW(...)`](../driver/composites-reflection.md#pgrecord--anonymous-row), whose fields keep their types.
+
+A `@SerialName` is converted like the property's own name, so `@PgName` is the way to give a key as it is. These are
+the keys of `octaviusSnakeCaseJson`, the client's default; a payload keyed by the Kotlin names, as a stock `Json`
+writes it, reads under `octaviusJson`, given to the client or [to one query](#a-different-json-for-one-query).
 
 ## Reading
 
@@ -171,35 +198,9 @@ what they found rather than half-filling an object. `DynamicDto.dataPayload` is 
 
 ## Writing
 
-An instance of a registered class is written as a `dynamic_dto` **without being wrapped**. When that happens is
-`DynamicWriteStrategy`, given to the client when it is built:
-
-```kotlin
-OctaviusClient.fromDataSource(dataSource, dynamicWriteStrategy = DynamicWriteStrategy.EXPLICIT_ONLY)
-```
-
-| Mode                         | A registered class, unwrapped                                                                            |
-|------------------------------|----------------------------------------------------------------------------------------------------------|
-| `AUTOMATIC_WHEN_UNAMBIGUOUS` | Written as a `dynamic_dto`, unless the class is a registered composite too — then the composite takes it |
-| `PREFER_DYNAMIC_DTO`         | Written as a `dynamic_dto` either way                                                                    |
-| `EXPLICIT_ONLY`              | Refused by name, pointing at the wrapper                                                                 |
-
-`AUTOMATIC_WHEN_UNAMBIGUOUS` is the default, and under it a class registered one way only needs no wrapping anywhere.
-
-**`toDynamicDto(value)` overrides all three**, and settles the one case they disagree about:
-
-```kotlin
-db.insertInto("veterans").values(listOf("name", "benefit"))
-    .executeUpdate("name" to "Marcus", "benefit" to db.dynamicTypes.toDynamicDto(honour))
-```
-
-It is also the only way to make a `DynamicDto`, and it checks the name against the registry. The server knows nothing
-of the registry and would store any name, leaving it to fail on whichever read reached it.
-
-### What the modes do not reach
-
-A mode decides only for a parameter whose type nothing declares. An attribute of a composite, an element of an array
-and a value wrapped in `withPgType` carry the type they are going into, and **that type decides**, under every mode:
+An instance of a registered class is written as a `dynamic_dto` **as it is**, with nothing wrapped around it. Where
+the value goes into something that declares its type — an attribute of a composite, an element of an array, a value
+wrapped in `withPgType` — **that type decides**:
 
 ```kotlin
 data class Decoration(val award: Honour, val citation: Triumph)   // public.decoration
@@ -207,15 +208,28 @@ data class Decoration(val award: Honour, val citation: Triumph)   // public.deco
 // citation is declared public.dynamic_dto  → written as a dynamic_dto
 ```
 
-Naming the type is therefore the counterpart of `toDynamicDto`, and how a class registered both ways reaches its
-composite under `PREFER_DYNAMIC_DTO`:
+A value that does not belong in the declared destination is a `MappingException(NO_CONVERTER_FOUND)` naming both.
+
+A `DynamicDto` read earlier goes back as it is, its name not checked against the registry. Nothing but a read
+makes one.
+
+### A class registered as a composite too
+
+Such a class can go in as either, so where nothing declares which — a parameter on its own, or the first element of
+a list whose array type it would decide — it is refused with a `MappingException(CONVERSION_ERROR)` naming both
+registrations. That holds whichever column the value is going into: the driver states each parameter's type before
+the server has looked at the statement. `withPgType` names the one meant:
 
 ```kotlin
-db.insertInto("veterans").values(listOf("name", "honour"))
-    .executeUpdate("name" to "Marcus", "honour" to honour.withPgType("honour", "public"))
+db.insertInto("veterans").values(listOf("name", "honour", "benefit"))
+    .executeUpdate(
+        "name" to "Marcus",
+        "honour" to honour.withPgType("honour", "public"),
+        "benefit" to honour.withPgType("dynamic_dto", "public")
+    )
 ```
 
-A value that does not belong in the declared destination is a `MappingException(NO_CONVERTER_FOUND)` naming both.
+A list of it is named once, with `isArray = true`.
 
 ## What JSON Does Not Carry
 
@@ -228,6 +242,7 @@ column of their own come out differently under the default serializer:
 | `LocalDate`       | `+999999999-12-31` for `infinity`     | past what a `date` holds, so reading it back raises               |
 | `LocalDateTime`   | `+999999999-12-31T23:59:59.999999999` | the same, a `timestamp` stopping at 294276 AD                     |
 | `Instant`         | `+100000-01-01T00:00:00Z`             | a year a `timestamptz` does hold — so it comes back quietly wrong |
+| `LocalTime`       | `23:59:59.999999999` for `24:00:00`   | the `24:00:00` that `to_jsonb` writes does not read back at all   |
 | any date at all   | ISO-8601                              | outside years `0001`..`9999`, PostgreSQL will not read it back    |
 | a registered enum | the Kotlin constant's own name        | `Praetor` in the payload where the enum column holds `PRAETOR`    |
 
@@ -247,7 +262,7 @@ data class LandGrant(
 )
 ```
 
-Without `@Contextual` a property keeps the default serializer. The first four come from `octaviusSerializersModule`,
+Without `@Contextual` a property keeps the default serializer. The first five come from `octaviusSerializersModule`,
 which the client's `dynamicJson` carries; they write PostgreSQL's spelling and read either spelling back, so a payload
 built in SQL still decodes. The enum's labels are the ones it was **registered** under, read off the driver's
 registry, so `typeManager.registerEnum` and a scan by `@PgEnumType` both cover it, and the enum needs no
@@ -290,23 +305,26 @@ agree.
 
 ## A Different `Json` for One Query
 
-The client's `Json` is `octaviusJson`: strict, so a payload carrying a field the class does not declare is an error
-rather than something dropped. A payload built with `jsonb_build_object` is named the way SQL names things, so for
-that one query, hand over a different one:
+The client's `Json` is `octaviusSnakeCaseJson`: strict, so a payload carrying a field the class does not declare is an
+error rather than something dropped. A query reading payloads that were written some other way hands over a `Json` of
+its own. A frontend posting its documents through `octaviusJson` keys them by the Kotlin names, and a `jsonb` column
+that keeps them as they came holds those keys:
 
 ```kotlin
-val snakeCase = Json { namingStrategy = JsonNamingStrategy.SnakeCase }
-
-db.rawQuery("SELECT dynamic_dto('stipend', jsonb_build_object('province_name', @p, 'annual_amount', @a))")
-    .registerResultConverter(db.dynamicTypes.resultConverter(snakeCase))
-    .fetchFieldStrict<Stipend>("p" to "Aegyptus", "a" to 500)
+// stipend_requests.body: each request as the frontend posted it
+val requests = db.rawQuery("SELECT dynamic_dto('stipend', body) FROM stipend_requests")
+    .registerResultConverter(db.dynamicTypes.resultConverter(octaviusJson))
+    .fetchFields<Stipend>()
 ```
 
-`parameterConverter(json)` is the write-side mirror, and `toDynamicDto(value, json)` takes one for a value wrapped by
-hand. Query registries sit ahead of the session's and are discarded with the query; see
+Payloads that still carry a property the class has since lost read the same way, under
+`Json(octaviusSnakeCaseJson) { ignoreUnknownKeys = true }`.
+
+`parameterConverter(json)` is the write-side mirror, registered with `registerParameterConverter`. Query registries
+sit ahead of the session's and are discarded with the query; see
 [Per-Query Converters](queries.md#per-query-converters). A `Json` given here replaces the one the class was registered
-with (`dynamicJson` on `fromDataSource` or `fromSessionProvider`), so put `octaviusSerializersModule` on it too where
-the class has a `@Contextual` property.
+with (`dynamicJson` on `fromDataSource` or `fromSessionProvider`), so build it on `octaviusJson` or
+`octaviusSnakeCaseJson`, which carry `octaviusSerializersModule`, where the class has a `@Contextual` property.
 
 ## Next
 
