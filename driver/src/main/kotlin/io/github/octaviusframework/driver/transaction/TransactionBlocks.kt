@@ -13,7 +13,7 @@ private val logger = KotlinLogging.logger {}
  * Runs blocks in transaction scopes that commit, roll back or use savepoints on how the block ends. The block's
  * receiver is [OctaviusSessionOperations], which has no commit or rollback; those are on [OctaviusSession].
  */
-class TransactionManager internal constructor(
+class TransactionBlocks internal constructor(
     @PublishedApi internal val session: OctaviusSession,
     private val connection: OctaviusConnection
 ) {
@@ -126,7 +126,8 @@ class TransactionManager internal constructor(
             }
         }
 
-        connection.deferTransactionTerms(statements.joinToString("; "))
+        connection.checkClosed()
+        connection.transactionControl.deferTerms(statements.joinToString("; "))
     }
 
     /**

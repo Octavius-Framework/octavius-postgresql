@@ -8,9 +8,9 @@ import io.github.octaviusframework.driver.parser.SqlParameterParser
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.registry.DatabaseKey
 import io.github.octaviusframework.driver.session.SearchPath
-import io.github.octaviusframework.driver.session.TransactionState
+import io.github.octaviusframework.driver.session.TransactionIsolationLevel
 import io.github.octaviusframework.driver.ssl.SslNegotiator
-import io.github.octaviusframework.driver.transaction.OctaviusSavepointImpl
+import io.github.octaviusframework.driver.transaction.TransactionControl
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.sql.*
 import java.util.*
@@ -231,189 +231,68 @@ internal class OctaviusConnection(
         return currentSearchPath().typeLookupOrder
     }
 
-    //----------------------------------------------------READ ONLY-----------------------------------------------------
-    private var readOnlyFlag: Boolean = false
+    //---------------------------------------------------TRANSACTIONS---------------------------------------------------
+    /** Auto-commit, read only, isolation and savepoints, each changed through the methods below. */
+    internal val transactionControl = TransactionControl(stream, queryExecutor)
 
     override fun setReadOnly(readOnly: Boolean) = wrapSqlException { // required by Hikari
         checkClosed()
-        if (this.readOnlyFlag != readOnly) {
-            val modeStr = if (readOnly) "READ ONLY" else "READ WRITE"
-            val query = buildString {
-                append("SET SESSION CHARACTERISTICS AS TRANSACTION $modeStr")
-                // Only a transaction the server has begun. One whose BEGIN is still waiting picks the session
-                // characteristic up when that BEGIN goes out.
-                if (serverTransactionState == TransactionState.IN_TRANSACTION) {
-                    append("; SET TRANSACTION $modeStr")
-                }
-            }
-            queryExecutor.control(query)
-            this.readOnlyFlag = readOnly
-            logger.debug { "$pid Session characteristics set to $modeStr" }
-        }
+        transactionControl.setReadOnly(readOnly)
     }
 
     override fun isReadOnly(): Boolean = wrapSqlException { // required by Hikari
         checkClosed()
-        return@wrapSqlException readOnlyFlag
+        transactionControl.readOnly
     }
 
-    //---------------------------------------------------TRANSACTIONS---------------------------------------------------
-    private var autoCommitFlag: Boolean = true
-
-    private var transactionIsolationLevel: Int = Connection.TRANSACTION_READ_COMMITTED
-
-    /** The server's transaction state, with a `BEGIN` still waiting counted as `IN_TRANSACTION`. */
-    val transactionState: TransactionState
-        get() {
-            val reported = serverTransactionState
-            return if (reported == TransactionState.IDLE && !autoCommitFlag) TransactionState.IN_TRANSACTION else reported
-        }
-
-    /** The transaction state as the server reported it on its last `ReadyForQuery`, a waiting `BEGIN` not counted. */
-    internal val serverTransactionState: TransactionState
-        get() = TransactionState.fromChar(stream.transactionStatus)
-
-    /**
-     * Switching off sends nothing, leaving `BEGIN` to the first statement; switching on commits a transaction a
-     * statement began.
-     */
     override fun setAutoCommit(autoCommit: Boolean) = wrapSqlException { // required by Hikari
         checkClosed()
-        if (this.autoCommitFlag != autoCommit) {
-            if (autoCommit) refuseCommitOfFailedTransaction()
-            this.autoCommitFlag = autoCommit
-            queryExecutor.beginsTransactions = !autoCommit
-            queryExecutor.deferredTerms = null
-            if (!autoCommit) {
-                logger.debug { "$pid Auto-commit disabled; the first statement begins the transaction" }
-            } else if (serverTransactionState == TransactionState.IDLE) {
-                logger.debug { "$pid Auto-commit enabled; no statement had begun a transaction, so none to commit" }
-            } else {
-                queryExecutor.control("COMMIT")
-                logger.debug { "$pid Auto-commit enabled; open transaction committed" }
-            }
-        }
-    }
-
-    /**
-     * Hands [terms] - `SET TRANSACTION`, `SET LOCAL` - to the waiting `BEGIN`, or sends them now where a
-     * hand-written `BEGIN` already opened the transaction.
-     */
-    internal fun deferTransactionTerms(terms: String) {
-        checkClosed()
-        if (!autoCommitFlag && serverTransactionState == TransactionState.IDLE) {
-            queryExecutor.deferredTerms = terms
-        } else {
-            queryExecutor.execute(terms)
-        }
+        transactionControl.setAutoCommit(autoCommit)
     }
 
     override fun getAutoCommit(): Boolean = wrapSqlException { // required by Hikari
         checkClosed()
-        return@wrapSqlException autoCommitFlag
+        transactionControl.autoCommit
     }
 
-    /**
-     * Commits and leaves the next `BEGIN` to the next statement, so its `now()` is not fixed here. A transaction no
-     * statement began ends with nothing sent.
-     */
     override fun commit() = wrapSqlException {
         checkClosed()
-        if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION)
-        refuseCommitOfFailedTransaction()
-        endTransaction("COMMIT")
+        transactionControl.commit()
     }
 
-    /** Raises `COMMIT_OF_FAILED_TRANSACTION` where an earlier error aborted the transaction. */
-    private fun refuseCommitOfFailedTransaction() {
-        if (transactionState == TransactionState.FAILED) {
-            throw InvalidOperationException(InvalidOperationExceptionReason.COMMIT_OF_FAILED_TRANSACTION)
-        }
-    }
-
-    /** Rolls back, on the same terms as [commit]. */
     override fun rollback() = wrapSqlException { // required by Hikari
         checkClosed()
-        if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION)
-        endTransaction("ROLLBACK")
-    }
-
-    /** Sends [command] where a statement began a transaction, and drops the terms a waiting `BEGIN` held. */
-    private fun endTransaction(command: String) {
-        queryExecutor.deferredTerms = null
-        if (serverTransactionState == TransactionState.IDLE) {
-            logger.debug { "$pid $command with no statement since the last; nothing had begun, so nothing sent" }
-            return
-        }
-        queryExecutor.control(command)
-        logger.debug { "$pid $command sent; the next statement begins the next transaction" }
+        transactionControl.rollback()
     }
 
     override fun setTransactionIsolation(level: Int) = wrapSqlException { // required by Hikari
         checkClosed()
-        val levelStr = when (level) {
-            Connection.TRANSACTION_READ_UNCOMMITTED -> "READ UNCOMMITTED"
-            Connection.TRANSACTION_READ_COMMITTED -> "READ COMMITTED"
-            Connection.TRANSACTION_REPEATABLE_READ -> "REPEATABLE READ"
-            Connection.TRANSACTION_SERIALIZABLE -> "SERIALIZABLE"
-            else -> throw InvalidOperationException(
-                InvalidOperationExceptionReason.INVALID_ARGUMENT,
-                details = "Unsupported transaction isolation level: $level"
-            )
-        }
-        val query = buildString {
-            append("SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL $levelStr")
-            // As in setReadOnly: a waiting BEGIN picks the session characteristic up by itself.
-            if (serverTransactionState == TransactionState.IN_TRANSACTION) {
-                append("; SET TRANSACTION ISOLATION LEVEL $levelStr")
-            }
-        }
-        queryExecutor.control(query)
-        this.transactionIsolationLevel = level
-        logger.debug { "$pid Isolation level set to $levelStr" }
+        transactionControl.setIsolation(TransactionIsolationLevel.fromJdbcValue(level))
     }
 
     override fun getTransactionIsolation(): Int = wrapSqlException { // required by Hikari
         checkClosed()
-        return@wrapSqlException transactionIsolationLevel
+        transactionControl.isolation.jdbcValue
     }
-
-    //----------------------------------------------------SAVEPOINTS----------------------------------------------------
-    private var savepointIdCounter: Int = 1
 
     override fun setSavepoint(): Savepoint = wrapSqlException {
         checkClosed()
-        if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION, "Cannot set a savepoint when auto-commit is enabled")
-        val sp = OctaviusSavepointImpl(savepointIdCounter++)
-        queryExecutor.execute("SAVEPOINT ${sp.pgName}")
-        logger.debug { "$pid Savepoint ${sp.pgName} set" }
-        return@wrapSqlException sp
+        transactionControl.setSavepoint()
     }
 
     override fun setSavepoint(name: String?): Savepoint = wrapSqlException {
         checkClosed()
-        if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION, "Cannot set a savepoint when auto-commit is enabled")
-        if (name == null) throw InvalidOperationException(InvalidOperationExceptionReason.INVALID_SAVEPOINT, "Savepoint name cannot be null")
-        val sp = OctaviusSavepointImpl(name)
-        queryExecutor.execute("SAVEPOINT ${sp.pgName}")
-        logger.debug { "$pid Savepoint ${sp.pgName} set" }
-        return@wrapSqlException sp
+        transactionControl.setSavepoint(name)
     }
 
     override fun rollback(savepoint: Savepoint?) = wrapSqlException {
         checkClosed()
-        if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION, "Cannot rollback to a savepoint when auto-commit is enabled")
-        if (savepoint !is OctaviusSavepointImpl) throw InvalidOperationException(InvalidOperationExceptionReason.INVALID_SAVEPOINT, "Unsupported savepoint")
-        queryExecutor.control("ROLLBACK TO SAVEPOINT ${savepoint.pgName}")
-        logger.debug { "$pid Rolled back to savepoint ${savepoint.pgName}" }
+        transactionControl.rollback(savepoint)
     }
 
     override fun releaseSavepoint(savepoint: Savepoint?) = wrapSqlException {
         checkClosed()
-        if (autoCommitFlag) throw InvalidOperationException(InvalidOperationExceptionReason.AUTO_COMMIT_VIOLATION, "Cannot release a savepoint when auto-commit is enabled")
-        if (savepoint !is OctaviusSavepointImpl) throw InvalidOperationException(InvalidOperationExceptionReason.INVALID_SAVEPOINT, "Unsupported savepoint")
-        queryExecutor.control("RELEASE SAVEPOINT ${savepoint.pgName}")
-        logger.debug { "$pid Savepoint ${savepoint.pgName} released" }
+        transactionControl.releaseSavepoint(savepoint)
     }
 
     //----------------------------------STATEMENT (SUPPORTED ONLY UPDATE AND EXECUTE)-----------------------------------

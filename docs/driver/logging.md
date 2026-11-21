@@ -42,9 +42,10 @@ their own.
 |:------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------------------|
 | `io.github.octaviusframework.driver.Notice`                                   | Server notices, at a level mirroring the server's own severity                                        |
 | `io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory` | One line per physical connection opened                                                               |
-| `io.github.octaviusframework.driver.jdbc.OctaviusConnection`                  | Transactions, savepoints, isolation, cancellation, abort, validation probes                           |
+| `io.github.octaviusframework.driver.jdbc.OctaviusConnection`                  | Cancellation, abort, validation probes                                                                |
+| `io.github.octaviusframework.driver.transaction.TransactionControl`           | Transactions, savepoints, isolation and read only                                                     |
 | `io.github.octaviusframework.driver.session.OctaviusSessionImpl`              | Session close and abort, and a close that evicted its connection instead of returning it              |
-| `io.github.octaviusframework.driver.transaction.TransactionManager`           | Auto-commit left unrestored after a transaction scope committed                                       |
+| `io.github.octaviusframework.driver.transaction.TransactionBlocks`            | Auto-commit left unrestored after a transaction scope committed                                       |
 | `io.github.octaviusframework.driver.execution.QueryExecutor`                  | Every statement and its duration                                                                      |
 | `io.github.octaviusframework.driver.registry.GlobalCatalogStore`              | The type catalog load, and every explicit reload of it                                                |
 | `io.github.octaviusframework.driver.registry.CodecDictionary`                 | A registered codec the catalog it was built against leaves bound to nothing                           |

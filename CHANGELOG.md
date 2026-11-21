@@ -22,10 +22,21 @@
   as well as a password: the driver withheld the credentials the server asked for, an MD5 password, or a cleartext
   password or a token outside TLS or with none configured. A `catch` or `when` on the old name needs the new one.
 
-- **[BREAKING]** The line for each physical connection opened is logged under
-  `io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory`, where it was
-  `io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory`. A logger configured by the old name needs the
-  new one; the `io.github.octaviusframework.driver` entry that configures the lot is unaffected.
+- **[BREAKING]** `TransactionManager`, the type of `session.transaction`, is renamed `TransactionBlocks`: it runs the
+  `required { }` and `nested { }` blocks, and the old name was also that of Spring's `TransactionManager` interface.
+  Code that names the type needs the new name; `session.transaction.required { }` is unchanged.
+
+- **[BREAKING]** Three loggers have new names. A logger configured by an old name needs the new one; the
+  `io.github.octaviusframework.driver` entry that configures the lot is unaffected.
+  - The line for each physical connection opened:
+    `io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory`, where it was
+    `io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory`.
+  - Transactions, savepoints, isolation and read only:
+    `io.github.octaviusframework.driver.transaction.TransactionControl`, where they were under
+    `io.github.octaviusframework.driver.jdbc.OctaviusConnection`, which keeps cancellation, abort and validation probes.
+  - Auto-commit left unrestored after a block committed:
+    `io.github.octaviusframework.driver.transaction.TransactionBlocks`, where it was
+    `io.github.octaviusframework.driver.transaction.TransactionManager`.
 
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 

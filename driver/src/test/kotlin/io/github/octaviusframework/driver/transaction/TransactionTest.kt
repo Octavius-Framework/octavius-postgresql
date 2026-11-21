@@ -319,7 +319,7 @@ class TransactionTest : AbstractIntegrationTest() {
 
         for (statement in statements) {
             session.autoCommit = false
-            connection.deferTransactionTerms("SET LOCAL statement_timeout =")
+            connection.transactionControl.deferTerms("SET LOCAL statement_timeout =")
 
             val thrown = assertThrows<OctaviusException> { statement(session) }
 

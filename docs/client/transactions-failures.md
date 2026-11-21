@@ -154,7 +154,7 @@ open. They fail differently: a statement past `statementTimeout` is cancelled an
 [Terms for one transaction](../driver/transactions.md#terms-for-one-transaction). `null` leaves the server's own
 setting alone, and asking for none of them sends nothing at all.
 
-The rule and the warning both live in the driver's `TransactionManager`, which this delegates to — see
+The rule and the warning both live in the driver's `TransactionBlocks`, which this delegates to — see
 [Terms for one transaction](../driver/transactions.md#terms-for-one-transaction).
 
 ## Thrown or Returned
