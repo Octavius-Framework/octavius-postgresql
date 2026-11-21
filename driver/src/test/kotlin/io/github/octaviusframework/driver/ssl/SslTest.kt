@@ -348,7 +348,7 @@ class SslTest {
         // for this role as well - and the driver is what refuses, not the server.
         val exception = assertFailsWith<InitializationException> { getOctaviusSession(url, properties) }
 
-        assertEquals(InitializationExceptionReason.UNSUPPORTED_PASSWORD_ENCRYPTION, exception.reason)
+        assertEquals(InitializationExceptionReason.WITHHELD_CREDENTIALS, exception.reason)
         assertTrue(
             exception.details!!.contains("sslmode"),
             "The failure should say what to raise, was: ${exception.details}"

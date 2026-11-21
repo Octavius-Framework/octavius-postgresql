@@ -151,12 +151,13 @@ The name has to match an accessor on `OctaviusDataSource`, `sslMode` and not lib
 fails the pool at startup. Every property in the [configuration reference](#configuration-reference) takes a string
 there, except:
 
-* `sslMode`, `channelBinding`, `targetSessionAttrs`, `loadBalanceHosts` and `noticeHandler`. HikariCP hands them a
-  string unconverted, which fails the pool with *"argument type mismatch"*; only the object itself goes through.
+* `sslMode`, `channelBinding`, `targetSessionAttrs`, `loadBalanceHosts`, `noticeHandler` and `oauthTokenProvider`.
+  HikariCP hands them a string unconverted, which fails the pool with *"argument type mismatch"*; only the object itself
+  goes through.
 * Startup parameters. They have no accessor, `application_name` aside.
 
-From a properties file, the enums and startup parameters go into the `url` property, and a handler goes in by class name
-as `noticeHandlerClassName`:
+From a properties file, the enums and startup parameters go into the `url` property, and a handler or a token provider
+goes in by class name, as `noticeHandlerClassName` or `oauthTokenProviderClassName`:
 
 ```kotlin
 addDataSourceProperty("url", "jdbc:octavius://localhost:5432/res_publica?sslmode=require&search_path=castra")
@@ -237,7 +238,7 @@ this is also where one that is not the kind `target_session_attrs` asks for is l
 The first connection to a database also loads its type catalog; see
 [below](#the-first-connection-pays-for-the-type-catalog).
 
-### Authentication is SCRAM-SHA-256, or a password inside TLS
+### Authentication is SCRAM-SHA-256, or a password or token inside TLS
 
 | The server asks for                                              | Result                                                                                     |
 |:-----------------------------------------------------------------|:-------------------------------------------------------------------------------------------|
@@ -246,8 +247,10 @@ The first connection to a database also loads its type catalog; see
 | SCRAM-SHA-256                                                    | Connected.                                                                                 |
 | Nothing — `trust`, `cert`                                        | Connected.                                                                                 |
 | A cleartext password, over TLS                                   | Connected; the password goes out as it is, inside TLS.                                     |
-| A cleartext password, in plaintext                               | `InitializationException(UNSUPPORTED_PASSWORD_ENCRYPTION)`                                 |
-| MD5                                                              | `InitializationException(UNSUPPORTED_PASSWORD_ENCRYPTION)`                                 |
+| A cleartext password, in plaintext                               | `InitializationException(WITHHELD_CREDENTIALS)`                                            |
+| An OAuth bearer token, over TLS                                  | Connected, with the token a provider gives; see [OAuth](#oauth).                           |
+| An OAuth bearer token, in plaintext                              | `InitializationException(WITHHELD_CREDENTIALS)`; no token is asked for.                    |
+| MD5                                                              | `InitializationException(WITHHELD_CREDENTIALS)`                                            |
 | GSSAPI, SSPI, anything else                                      | `InitializationException(UNSUPPORTED_MECHANISM)`                                           |
 
 The server asks for a cleartext password under the `password`, `ldap`, `pam` and `radius` lines of `pg_hba.conf`, and
@@ -288,6 +291,58 @@ is for [`verify-full`](#ssl) to check.
 > A `SCRAM channel binding negotiation error` from the server means something between you and it rewrote the mechanism
 > list: on an encrypted connection where binding was not offered the driver says so in the handshake, and PostgreSQL,
 > which always offers it over TLS, reads that as a contradiction.
+
+### OAuth
+
+Under an `oauth` line of `pg_hba.conf`, PostgreSQL 18 asks for a bearer token and checks it with the validator module
+the server is configured with. The driver fetches no token itself and makes no HTTP call. Your application has a token
+from its identity provider, and hands it over through an `OAuthTokenProvider`:
+
+```kotlin
+import io.github.octaviusframework.driver.auth.OAuthTokenProvider
+import io.github.octaviusframework.driver.auth.OAuthTokenRequest
+
+object CuriaTokenProvider : OAuthTokenProvider {
+    override fun token(request: OAuthTokenRequest): String =
+        identityProvider.accessToken(scope = "openid curia")
+}
+```
+
+```kotlin
+properties.oauthTokenProviderClassName = "com.example.CuriaTokenProvider"
+// or on the URL: ?oauthTokenProviderClassName=com.example.CuriaTokenProvider
+```
+
+A provider that needs something passed to its constructor is built in code and set as `oauthTokenProvider`, which wins
+over the class name and reaches a pool the way a [`noticeHandler`](#handling-them-yourself) instance does. As there, a
+Kotlin `object` is shared by every connection, and a class named by `oauthTokenProviderClassName` is instantiated per
+connection. A class that cannot be loaded fails every login with `TOKEN_PROVIDER_FAILED`, those that ask for no token
+too.
+
+The provider is asked at every login that asks for a token, so a pool opening ten connections asks ten times, and
+keeping a token until it expires is the provider's to do. `request` names the server as configured, its port, and the
+user and database of the login, for a provider that hands out different tokens to different servers. It runs on the
+thread opening the connection, while the server waits, and the server ends a login that takes longer than its
+`authentication_timeout`. A flow that waits on a person, such as a device code, belongs before the connection is
+opened.
+
+The driver never asks the server which issuer and scope it expects: the provider is configured with them, as the
+`oauth` line is. It returns the token alone, without `Bearer ` in front.
+
+The token is the credential itself, so the driver sends it only on an encrypted connection; on any other it refuses
+with `WITHHELD_CREDENTIALS`, as it does a cleartext password, before the provider is asked. `sslmode=require` encrypts
+without checking who is at the other end, and `verify-full` makes sure the token goes to the server you named. A token
+cannot be bound to the channel, so `channelBinding=require` refuses an OAuth login too, with `UNSUPPORTED_MECHANISM`.
+
+| What happens                                    | Result                                                                     |
+|:------------------------------------------------|:---------------------------------------------------------------------------|
+| No provider is configured                       | `InitializationException(WITHHELD_CREDENTIALS)`                            |
+| The provider throws                             | `InitializationException(TOKEN_PROVIDER_FAILED)`, what it threw as `cause` |
+| It returns something that is not a bearer token | `InitializationException(TOKEN_PROVIDER_FAILED)`; nothing is sent          |
+| The server refuses the token                    | `InitializationException(SERVER_REJECTED_CREDENTIALS)`, `sqlState` `28000` |
+
+No token appears in the exception or in the driver's log, refused or not, and neither does one the driver would not
+send.
 
 ### The first connection pays for the type catalog
 
@@ -467,10 +522,13 @@ does not know is not refused, since that is what a [startup parameter](#startup-
 | `targetSessionAttrs` (or `target_session_attrs`) | `ANY`             | Which kind of server to settle for among several; see [the table](#which-server-target_session_attrs). |
 | `loadBalanceHosts` (or `load_balance_hosts`)     | `DISABLE`         | `RANDOM` tries the servers, and each one's addresses, in random order.                                 |
 | `applicationName` (or `application_name`)        | `Octavius Driver` | Name this connection reports to the server, shown in `pg_stat_activity`.                               |
+| `oauthTokenProviderClassName`                    | none              | Fully-qualified class name of an `OAuthTokenProvider`; see [OAuth](#oauth).                            |
+| `oauthTokenProvider`                             | none              | An `OAuthTokenProvider` already built, used in place of the class name. Only code can set it.          |
 
 No property selects an authentication method: the server names it and
-[the driver either answers or refuses](#authentication-is-scram-sha-256-or-a-password-inside-tls). What you choose is
-whether it must be [bound to the TLS channel](#channel-binding), with `channelBinding` in the SSL table below.
+[the driver either answers or refuses](#authentication-is-scram-sha-256-or-a-password-or-token-inside-tls). What you
+choose is whether it must be [bound to the TLS channel](#channel-binding), with `channelBinding` in the SSL table below,
+and, for OAuth, where the token comes from.
 
 ### Network and limits
 

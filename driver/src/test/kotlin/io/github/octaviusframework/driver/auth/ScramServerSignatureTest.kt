@@ -82,7 +82,10 @@ class ScramServerSignatureTest {
                 stream.flush()
 
                 val ex = assertThrows<InitializationException> {
-                    Authenticator.authenticate(stream, "1234", ChannelBinding.PREFER)
+                    Authenticator.authenticate(
+                        stream, "1234", ChannelBinding.PREFER, null,
+                        OAuthTokenRequest("localhost", server.port, "postgres", "senatus")
+                    )
                 }
 
                 assertEquals(InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS, ex.reason)

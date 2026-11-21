@@ -1,6 +1,7 @@
 package io.github.octaviusframework.driver.jdbc
 
 import io.github.octaviusframework.driver.auth.ChannelBinding
+import io.github.octaviusframework.driver.auth.OAuthTokenProvider
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.wrapSqlException
@@ -103,6 +104,16 @@ class OctaviusDataSource : DataSource {
     var channelBinding: ChannelBinding?
         get() = octaviusProperties.channelBinding
         set(value) { octaviusProperties.channelBinding = value }
+
+    /** Fully-qualified class name of an [OAuthTokenProvider], used where [oauthTokenProvider] is not set. */
+    var oauthTokenProviderClassName: String?
+        get() = octaviusProperties.oauthTokenProviderClassName
+        set(value) { octaviusProperties.oauthTokenProviderClassName = value }
+
+    /** The [OAuthTokenProvider] asked for a token where the server logs in with OAuth, shared by every connection. */
+    var oauthTokenProvider: OAuthTokenProvider?
+        get() = octaviusProperties.oauthTokenProvider
+        set(value) { octaviusProperties.oauthTokenProvider = value }
 
     /** Seconds to wait on a socket read before failing. `0` waits forever. */
     var socketTimeout: Int

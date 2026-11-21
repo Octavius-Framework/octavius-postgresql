@@ -65,6 +65,7 @@ class OctaviusDataSourceInitializationTest {
         assertEquals(1024, ds.initialParameterWriterCapacity)
         assertEquals(65536, ds.maxParameterWriterCapacity)
         assertNull(ds.noticeHandlerClassName)
+        assertNull(ds.oauthTokenProviderClassName)
 
         ds.socketTimeout = 30
         ds.cancelSignalTimeout = 3
@@ -73,6 +74,7 @@ class OctaviusDataSourceInitializationTest {
         ds.initialParameterWriterCapacity = 2048
         ds.maxParameterWriterCapacity = 131072
         ds.noticeHandlerClassName = "com.example.MyNoticeHandler"
+        ds.oauthTokenProviderClassName = "com.example.LegatusTokenProvider"
 
         // Set through the accessors, they reach the same place the url would have put them
         val rendered = ds.url
@@ -83,6 +85,7 @@ class OctaviusDataSourceInitializationTest {
         assertTrue(rendered.contains("initialParameterWriterCapacity=2048"), rendered)
         assertTrue(rendered.contains("maxParameterWriterCapacity=131072"), rendered)
         assertTrue(rendered.contains("noticeHandlerClassName=com.example.MyNoticeHandler"), rendered)
+        assertTrue(rendered.contains("oauthTokenProviderClassName=com.example.LegatusTokenProvider"), rendered)
     }
 
     @Test

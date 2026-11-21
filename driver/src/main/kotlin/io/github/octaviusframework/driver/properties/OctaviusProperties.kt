@@ -1,6 +1,7 @@
 package io.github.octaviusframework.driver.properties
 
 import io.github.octaviusframework.driver.auth.ChannelBinding
+import io.github.octaviusframework.driver.auth.OAuthTokenProvider
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.notice.NoticeHandler
@@ -112,6 +113,19 @@ class OctaviusProperties {
     var channelBinding: ChannelBinding? = null
 
     /**
+     * The [OAuthTokenProvider] asked for a token where the server logs in with OAuth, shared by every connection
+     * opened with these properties. Wins over [oauthTokenProviderClassName]. Only code can set it: [setProperty] does
+     * not reach it and [toUrl] leaves it out.
+     */
+    var oauthTokenProvider: OAuthTokenProvider? = null
+
+    /**
+     * Fully-qualified class name of an [OAuthTokenProvider]. A Kotlin `object` is shared by every connection; a class
+     * is instantiated per connection through its no-arg constructor.
+     */
+    var oauthTokenProviderClassName: String? = null
+
+    /**
      * Everything the driver does not recognise, sent to the server as startup parameters: `search_path`,
      * `statement_timeout` and the rest of PostgreSQL's settings.
      */
@@ -149,6 +163,7 @@ class OctaviusProperties {
             "sslkey" -> sslKey = value
             "sslpassword" -> sslPassword = value
             "channelbinding", "channel_binding" -> channelBinding = ChannelBinding.of(value)
+            "oauthtokenproviderclassname" -> oauthTokenProviderClassName = value
             else -> additionalProperties[key] = value
         }
     }
@@ -194,6 +209,8 @@ class OctaviusProperties {
         other.sslKey?.let { sslKey = it }
         other.sslPassword?.let { sslPassword = it }
         other.channelBinding?.let { channelBinding = it }
+        other.oauthTokenProvider?.let { oauthTokenProvider = it }
+        other.oauthTokenProviderClassName?.let { oauthTokenProviderClassName = it }
         additionalProperties.putAll(other.additionalProperties)
     }
 
@@ -281,8 +298,8 @@ class OctaviusProperties {
     }
 
     /**
-     * These properties as a JDBC URL, for logs: [password], [sslPassword] and [noticeHandler] are left out. [copy]
-     * is the complete duplicate.
+     * These properties as a JDBC URL, for logs: [password], [sslPassword], [noticeHandler] and [oauthTokenProvider]
+     * are left out. [copy] is the complete duplicate.
      */
     fun toUrl(): String {
         val db = databaseName ?: "postgres"
@@ -316,6 +333,7 @@ class OctaviusProperties {
         sslCert?.let { queryParams["sslcert"] = it }
         sslKey?.let { queryParams["sslkey"] = it }
         channelBinding?.let { queryParams["channelBinding"] = it.value }
+        oauthTokenProviderClassName?.let { queryParams["oauthTokenProviderClassName"] = it }
 
         queryParams.putAll(additionalProperties)
 

@@ -16,11 +16,17 @@ internal object Authenticator {
     private val logger = KotlinLogging.logger {}
 
     /**
-     * Logs in with SCRAM-SHA-256, or a cleartext password over TLS; MD5 is refused.
+     * Logs in with SCRAM-SHA-256, or with an OAuth bearer token or a cleartext password over TLS; MD5 is refused.
      *
      * @throws InitializationException if the login is refused or fails.
      */
-    fun authenticate(stream: PgStream, password: String?, channelBinding: ChannelBinding) {
+    fun authenticate(
+        stream: PgStream,
+        password: String?,
+        channelBinding: ChannelBinding,
+        tokenProvider: OAuthTokenProvider?,
+        tokenRequest: OAuthTokenRequest
+    ) {
         var boundToChannel = false
 
         while (true) {
@@ -40,7 +46,10 @@ internal object Authenticator {
                     // Loop will continue to consume ParameterStatus until ReadyForQuery
                 }
 
-                is AuthenticationMessage.SASL -> {
+                // An `oauth` line of pg_hba.conf offers OAUTHBEARER alone, and a SCRAM line never offers it.
+                is AuthenticationMessage.SASL -> if (OAuthBearerAuthenticator.MECHANISM in msg.mechanisms) {
+                    OAuthBearerAuthenticator.authenticate(stream, tokenProvider, tokenRequest, channelBinding)
+                } else {
                     boundToChannel = ScramSha256Authenticator.authenticate(
                         stream, password, msg.mechanisms, channelBinding
                     )
@@ -52,7 +61,7 @@ internal object Authenticator {
 
                 is AuthenticationMessage.MD5Password -> {
                     throw InitializationException(
-                        InitializationExceptionReason.UNSUPPORTED_PASSWORD_ENCRYPTION,
+                        InitializationExceptionReason.WITHHELD_CREDENTIALS,
                         details = "Server requested MD5Password, only SCRAM is supported"
                     )
                 }
@@ -116,7 +125,7 @@ internal object Authenticator {
     private fun sendCleartextPassword(stream: PgStream, password: String?, channelBinding: ChannelBinding) {
         if (!stream.isSecure) {
             throw InitializationException(
-                InitializationExceptionReason.UNSUPPORTED_PASSWORD_ENCRYPTION,
+                InitializationExceptionReason.WITHHELD_CREDENTIALS,
                 details = "The server asked for a cleartext password, which this connection is not " +
                     "encrypted enough to send. Raise sslmode to require or above, so the password is " +
                     "not readable on the wire."
@@ -133,7 +142,7 @@ internal object Authenticator {
 
         if (password == null) {
             throw InitializationException(
-                InitializationExceptionReason.UNSUPPORTED_PASSWORD_ENCRYPTION,
+                InitializationExceptionReason.WITHHELD_CREDENTIALS,
                 details = "The server asked for a cleartext password, but no password was configured."
             )
         }

@@ -1,3 +1,27 @@
+## Version 2.13.0 (v2.13.0)
+
+### Driver
+
+#### Added
+
+- A server that logs a role in with OAuth, under an `oauth` line of `pg_hba.conf`, gets the bearer token an
+  `OAuthTokenProvider` gives, set as `oauthTokenProvider` or named in `oauthTokenProviderClassName`. The provider is
+  asked at every login that asks for a token, with the server, user and database of the login in an
+  `OAuthTokenRequest`, and the driver never asks the server for its issuer and scope. The token goes only over TLS: in
+  plaintext or with no provider configured the login fails with `WITHHELD_CREDENTIALS`, and under
+  `channelBinding=require` with `UNSUPPORTED_MECHANISM`, both before the provider is asked. A refused token fails it
+  with `SERVER_REJECTED_CREDENTIALS`.
+
+- `TOKEN_PROVIDER_FAILED` in `InitializationExceptionReason`: the provider could not be loaded, threw, or returned
+  something that is not a bearer token, which is then not sent. A class named in `oauthTokenProviderClassName` that
+  cannot be loaded fails every login, those that ask for no token too.
+
+#### Changed
+
+- **[BREAKING]** `UNSUPPORTED_PASSWORD_ENCRYPTION` is renamed `WITHHELD_CREDENTIALS`, since it covers an OAuth token
+  as well as a password: the driver withheld the credentials the server asked for, an MD5 password, or a cleartext
+  password or a token outside TLS or with none configured. A `catch` or `when` on the old name needs the new one.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project

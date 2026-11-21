@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.initialization
 import io.github.octaviusframework.driver.ScriptedServer
 import io.github.octaviusframework.driver.auth.Authenticator
 import io.github.octaviusframework.driver.auth.ChannelBinding
+import io.github.octaviusframework.driver.auth.OAuthTokenRequest
 import io.github.octaviusframework.driver.authenticationOk
 import io.github.octaviusframework.driver.backendKey
 import io.github.octaviusframework.driver.exception.InitializationException
@@ -35,7 +36,10 @@ class ProtocolNegotiationTest {
             PgStream("localhost", server.port, InetAddress.getLoopbackAddress()).use { stream ->
                 stream.writeMessage(StartupMessage(mapOf("user" to "postgres", "database" to "senatus")))
                 stream.flush()
-                Authenticator.authenticate(stream, null, ChannelBinding.PREFER)
+                Authenticator.authenticate(
+                    stream, null, ChannelBinding.PREFER, null,
+                    OAuthTokenRequest("localhost", server.port, "postgres", "senatus")
+                )
                 check(stream, server)
             }
         }
@@ -80,7 +84,10 @@ class ProtocolNegotiationTest {
                     stream.writeMessage(StartupMessage(mapOf("user" to "postgres")))
                     stream.flush()
                     assertThrows<InitializationException> {
-                        Authenticator.authenticate(stream, null, ChannelBinding.PREFER)
+                        Authenticator.authenticate(
+                            stream, null, ChannelBinding.PREFER, null,
+                            OAuthTokenRequest("localhost", server.port, "postgres", "postgres")
+                        )
                     }
                 }
             }

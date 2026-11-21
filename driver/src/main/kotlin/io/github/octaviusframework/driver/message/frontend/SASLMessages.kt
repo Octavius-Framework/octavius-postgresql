@@ -20,7 +20,7 @@ internal class SASLInitialResponse(private val mechanism: String, private val cl
     }
 }
 
-/** `SASLResponse`, carrying the client-final-message. */
+/** `SASLResponse`, carrying the client's next message of the exchange. */
 internal class SASLResponse(private val clientFinalMessage: String) : FrontendMessage {
     override fun encode(out: PgOutputStream) {
         val dataBytes = clientFinalMessage.toByteArray(StandardCharsets.UTF_8)

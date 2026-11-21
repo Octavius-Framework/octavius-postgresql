@@ -53,6 +53,7 @@ their own.
 | `io.github.octaviusframework.driver.ssl.SslNegotiator`                     | Whether the connection ended up encrypted, and under which cipher                                     |
 | `io.github.octaviusframework.driver.auth.Authenticator`                    | Handshake steps and session parameters                                                                |
 | `io.github.octaviusframework.driver.auth.ScramSha256Authenticator`         | The SCRAM mechanism actually negotiated                                                               |
+| `io.github.octaviusframework.driver.auth.OAuthBearerAuthenticator`         | That a login went with an OAuth bearer token                                                          |
 | `io.github.octaviusframework.driver.io.PgStream`                           | Session parameters that change, socket close, protocol messages ignored, a `NoticeHandler` that threw |
 | `io.github.octaviusframework.driver.lo.LargeObject`                        | A descriptor that could not be closed                                                                 |
 | `io.github.octaviusframework.driver.spring.OctaviusJdbcTransactionManager` | A rollback on a connection that had already gone                                                      |
@@ -159,8 +160,9 @@ mid-session often has a `search_path` line above it.
 Two things at this level are the driver's own work rather than your code:
 
 * **The catalog query**, a long `pg_catalog` join once per database, right before the `info` line.
-* **The startup handshake**, a few lines per connection: the TLS protocol and cipher, the SCRAM mechanism, the protocol
-  version where one was negotiated, the backend process id, and the session parameters the server sent, on one line.
+* **The startup handshake**, a few lines per connection: the TLS protocol and cipher, the SCRAM mechanism or OAuth, the
+  protocol version where one was negotiated, the backend process id, and the session parameters the server sent, on
+  one line.
 
 ## Server notices
 
@@ -206,9 +208,10 @@ nothing else reports while another server in the list answers.
 
 ## What never reaches the log
 
-Two things are absent at every level, including `trace`:
+Three things are absent at every level, including `trace`:
 
 * **Passwords**, and every SCRAM intermediate — the client proof, the salted password, the server signature.
+* **OAuth tokens**, sent or refused.
 * **Anything a large object carried.**
 
 What is present, and worth knowing before turning a level up in production:

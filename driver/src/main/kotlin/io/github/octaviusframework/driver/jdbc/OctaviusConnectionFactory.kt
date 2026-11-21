@@ -2,6 +2,8 @@ package io.github.octaviusframework.driver.jdbc
 
 import io.github.octaviusframework.driver.auth.Authenticator
 import io.github.octaviusframework.driver.auth.ChannelBinding
+import io.github.octaviusframework.driver.auth.OAuthTokenProvider
+import io.github.octaviusframework.driver.auth.OAuthTokenRequest
 import io.github.octaviusframework.driver.converter.result.mapper.ResultMapper
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
@@ -85,9 +87,19 @@ internal object OctaviusConnectionFactory {
 
         val sslConfiguration = SslNegotiator.configurationOf(properties)
         val noticeHandler = properties.noticeHandler ?: try {
-            noticeHandlerOf(properties.noticeHandlerClassName)
+            instanceOf<NoticeHandler>(properties.noticeHandlerClassName)
         } catch (e: Exception) {
             throw InitializationException(InitializationExceptionReason.CONNECTION_ERROR, e.message, e)
+        }
+        // Loaded here rather than when a server asks, so a misnamed class fails every login and not only OAuth ones.
+        val tokenProvider = properties.oauthTokenProvider ?: try {
+            instanceOf<OAuthTokenProvider>(properties.oauthTokenProviderClassName)
+        } catch (e: Exception) {
+            throw InitializationException(
+                InitializationExceptionReason.TOKEN_PROVIDER_FAILED,
+                "The OAuth token provider ${properties.oauthTokenProviderClassName} could not be instantiated: ${e.message}",
+                e
+            )
         }
 
         val passes = if (target == TargetSessionAttrs.PREFER_STANDBY) {
@@ -113,7 +125,10 @@ internal object OctaviusConnectionFactory {
                 }
                 for (address in addresses) {
                     val attempt = try {
-                        attempt(properties, sslConfiguration, noticeHandler, databaseKey, server, address, wanted, target)
+                        attempt(
+                            properties, sslConfiguration, noticeHandler, tokenProvider, databaseKey, server, address,
+                            wanted, target
+                        )
                     } catch (e: Exception) {
                         failures.forEach { e.addSuppressed(it.error) }
                         throw e
@@ -140,6 +155,7 @@ internal object OctaviusConnectionFactory {
         properties: OctaviusProperties,
         sslConfiguration: SslConfiguration,
         noticeHandler: NoticeHandler?,
+        tokenProvider: OAuthTokenProvider?,
         databaseKey: DatabaseKey,
         server: ServerAddress,
         address: InetAddress,
@@ -182,7 +198,13 @@ internal object OctaviusConnectionFactory {
             stream.writeMessage(StartupMessage(startupParams))
             stream.flush()
 
-            Authenticator.authenticate(stream, properties.password, properties.channelBinding ?: ChannelBinding.PREFER)
+            Authenticator.authenticate(
+                stream,
+                properties.password,
+                properties.channelBinding ?: ChannelBinding.PREFER,
+                tokenProvider,
+                OAuthTokenRequest(server.host, server.port, user, databaseName)
+            )
 
             stream.networkTimeout = properties.socketTimeout?.let { it * 1000 } ?: 0
             properties.maxCachedRowSize?.let { stream.maxCachedRowSize = it }
@@ -326,16 +348,16 @@ internal object OctaviusConnectionFactory {
     }
 
     /**
-     * The configured [NoticeHandler]: a Kotlin `object` as it is, a class through its no-arg constructor, looked up
+     * The [T] [className] names: a Kotlin `object` as it is, a class through its no-arg constructor, looked up
      * through the thread's context class loader and then the driver's.
      */
-    private fun noticeHandlerOf(className: String?): NoticeHandler? {
+    private inline fun <reified T : Any> instanceOf(className: String?): T? {
         if (className == null) return null
         val clazz = Thread.currentThread().contextClassLoader
             ?.let { loader -> try { loader.loadClass(className) } catch (_: ClassNotFoundException) { null } }
             ?: Class.forName(className)
-        return clazz.kotlin.objectInstance as? NoticeHandler
-            ?: clazz.getDeclaredConstructor().newInstance() as NoticeHandler
+        return clazz.kotlin.objectInstance as? T
+            ?: clazz.getDeclaredConstructor().newInstance() as T
     }
 
     /** Whether this is, or was caused by, a socket wait running out - `loginTimeout` spent at one address. */
