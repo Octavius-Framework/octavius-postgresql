@@ -22,6 +22,16 @@ allprojects {
     repositories {
         mavenCentral()
     }
+
+    // The house icon in the header of every page leads back to the GitHub Pages landing page, where the
+    // reader picks between the release and the snapshot reference.
+    plugins.withId("org.jetbrains.dokka") {
+        extensions.configure<DokkaExtension> {
+            pluginsConfiguration.html {
+                homepageLink.set("https://octavius-framework.github.io/octavius-postgresql/")
+            }
+        }
+    }
 }
 
 /**

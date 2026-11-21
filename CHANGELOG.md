@@ -1,5 +1,13 @@
 ## Version 2.13.0 (v2.13.0)
 
+### Project
+
+#### Added
+
+- Every page of the API reference has a house icon in its header that leads back to the landing page, where
+  the release and the snapshot reference are chosen. Before, the only way back was the browser's history.
+  The link is Dokka's `homepageLink`, set for the root and every module.
+
 ### Driver
 
 #### Added
