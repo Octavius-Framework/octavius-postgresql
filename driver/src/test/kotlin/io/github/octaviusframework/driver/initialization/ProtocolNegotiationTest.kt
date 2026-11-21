@@ -9,7 +9,6 @@ import io.github.octaviusframework.driver.backendKey
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
 import io.github.octaviusframework.driver.io.PgStream
-import io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory
 import io.github.octaviusframework.driver.message
 import io.github.octaviusframework.driver.message.frontend.StartupMessage
 import io.github.octaviusframework.driver.negotiate

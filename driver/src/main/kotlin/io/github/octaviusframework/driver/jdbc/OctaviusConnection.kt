@@ -7,6 +7,7 @@ import io.github.octaviusframework.driver.message.frontend.CancelRequestMessage
 import io.github.octaviusframework.driver.parser.SqlParameterParser
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.registry.DatabaseKey
+import io.github.octaviusframework.driver.session.SearchPath
 import io.github.octaviusframework.driver.session.TransactionState
 import io.github.octaviusframework.driver.ssl.SslNegotiator
 import io.github.octaviusframework.driver.transaction.OctaviusSavepointImpl

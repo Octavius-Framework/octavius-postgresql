@@ -2,6 +2,7 @@ package io.github.octaviusframework.driver.jdbc
 
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
+import io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory
 import java.sql.Connection
 import java.sql.Driver
 import java.sql.DriverManager

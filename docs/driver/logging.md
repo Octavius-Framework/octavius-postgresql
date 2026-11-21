@@ -38,25 +38,25 @@ Spring Boot's `spring-boot-starter` already brings Logback, so an application bu
 Every name is the fully-qualified class it comes from, except `Notice`, which carries server notices under a name of
 their own.
 
-| Logger                                                                     | What it carries                                                                                       |
-|:---------------------------------------------------------------------------|:------------------------------------------------------------------------------------------------------|
-| `io.github.octaviusframework.driver.Notice`                                | Server notices, at a level mirroring the server's own severity                                        |
-| `io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory`        | One line per physical connection opened                                                               |
-| `io.github.octaviusframework.driver.jdbc.OctaviusConnection`               | Transactions, savepoints, isolation, cancellation, abort, validation probes                           |
-| `io.github.octaviusframework.driver.session.OctaviusSessionImpl`           | Session close and abort, and a close that evicted its connection instead of returning it              |
-| `io.github.octaviusframework.driver.transaction.TransactionManager`        | Auto-commit left unrestored after a transaction scope committed                                       |
-| `io.github.octaviusframework.driver.execution.QueryExecutor`               | Every statement and its duration                                                                      |
-| `io.github.octaviusframework.driver.registry.GlobalCatalogStore`           | The type catalog load, and every explicit reload of it                                                |
-| `io.github.octaviusframework.driver.registry.CodecDictionary`              | A registered codec the catalog it was built against leaves bound to nothing                           |
-| `io.github.octaviusframework.driver.copy.CopyManager`                      | COPY transfers, with row and byte counts                                                              |
-| `io.github.octaviusframework.driver.notification.NotificationManager`      | `LISTEN` / `UNLISTEN` and the listener loops                                                          |
-| `io.github.octaviusframework.driver.ssl.SslNegotiator`                     | Whether the connection ended up encrypted, and under which cipher                                     |
-| `io.github.octaviusframework.driver.auth.Authenticator`                    | Handshake steps and session parameters                                                                |
-| `io.github.octaviusframework.driver.auth.ScramSha256Authenticator`         | The SCRAM mechanism actually negotiated                                                               |
-| `io.github.octaviusframework.driver.auth.OAuthBearerAuthenticator`         | That a login went with an OAuth bearer token                                                          |
-| `io.github.octaviusframework.driver.io.PgStream`                           | Session parameters that change, socket close, protocol messages ignored, a `NoticeHandler` that threw |
-| `io.github.octaviusframework.driver.lo.LargeObject`                        | A descriptor that could not be closed                                                                 |
-| `io.github.octaviusframework.driver.spring.OctaviusJdbcTransactionManager` | A rollback on a connection that had already gone                                                      |
+| Logger                                                                        | What it carries                                                                                       |
+|:------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------------------|
+| `io.github.octaviusframework.driver.Notice`                                   | Server notices, at a level mirroring the server's own severity                                        |
+| `io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory` | One line per physical connection opened                                                               |
+| `io.github.octaviusframework.driver.jdbc.OctaviusConnection`                  | Transactions, savepoints, isolation, cancellation, abort, validation probes                           |
+| `io.github.octaviusframework.driver.session.OctaviusSessionImpl`              | Session close and abort, and a close that evicted its connection instead of returning it              |
+| `io.github.octaviusframework.driver.transaction.TransactionManager`           | Auto-commit left unrestored after a transaction scope committed                                       |
+| `io.github.octaviusframework.driver.execution.QueryExecutor`                  | Every statement and its duration                                                                      |
+| `io.github.octaviusframework.driver.registry.GlobalCatalogStore`              | The type catalog load, and every explicit reload of it                                                |
+| `io.github.octaviusframework.driver.registry.CodecDictionary`                 | A registered codec the catalog it was built against leaves bound to nothing                           |
+| `io.github.octaviusframework.driver.copy.CopyManager`                         | COPY transfers, with row and byte counts                                                              |
+| `io.github.octaviusframework.driver.notification.NotificationManager`         | `LISTEN` / `UNLISTEN` and the listener loops                                                          |
+| `io.github.octaviusframework.driver.ssl.SslNegotiator`                        | Whether the connection ended up encrypted, and under which cipher                                     |
+| `io.github.octaviusframework.driver.auth.Authenticator`                       | Handshake steps and session parameters                                                                |
+| `io.github.octaviusframework.driver.auth.ScramSha256Authenticator`            | The SCRAM mechanism actually negotiated                                                               |
+| `io.github.octaviusframework.driver.auth.OAuthBearerAuthenticator`            | That a login went with an OAuth bearer token                                                          |
+| `io.github.octaviusframework.driver.io.PgStream`                              | Session parameters that change, socket close, protocol messages ignored, a `NoticeHandler` that threw |
+| `io.github.octaviusframework.driver.lo.LargeObject`                           | A descriptor that could not be closed                                                                 |
+| `io.github.octaviusframework.driver.spring.OctaviusJdbcTransactionManager`    | A rollback on a connection that had already gone                                                      |
 
 All of them sit under `io.github.octaviusframework.driver`, so one entry configures the lot. The last one ships in the
 separate `driver-spring-integration` artifact.

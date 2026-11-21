@@ -5,6 +5,7 @@ import io.github.octaviusframework.driver.auth.OAuthTokenProvider
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.wrapSqlException
+import io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory
 import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.properties.LoadBalanceHosts
 import io.github.octaviusframework.driver.properties.OctaviusProperties

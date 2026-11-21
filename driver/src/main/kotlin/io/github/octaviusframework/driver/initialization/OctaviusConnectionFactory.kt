@@ -1,4 +1,4 @@
-package io.github.octaviusframework.driver.jdbc
+package io.github.octaviusframework.driver.initialization
 
 import io.github.octaviusframework.driver.auth.Authenticator
 import io.github.octaviusframework.driver.auth.ChannelBinding
@@ -9,6 +9,7 @@ import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
 import io.github.octaviusframework.driver.exception.OctaviusException
 import io.github.octaviusframework.driver.io.PgStream
+import io.github.octaviusframework.driver.jdbc.OctaviusConnection
 import io.github.octaviusframework.driver.message.frontend.StartupMessage
 import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.properties.LoadBalanceHosts

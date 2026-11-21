@@ -2,7 +2,6 @@ package io.github.octaviusframework.driver.initialization
 
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
-import io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test

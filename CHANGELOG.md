@@ -22,6 +22,11 @@
   as well as a password: the driver withheld the credentials the server asked for, an MD5 password, or a cleartext
   password or a token outside TLS or with none configured. A `catch` or `when` on the old name needs the new one.
 
+- **[BREAKING]** The line for each physical connection opened is logged under
+  `io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory`, where it was
+  `io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory`. A logger configured by the old name needs the
+  new one; the `io.github.octaviusframework.driver` entry that configures the lot is unaffected.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project

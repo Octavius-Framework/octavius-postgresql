@@ -1,4 +1,4 @@
-package io.github.octaviusframework.driver.jdbc
+package io.github.octaviusframework.driver.session
 
 /**
  * A reported `search_path` read the way `namespace.c` reads it: the setting's text, unnormalized where it came
