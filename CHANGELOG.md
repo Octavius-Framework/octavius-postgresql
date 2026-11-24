@@ -63,6 +63,10 @@
   The comparison that stopped at the first differing byte leaked nothing a server could use, since the expected
   signature changes with every login.
 
+- A row, a composite or a `ROW(...)` read as a `Map` whose value type is not nullable fails with
+  `MappingException(REQUIRED_ATTRIBUTE_MISSING)` at a `NULL`, its path naming the column, attribute or key. The
+  `NULL` went into the map as it was, so a `Map<String, Int>` could hold a `null`.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project
