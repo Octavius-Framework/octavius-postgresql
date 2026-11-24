@@ -187,11 +187,11 @@ internal object ScramSha256Authenticator {
             details = "Missing $name in $messageName"
         )
 
-    /** A random alphanumeric client nonce. */
+    /** A random client nonce: 18 bytes in base64, which has no comma, the separator of SCRAM attributes. */
     fun generateClientNonce(): String {
         val bytes = ByteArray(18)
         SecureRandom().nextBytes(bytes)
-        return Base64.getEncoder().encodeToString(bytes).replace(Regex("[^a-zA-Z0-9]"), "")
+        return Base64.getEncoder().encodeToString(bytes)
     }
 
     /** The client proof and expected server signature, as RFC 5802 computes them. */
