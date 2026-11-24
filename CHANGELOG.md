@@ -59,6 +59,10 @@
   the login with `PROTOCOL_VIOLATION`. Before, it escaped as an `IllegalArgumentException`. PostgreSQL never sends
   such a message.
 
+- The server's final SCRAM signature is compared in constant time, as libpq has compared it since CVE-2026-6478.
+  The comparison that stopped at the first differing byte leaked nothing a server could use, since the expected
+  signature changes with every login.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project

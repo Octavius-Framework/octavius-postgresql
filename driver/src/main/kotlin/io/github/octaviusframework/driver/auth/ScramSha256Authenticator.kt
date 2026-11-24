@@ -141,8 +141,9 @@ internal object ScramSha256Authenticator {
             )
         }
 
-        // What makes the exchange mutual: the server proves it knows the stored key.
-        if (serverFinal.attribute("v", "serverFinalMessage") != scramResult.expectedServerSignature) {
+        // What makes the exchange mutual: the server proves it knows the stored key. Compared in constant time.
+        val serverSignature = serverFinal.attribute("v", "serverFinalMessage")
+        if (!MessageDigest.isEqual(serverSignature.toByteArray(), scramResult.expectedServerSignature.toByteArray())) {
             throw InitializationException(
                 InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS,
                 details = "Invalid server signature"
