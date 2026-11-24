@@ -94,11 +94,17 @@ internal object ScramSha256Authenticator {
         val serverFirst = attributesOf(serverFirstMessage)
 
         val serverNonce = serverFirst.attribute("r", "serverFirstMessage")
-        val salt = Base64.getDecoder().decode(serverFirst.attribute("s", "serverFirstMessage"))
-        val iterations = serverFirst.attribute("i", "serverFirstMessage").toIntOrNull()
+        val encodedSalt = serverFirst.attribute("s", "serverFirstMessage")
+        val salt = try { Base64.getDecoder().decode(encodedSalt) } catch (_: IllegalArgumentException) { null }
+            ?.takeIf { it.isNotEmpty() }
             ?: throw InitializationException(
                 InitializationExceptionReason.PROTOCOL_VIOLATION,
-                details = "Iteration count in serverFirstMessage is not a number: ${serverFirst["i"]}"
+                details = "Salt in serverFirstMessage is empty or not base64: $encodedSalt"
+            )
+        val iterations = serverFirst.attribute("i", "serverFirstMessage").toIntOrNull()?.takeIf { it > 0 }
+            ?: throw InitializationException(
+                InitializationExceptionReason.PROTOCOL_VIOLATION,
+                details = "Iteration count in serverFirstMessage is not a positive number: ${serverFirst["i"]}"
             )
 
         // The server nonce must extend the client's, or a replayed message would pass.

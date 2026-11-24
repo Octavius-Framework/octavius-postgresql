@@ -55,6 +55,10 @@
   failed with `SERVER_REJECTED_CREDENTIALS`. A password SASLprep refuses is used as given, as the server does with
   it.
 
+- A SCRAM server-first message with an iteration count below one, or with a salt that is empty or not base64, fails
+  the login with `PROTOCOL_VIOLATION`. Before, it escaped as an `IllegalArgumentException`. PostgreSQL never sends
+  such a message.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project
