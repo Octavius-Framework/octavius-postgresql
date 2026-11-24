@@ -46,6 +46,11 @@
     `io.github.octaviusframework.driver.transaction.TransactionBlocks`, where it was
     `io.github.octaviusframework.driver.transaction.TransactionManager`.
 
+- **[BREAKING]** A bound of a `Range` or `MultiRange` parameter goes through the converter chain as an array element
+  does, so a bound of a class the range's subtype does not take, such as a `String` sent as an `int4range`, fails
+  with `MappingException(NO_CONVERTER_FOUND)`. It reached the subtype's codec as it was and failed there as a
+  `CodecException` caused by a `ClassCastException`.
+
 #### Fixed
 
 - A SCRAM login with a password that SASLprep changes now succeeds. That covers a non-ASCII space such as a
@@ -66,6 +71,9 @@
 - A row, a composite or a `ROW(...)` read as a `Map` whose value type is not nullable fails with
   `MappingException(REQUIRED_ATTRIBUTE_MISSING)` at a `NULL`, its path naming the column, attribute or key. The
   `NULL` went into the map as it was, so a `Map<String, Int>` could hold a `null`.
+
+- A failure converting a range bound, read or sent, has `lower` or `upper` on its path, under `[i]` for the range's
+  position in a multirange. The path stopped at the column or the parameter.
 
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 

@@ -2,6 +2,7 @@ package io.github.octaviusframework.driver.converter.parameter.range
 
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
+import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.type.range.MultiRange
@@ -32,28 +33,17 @@ internal object MultiRangeParameterConverter : ParameterConverter<MultiRange<*>>
             context.types.dictionary.getMultirangeType(rangeType.oid)
         }
 
-        val rangeOid = pgType.rangeOid
-        val rangePgType = context.types.dictionary.getPgType(rangeOid) as PgType.Range
-        val elementOid = rangePgType.subtypeOid
-        val boundConverter = context.findConverterByClass(source.elementClass, elementOid)
+        val rangeType = context.types.dictionary.getPgType(pgType.rangeOid) as PgType.Range
 
-        val pgRanges = source.ranges.map { range ->
-            val convertedLower = range.lowerBound?.let { boundConverter?.convert(it, elementOid, context) ?: it }
-            val convertedUpper = range.upperBound?.let { boundConverter?.convert(it, elementOid, context) ?: it }
-
-            if (range.isEmpty) {
-                context.types.containers.createEmptyRange(rangeOid)
-            } else {
-                context.types.containers.createRange(
-                    oid = rangeOid,
-                    lower = convertedLower,
-                    upper = convertedUpper,
-                    isLowerInclusive = range.isLowerInclusive,
-                    isUpperInclusive = range.isUpperInclusive
-                )
+        val pgRanges = Array(source.ranges.size) { i ->
+            try {
+                pgRangeOf(source.ranges[i], rangeType, context)
+            } catch (e: MappingException) {
+                e.path.add("[$i]")
+                throw e
             }
         }
 
-        return context.types.containers.createMultirange(pgType.oid, *pgRanges.toTypedArray())
+        return context.types.containers.createMultirange(pgType.oid, *pgRanges)
     }
 }

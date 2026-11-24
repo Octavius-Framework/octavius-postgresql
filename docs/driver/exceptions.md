@@ -401,8 +401,8 @@ characters.
 
 Raised wherever a value is converted, on either side of the wire, and `path` says where. It is printed outermost first —
 `PATH: consul -> province -> founded` — from the column, whichever route reached it, down to a container's own accessor;
-a record's fields and an array's elements give a position (`[0]`), a range's bounds `lower` and `upper`. Inside a
-[transaction plan](../client/plans.md) the plan's segments come first:
+a record's fields, an array's elements and a multirange's ranges give a position (`[0]`), a range's bounds `lower` and
+`upper`. Inside a [transaction plan](../client/plans.md) the plan's segments come first:
 `PATH: step 3 -> parameter 'amount' -> map #1 -> founded`. `COLUMN_NOT_FOUND` adds no segment, a lookup that found
 nothing not being a location; the name asked for is in the message.
 
