@@ -75,6 +75,10 @@
 - A failure converting a range bound, read or sent, has `lower` or `upper` on its path, under `[i]` for the range's
   position in a multirange. The path stopped at the column or the parameter.
 
+- A result converter that returns something other than the class asked for fails with
+  `MappingException(CONVERSION_ERROR)` naming it for an array element too, with the element's index on the path. The
+  element went into the list as it was, and the caller got a `ClassCastException` at the first read.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project

@@ -71,4 +71,27 @@ class GreedyConverterDiagnosticTest : AbstractIntegrationTest() {
             session.close()
         }
     }
+
+    @Test
+    fun `converter producing the wrong type for an array element fails naming it and the element`() {
+        openSession().use { session ->
+            val row = session.createNativeQuery("""SELECT ARRAY['{"legio":10}', '{"legio":12}']::jsonb[] AS dossiers""")
+                .registerResultConverter(GreedyDossierConverter())
+                .fetchRowStrict()
+
+            assertEquals(
+                listOf(Dossier("""{"legio": 10}"""), Dossier("""{"legio": 12}""")),
+                row.get<List<Dossier>>("dossiers")
+            )
+
+            val e = assertFailsWith<MappingException> { row.get<List<JsonObject>>("dossiers") }
+            assertEquals(MappingExceptionReason.CONVERSION_ERROR, e.reason)
+            assertEquals(listOf("dossiers", "[0]"), e.path.asReversed())
+
+            val message = e.getDetailedMessage()
+            assertTrue(message.contains("GreedyDossierConverter"), "Should name the converter: $message")
+            assertTrue(message.contains("Dossier"), "Should name what came back: $message")
+            assertTrue(message.contains("JsonObject"), "Should name what was expected: $message")
+        }
+    }
 }

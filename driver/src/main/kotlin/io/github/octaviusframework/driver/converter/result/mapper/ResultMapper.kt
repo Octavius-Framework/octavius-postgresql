@@ -36,6 +36,14 @@ internal class ResultMapper(
     }
 }
 
+/** The failure for [converter] having returned [converted] where [expectedType] was asked for. */
+internal fun wrongConverterResult(converter: ResultConverter<*, *>, converted: Any, expectedType: KType) = MappingException(
+    MappingExceptionReason.CONVERSION_ERROR,
+    details = "Converter ${converter::class.qualifiedName ?: converter::class} returned " +
+            "${converted::class.qualifiedName ?: converted::class} but $expectedType was expected. " +
+            "A converter whose canConvert() accepts more than it can produce is the usual cause."
+)
+
 internal class DefaultDeserializationContext(
     private val catalog: TypeCatalog,
     private val localConverters: List<ResultConverter<*, *>>?,
@@ -62,14 +70,7 @@ internal class DefaultDeserializationContext(
 
             // The cast below is erased; without this a wrong result surfaces as a ClassCastException in the
             // caller's frame, naming no converter.
-            if (kClass != null && !kClass.isInstance(converted)) {
-                throw MappingException(
-                    MappingExceptionReason.CONVERSION_ERROR,
-                    details = "Converter ${converter::class.qualifiedName ?: converter::class} returned " +
-                            "${converted::class.qualifiedName ?: converted::class} but $expectedType was expected. " +
-                            "A converter whose canConvert() accepts more than it can produce is the usual cause."
-                )
-            }
+            if (kClass != null && !kClass.isInstance(converted)) throw wrongConverterResult(converter, converted, expectedType)
 
             @Suppress("UNCHECKED_CAST")
             return converted as T
