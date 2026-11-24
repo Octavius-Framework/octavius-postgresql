@@ -190,7 +190,7 @@ internal object ScramSha256Authenticator {
     /** The client proof and expected server signature, as RFC 5802 computes them. */
     fun computeSignatures(password: String, salt: ByteArray, iterations: Int, clientFirstMessageBare: String, serverFirstMessage: String, clientFinalMessageWithoutProof: String): ScramResult {
         // 1. SaltedPassword = Hi(Normalize(password), salt, i)
-        val saltedPassword = pbkdf2(password, salt, iterations)
+        val saltedPassword = pbkdf2(SaslPrep.prepare(password), salt, iterations)
 
         // 2. ClientKey = HMAC(SaltedPassword, "Client Key")
         val clientKey = hmac(saltedPassword, "Client Key".toByteArray())

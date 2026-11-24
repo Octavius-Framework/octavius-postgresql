@@ -46,6 +46,15 @@
     `io.github.octaviusframework.driver.transaction.TransactionBlocks`, where it was
     `io.github.octaviusframework.driver.transaction.TransactionManager`.
 
+#### Fixed
+
+- A SCRAM login with a password that SASLprep changes now succeeds. That covers a non-ASCII space such as a
+  no-break space, a soft hyphen or another character SASLprep removes, and anything NFKC rewrites, such as a
+  ligature, a full-width letter or an accent typed as a combining mark. PostgreSQL derives the key it stores from
+  the SASLprep form of the password, while the driver derived its key from the password as given, so such a login
+  failed with `SERVER_REJECTED_CREDENTIALS`. A password SASLprep refuses is used as given, as the server does with
+  it.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project
