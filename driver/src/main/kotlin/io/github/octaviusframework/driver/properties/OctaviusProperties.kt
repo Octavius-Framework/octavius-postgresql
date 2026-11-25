@@ -6,6 +6,7 @@ import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.ssl.SslMode
+import io.github.octaviusframework.driver.ssl.SslNegotiation
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.*
@@ -97,6 +98,12 @@ class OctaviusProperties {
     /** How much protection the connection demands. Defaults to [SslMode.PREFER]. */
     var sslMode: SslMode? = null
 
+    /**
+     * How TLS is started. Defaults to [SslNegotiation.POSTGRES]; [SslNegotiation.DIRECT] needs [sslMode] at
+     * [SslMode.REQUIRE] or stronger.
+     */
+    var sslNegotiation: SslNegotiation? = null
+
     /** Path to the CA certificate the server is verified against. Defaults to the JVM's trust store. */
     var sslRootCert: String? = null
 
@@ -158,6 +165,7 @@ class OctaviusProperties {
             "logparametervalues" -> logParameterValues = booleanValue(key, value)
             "ssl" -> ssl = booleanValue(key, value)
             "sslmode" -> sslMode = SslMode.of(value)
+            "sslnegotiation" -> sslNegotiation = SslNegotiation.of(value)
             "sslrootcert" -> sslRootCert = value
             "sslcert" -> sslCert = value
             "sslkey" -> sslKey = value
@@ -204,6 +212,7 @@ class OctaviusProperties {
         other.logParameterValues?.let { logParameterValues = it }
         other.ssl?.let { ssl = it }
         other.sslMode?.let { sslMode = it }
+        other.sslNegotiation?.let { sslNegotiation = it }
         other.sslRootCert?.let { sslRootCert = it }
         other.sslCert?.let { sslCert = it }
         other.sslKey?.let { sslKey = it }
@@ -329,6 +338,7 @@ class OctaviusProperties {
         logParameterValues?.let { queryParams["logParameterValues"] = it.toString() }
         ssl?.let { queryParams["ssl"] = it.toString() }
         sslMode?.let { queryParams["sslmode"] = it.value }
+        sslNegotiation?.let { queryParams["sslnegotiation"] = it.value }
         sslRootCert?.let { queryParams["sslrootcert"] = it }
         sslCert?.let { queryParams["sslcert"] = it }
         sslKey?.let { queryParams["sslkey"] = it }

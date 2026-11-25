@@ -43,6 +43,23 @@ class SslTest {
     }
 
     @Test
+    fun `sslnegotiation=direct encrypts the connection`() {
+        val properties = OctaviusProperties().apply {
+            user = "postgres"
+            password = "1234"
+            sslMode = SslMode.REQUIRE
+            sslNegotiation = SslNegotiation.DIRECT
+        }
+
+        // PostgreSQL takes a direct handshake only with ALPN postgresql, and the driver takes it only if the
+        // server agrees to it, so a connection at all means both held.
+        getOctaviusSession(url, properties).use { session ->
+            val isSsl = session.createNativeQuery("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()").fetchFieldStrict<Boolean>()
+            assertTrue(isSsl, "Connection should be SSL encrypted with sslnegotiation=direct")
+        }
+    }
+
+    @Test
     fun `the handshake is not capped below the newest TLS version both ends offer`() {
         val properties = OctaviusProperties().apply {
             user = "postgres"

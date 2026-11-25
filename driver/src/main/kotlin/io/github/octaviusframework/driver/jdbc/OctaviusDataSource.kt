@@ -11,6 +11,7 @@ import io.github.octaviusframework.driver.properties.LoadBalanceHosts
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.properties.TargetSessionAttrs
 import io.github.octaviusframework.driver.ssl.SslMode
+import io.github.octaviusframework.driver.ssl.SslNegotiation
 import java.io.PrintWriter
 import java.sql.Connection
 import java.util.logging.Logger
@@ -80,6 +81,11 @@ class OctaviusDataSource : DataSource {
     var sslMode: SslMode?
         get() = octaviusProperties.sslMode
         set(value) { octaviusProperties.sslMode = value }
+
+    /** How TLS is started. Defaults to [SslNegotiation.POSTGRES]; [SslNegotiation.DIRECT] needs `REQUIRE` or stronger. */
+    var sslNegotiation: SslNegotiation?
+        get() = octaviusProperties.sslNegotiation
+        set(value) { octaviusProperties.sslNegotiation = value }
 
     /** Path to the CA certificate the server is verified against. Defaults to the JVM's trust store. */
     var sslRootCert: String?

@@ -44,7 +44,7 @@ val senators: List<Senator> = session
   [`UNNEST` inserts](../docs/driver/bulk-writes.md) that beat classic JDBC batching.
 - **Large Objects as a first-class API** — `lo` support without unwrapping to a vendor interface.
 - **TLS with the property names you already know** — the full `sslmode` ladder from `prefer` to `verify-full`,
-  client certificates and root CA included, with the handshake restricted to TLS 1.2 and 1.3.
+  client certificates and root CA included, `sslnegotiation=direct`, with the handshake restricted to TLS 1.2 and 1.3.
 - **Connection pool ready** — designed around HikariCP, with the Kotlin session API layered on top.
 
 ## Requirements

@@ -24,6 +24,14 @@
   something that is not a bearer token, which is then not sent. A class named in `oauthTokenProviderClassName` that
   cannot be loaded fails every login, those that ask for no token too.
 
+- `sslNegotiation = DIRECT`, `sslnegotiation=direct` in a URL, starts the TLS handshake as soon as the socket connects
+  instead of asking with an `SSLRequest` first, as libpq's option of that name does. That is a round trip less for every
+  connection and every cancel request, and a stream that a proxy routing TLS by SNI can pass on. The handshake offers
+  ALPN `postgresql` and fails with `SSL_ERROR` where the other end completes it without agreeing to it; after an
+  `SSLRequest` no ALPN is offered, as before. It needs `sslMode` of `REQUIRE` or stronger, and below that the connection
+  fails with `InvalidOperationException(INVALID_ARGUMENT)` before anything connects. A pooler or proxy that expects an
+  `SSLRequest` drops the handshake, which fails with `SSL_ERROR` pointing to `sslnegotiation=postgres`, the default.
+
 #### Changed
 
 - **[BREAKING]** `UNSUPPORTED_PASSWORD_ENCRYPTION` is renamed `WITHHELD_CREDENTIALS`, since it covers an OAuth token

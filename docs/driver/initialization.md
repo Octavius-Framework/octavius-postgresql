@@ -151,7 +151,8 @@ The name has to match an accessor on `OctaviusDataSource`, `sslMode` and not lib
 fails the pool at startup. Every property in the [configuration reference](#configuration-reference) takes a string
 there, except:
 
-* `sslMode`, `channelBinding`, `targetSessionAttrs`, `loadBalanceHosts`, `noticeHandler` and `oauthTokenProvider`.
+* `sslMode`, `sslNegotiation`, `channelBinding`, `targetSessionAttrs`, `loadBalanceHosts`, `noticeHandler` and
+  `oauthTokenProvider`.
   HikariCP hands them a string unconverted, which fails the pool with *"argument type mismatch"*; only the object itself
   goes through.
 * Startup parameters. They have no accessor, `application_name` aside.
@@ -547,15 +548,16 @@ and, for OAuth, where the token comes from.
 
 ### SSL
 
-| Property                         | Default                                | Meaning                                                                                      |
-|:---------------------------------|:---------------------------------------|:---------------------------------------------------------------------------------------------|
-| `sslMode` (or `sslmode`)         | `PREFER`, or `REQUIRE` if `ssl = true` | Negotiation mode; see the table below.                                                       |
-| `ssl`                            | unset                                  | Shorthand: `true` raises the default to `REQUIRE`. Ignored when `sslMode` is set explicitly. |
-| `sslRootCert` (or `sslrootcert`) | JVM default trust store                | Path to the root CA certificate. Optional — see the mode table below.                        |
-| `sslCert` (or `sslcert`)         | none                                   | Path to the client certificate. Needs `sslKey` too, or neither is used.                      |
-| `sslKey` (or `sslkey`)           | none                                   | Path to the client private key. PKCS#8 in PEM form, encrypted or not; RSA or EC.             |
-| `sslPassword` (or `sslpassword`) | none                                   | Decrypts `sslKey` when that key is encrypted; ignored when it is not.                        |
-| `channelBinding`                 | `PREFER`                               | How hard to insist on [channel binding](#channel-binding) for authentication.                |
+| Property                               | Default                                | Meaning                                                                                      |
+|:---------------------------------------|:---------------------------------------|:---------------------------------------------------------------------------------------------|
+| `sslMode` (or `sslmode`)               | `PREFER`, or `REQUIRE` if `ssl = true` | Negotiation mode; see the table below.                                                       |
+| `ssl`                                  | unset                                  | Shorthand: `true` raises the default to `REQUIRE`. Ignored when `sslMode` is set explicitly. |
+| `sslNegotiation` (or `sslnegotiation`) | `POSTGRES`                             | `DIRECT` starts the TLS handshake without asking first; see [Direct TLS](#direct-tls).       |
+| `sslRootCert` (or `sslrootcert`)       | JVM default trust store                | Path to the root CA certificate. Optional — see the mode table below.                        |
+| `sslCert` (or `sslcert`)               | none                                   | Path to the client certificate. Needs `sslKey` too, or neither is used.                      |
+| `sslKey` (or `sslkey`)                 | none                                   | Path to the client private key. PKCS#8 in PEM form, encrypted or not; RSA or EC.             |
+| `sslPassword` (or `sslpassword`)       | none                                   | Decrypts `sslKey` when that key is encrypted; ignored when it is not.                        |
+| `channelBinding`                       | `PREFER`                               | How hard to insist on [channel binding](#channel-binding) for authentication.                |
 
 The accessor is camelCase and libpq's all-lowercase spelling is accepted beside it, so a URL pasted from PostgreSQL's
 documentation, `?sslmode=verify-full&sslrootcert=/etc/ca.pem`, is read as written.
@@ -574,3 +576,20 @@ default, `PREFER`, accepts plaintext from a server without TLS; set `REQUIRE` or
 
 A [cancel request](queries.md#cancelling-a-query-in-flight) opens a second connection, and it negotiates under the same
 settings.
+
+#### Direct TLS
+
+Under the default, `POSTGRES`, the driver asks for TLS with an `SSLRequest` and starts the handshake once the server
+agrees. `DIRECT` starts the handshake as soon as the socket connects, as libpq's `sslnegotiation=direct` does. That is a
+round trip less for every connection opened, a cancel request's included, and the stream is TLS from its first byte, so
+a proxy that routes TLS by server name can pass it on without knowing PostgreSQL's protocol. A host name with a dot in
+it goes out as that name (SNI); `localhost` does not.
+
+* It needs `sslMode` of `REQUIRE` or stronger. Under `PREFER` or `DISABLE` the connection fails with
+  `InvalidOperationException(INVALID_ARGUMENT)` before anything connects, since a server that turned direct TLS away
+  could only be retried in plaintext.
+* The handshake offers ALPN `postgresql`, which PostgreSQL requires for it, and fails with `SSL_ERROR` if the other end
+  completes it without agreeing to `postgresql`: that is something in between terminating TLS. After an `SSLRequest`
+  the handshake offers no ALPN.
+* A pooler or proxy that expects an `SSLRequest` first drops a direct handshake, and the connection fails with
+  `SSL_ERROR`. Such a setup stays on `POSTGRES`.

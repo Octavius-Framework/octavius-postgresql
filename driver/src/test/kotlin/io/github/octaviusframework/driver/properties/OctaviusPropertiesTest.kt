@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.properties
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.ssl.SslMode
+import io.github.octaviusframework.driver.ssl.SslNegotiation
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -216,6 +217,16 @@ class OctaviusPropertiesTest {
     }
 
     @Test
+    fun `should read sslnegotiation and carry it through toUrl and copy`() {
+        val props = OctaviusProperties.parse("jdbc:octavius://localhost/res_publica?sslmode=require&sslnegotiation=direct")
+
+        assertEquals(SslNegotiation.DIRECT, props.sslNegotiation)
+        assertEquals(emptyMap<String, String>(), props.additionalProperties)
+        assertEquals(SslNegotiation.DIRECT, OctaviusProperties.parse(props.toUrl()).sslNegotiation)
+        assertEquals(SslNegotiation.DIRECT, props.copy().sslNegotiation)
+    }
+
+    @Test
     fun `toUrl should render a serverName it cannot read rather than refuse it`() {
         val props = OctaviusProperties().apply { serverName = "db1,,db2" }
 
@@ -376,6 +387,7 @@ class OctaviusPropertiesTest {
         // asking for a guarantee and silently connecting without it.
         val refused = listOf(
             "sslmode=verify-fll",
+            "sslnegotiation=directly",
             "channelBinding=requir",
             "ssl=yes",
             "port=abc",
