@@ -95,6 +95,15 @@
   does. It was let through with the version unknown, so a server older than PostgreSQL 18 behind a pooler or proxy that
   dropped the parameter got a connection.
 
+### Migrations
+
+#### Fixed
+
+- `migrate()` draws no notices from the server for its history table. Every start after the first logged an
+  "already exists, skipping" notice for the table's schema, the table and both its indexes, four lines at `info`
+  under `io.github.octaviusframework.driver.Notice`, and the first start on `public` logged the one for the schema.
+  The statements that create the table are sent with `client_min_messages` at `warning`, for that one query.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project

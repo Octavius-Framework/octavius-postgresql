@@ -25,6 +25,11 @@ internal class MigrationHistory(private val schema: String, private val table: S
     fun bootstrap(session: OctaviusSessionOperations) {
         session.createNativeQuery(
             """
+            -- Each statement here answers an object that is already there with an "already exists, skipping"
+            -- notice, which the driver would log on every start. In auto-commit this query is one implicit
+            -- transaction, so the setting ends with it.
+            SET LOCAL client_min_messages = warning;
+
             CREATE SCHEMA IF NOT EXISTS ${schema.quoteAsPgIdentifier()};
 
             CREATE TABLE IF NOT EXISTS $qualifiedName (
