@@ -33,6 +33,16 @@ runtimeOnly("ch.qos.logback:logback-classic:1.6.3")
 Spring Boot's `spring-boot-starter` already brings Logback, so an application built on
 [the Spring integration](spring-integration.md) has one.
 
+The logging calls go through [kotlin-logging](https://github.com/oshai/kotlin-logging), which prints one line to
+standard output when the first logger in the JVM is created, past SLF4J and whatever backend you configured:
+
+```
+kotlin-logging: initializing... active logger factory: Slf4jLoggerFactory
+```
+
+Where standard output is the program's result, as in a command-line tool, `-Dkotlin-logging.logStartupMessage=false`
+or the environment variable `KOTLIN_LOGGING_STARTUP_MESSAGE=false` turns it off; the property wins where both are set.
+
 ## Logger names
 
 Every name is the fully-qualified class it comes from, except `Notice`, which carries server notices under a name of
