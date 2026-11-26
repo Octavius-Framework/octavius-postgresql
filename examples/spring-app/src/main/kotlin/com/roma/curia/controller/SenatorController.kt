@@ -2,6 +2,7 @@ package com.roma.curia.controller
 
 import com.roma.curia.domain.Senator
 import io.github.octaviusframework.driver.spring.OctaviusTemplate
+import io.github.octaviusframework.driver.type.withPgType
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.*
 import kotlin.uuid.Uuid
@@ -20,13 +21,7 @@ class SenatorController(private val octaviusTemplate: OctaviusTemplate) {
                 VALUES (@cognomen, @magistracy, @family_seat, @country_estates, @dossier)
                 RETURNING *
             """
-            ).fetchObjectStrict<Senator>(
-                "cognomen" to senator.cognomen,
-                "magistracy" to senator.magistracy,
-                "family_seat" to senator.familySeat,
-                "country_estates" to senator.countryEstates,
-                "dossier" to senator.dossier
-            )
+            ).fetchObjectStrict<Senator>(insertParams(senator))
         }
     }
 
@@ -65,13 +60,7 @@ class SenatorController(private val octaviusTemplate: OctaviusTemplate) {
                 INSERT INTO senators (cognomen, magistracy, family_seat, country_estates, dossier)
                 VALUES (@cognomen, @magistracy, @family_seat, @country_estates, @dossier)
             """
-            ).executeUpdate(
-                "cognomen" to senator.cognomen,
-                "magistracy" to senator.magistracy,
-                "family_seat" to senator.familySeat,
-                "country_estates" to senator.countryEstates,
-                "dossier" to senator.dossier
-            )
+            ).executeUpdate(insertParams(senator))
         }
 
         throw RuntimeException("Intentional exception to trigger transaction rollback!")
@@ -87,15 +76,21 @@ class SenatorController(private val octaviusTemplate: OctaviusTemplate) {
                 VALUES (@cognomen, @magistracy, @family_seat, @country_estates, @dossier)
                 RETURNING *
             """
-            ).fetchRowStrict(
-                "cognomen" to senator.cognomen,
-                "magistracy" to senator.magistracy,
-                "family_seat" to senator.familySeat,
-                "country_estates" to senator.countryEstates,
-                "dossier" to senator.dossier
-            )
+            ).fetchRowStrict(insertParams(senator))
 
             senator
         }
     }
+
+    /**
+     * What each insert above binds. `country_estates` states its type because an empty list has no element
+     * to take one from, and would fail with `MappingException` instead of going in as `estate[]`.
+     */
+    private fun insertParams(senator: Senator): Map<String, Any?> = mapOf(
+        "cognomen" to senator.cognomen,
+        "magistracy" to senator.magistracy,
+        "family_seat" to senator.familySeat,
+        "country_estates" to senator.countryEstates.withPgType("estate", isArray = true),
+        "dossier" to senator.dossier
+    )
 }

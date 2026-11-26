@@ -25,7 +25,7 @@ import kotlin.test.assertNotNull
  * the transaction manager arrive from auto-configuration, the composites and the enum are registered
  * at runtime against OIDs that did not exist when the context started, and both deliberate failures
  * are decided by the server and translated on the way out. Compiling the example proves none of it,
- * so these four requests do - one per contract.
+ * so these requests do - one per contract.
  *
  * The schema is installed per test rather than once: [CuriaSchema.install] drops what it creates, so
  * every test gets an empty table and none of them has to pick a cognomen around the others. An
@@ -87,6 +87,21 @@ class CuriaApplicationTest {
             .returnResult().responseBody
 
         assertEquals(created, byId)
+    }
+
+    @Test
+    fun `a senator with no country estates goes in, the empty list sent with its array type stated`() {
+        // An empty list has no element to take a type from; without withPgType this is a MappingException
+        // and a 500
+        val sent = senator("Clodius").copy(countryEstates = emptyList())
+
+        val created = post("/senators", sent)
+            .expectStatus().isOk()
+            .expectBody(Senator::class.java)
+            .returnResult().responseBody
+
+        assertNotNull(created)
+        assertEquals(emptyList(), created.countryEstates)
     }
 
     @Test

@@ -17,7 +17,9 @@
 
 - `examples/spring-app` keeps senators instead of users: package `com.roma.curia`, a `senators` table under
   `/senators`, the composites `estate` and `dossier`, and the enum `magistracy`. What it demonstrates and what
-  its smoke test asserts are the same.
+  its smoke test asserts are the same. A README gives its endpoints and how to run it. `POST /senators`
+  takes an empty `countryEstates`, the list sent with `withPgType("estate", isArray = true)`, where an empty
+  list had no element to take its type from and came back as a 500.
 
 ### Driver
 
