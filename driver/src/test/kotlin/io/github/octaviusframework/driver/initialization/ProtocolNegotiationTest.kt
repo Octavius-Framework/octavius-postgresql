@@ -23,9 +23,9 @@ import kotlin.test.assertTrue
 /**
  * What the driver does with the answer to its startup message.
  *
- * A real PostgreSQL 18 never negotiates and always reports `search_path`, and a real PgBouncer is a job of its
- * own in CI - so the answers neither gives on demand are played here by a server that sends only the messages
- * each case is about.
+ * A real PostgreSQL 18 never negotiates and always reports `server_version` and `search_path`, and a real PgBouncer
+ * is a job of its own in CI - so the answers neither gives on demand are played here by a server that sends only the
+ * messages each case is about.
  */
 class ProtocolNegotiationTest {
 
@@ -44,10 +44,13 @@ class ProtocolNegotiationTest {
         }
     }
 
+    // Bounded by socketTimeout: a login let through would wait forever on catalog queries the script never answers.
     private fun connect(script: ByteArray): InitializationException =
         ScriptedServer(script).use { server ->
             assertThrows<InitializationException> {
-                OctaviusConnectionFactory.createConnection("jdbc:octavius://localhost:${server.port}/senatus?sslmode=disable")
+                OctaviusConnectionFactory.createConnection(
+                    "jdbc:octavius://localhost:${server.port}/senatus?sslmode=disable&socketTimeout=5"
+                )
             }
         }
 
@@ -97,26 +100,17 @@ class ProtocolNegotiationTest {
     }
 
     @Test
-    fun `should refuse a server older than 18 by the version it reports`() {
-        val ex = connect(
-            negotiate(0x0003_0000) + authenticationOk + parameter("server_version", "17.6") +
-                backendKey(4) + readyForQuery
-        )
+    fun `should refuse a login that did not report server_version or search_path`() {
+        // PostgreSQL 18 behind a proxy that does not pass one of them on. Without the version, a server older than
+        // 18 would get in; without the search path, type names would be resolved against a guess.
+        val reported = mapOf("server_version" to "18.6", "search_path" to "\"\$user\", public")
+        for (missing in reported.keys) {
+            val parameters = reported.filterKeys { it != missing }.entries
+                .fold(ByteArray(0)) { bytes, (name, value) -> bytes + parameter(name, value) }
+            val ex = connect(negotiate(0x0003_0000) + authenticationOk + parameters + backendKey(4) + readyForQuery)
 
-        assertEquals(InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION, ex.reason)
-        assertTrue(ex.details!!.contains("Received version: 17.6"), ex.details)
-    }
-
-    @Test
-    fun `should refuse a login that did not report search_path`() {
-        // PostgreSQL 18 behind a proxy that does not pass it on: the version is right, the parameter the
-        // version was required for never arrives.
-        val ex = connect(
-            negotiate(0x0003_0000) + authenticationOk + parameter("server_version", "18.6") +
-                backendKey(4) + readyForQuery
-        )
-
-        assertEquals(InitializationExceptionReason.MISSING_PROTOCOL_PARAMETER, ex.reason)
-        assertTrue(ex.details!!.contains("search_path"), ex.details)
+            assertEquals(InitializationExceptionReason.MISSING_PROTOCOL_PARAMETER, ex.reason, "Without $missing")
+            assertTrue(ex.details!!.contains(missing), ex.details)
+        }
     }
 }

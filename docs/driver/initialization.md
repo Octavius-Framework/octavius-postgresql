@@ -232,8 +232,8 @@ shutdown.
 
 **PostgreSQL 18 or newer is required, and the server is checked once the login succeeds.** An older one gets the
 connection closed and an `InitializationException(UNSUPPORTED_SERVER_VERSION)` naming the version received. So does a
-login that did not report `search_path`, with `MISSING_PROTOCOL_PARAMETER`: PostgreSQL 18 always reports it, so it is
-missing only when a pooler or a proxy in between did not pass it on. With [several servers](#several-servers) listed,
+login that did not report `server_version` or `search_path`, with `MISSING_PROTOCOL_PARAMETER`: PostgreSQL 18 always
+reports both, so one is missing only when a pooler or a proxy in between did not pass it on. With [several servers](#several-servers) listed,
 this is also where one that is not the kind `target_session_attrs` asks for is left for the next one.
 
 The first connection to a database also loads its type catalog; see

@@ -91,6 +91,10 @@
   gets the socket closed with nothing more sent. The driver sent a Terminate first, which the server read as a startup
   packet and logged as one of invalid length, once for every refused connection.
 
+- A login that does not report `server_version` fails with `MISSING_PROTOCOL_PARAMETER`, as one without `search_path`
+  does. It was let through with the version unknown, so a server older than PostgreSQL 18 behind a pooler or proxy that
+  dropped the parameter got a connection.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project

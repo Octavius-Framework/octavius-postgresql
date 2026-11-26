@@ -42,7 +42,7 @@ private const val CANNOT_CONNECT_NOW = "57P03"
 
 /**
  * Opens connections: picks a server among those listed, negotiates TLS, logs in, and refuses a server below
- * PostgreSQL 18 or one that does not report `search_path`.
+ * PostgreSQL 18 or one that does not report `server_version` or `search_path`.
  */
 internal object OctaviusConnectionFactory {
 
@@ -210,16 +210,24 @@ internal object OctaviusConnectionFactory {
             stream.networkTimeout = properties.socketTimeout?.let { it * 1000 } ?: 0
             properties.maxCachedRowSize?.let { stream.maxCachedRowSize = it }
 
+            // Without it the version would be guessed, and a server older than 18 let in.
             val serverVersion = stream.parameters["server_version"]
-            if (serverVersion != null) {
-                val majorVersion = serverVersion.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
-                if (majorVersion < 18) {
-                    stream.close()
-                    throw InitializationException(
-                        InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION,
-                        "Octavius Driver requires PostgreSQL database version 18 or higher. Received version: $serverVersion"
-                    )
-                }
+            if (serverVersion == null) {
+                stream.close()
+                throw InitializationException(
+                    InitializationExceptionReason.MISSING_PROTOCOL_PARAMETER,
+                    "The server did not report server_version at login, and PostgreSQL 18 or higher is required. " +
+                        "PostgreSQL reports it on every connection, so something in between is not passing it on - " +
+                        "a connection pooler or a proxy, most likely."
+                )
+            }
+            val majorVersion = serverVersion.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
+            if (majorVersion < 18) {
+                stream.close()
+                throw InitializationException(
+                    InitializationExceptionReason.UNSUPPORTED_SERVER_VERSION,
+                    "Octavius Driver requires PostgreSQL database version 18 or higher. Received version: $serverVersion"
+                )
             }
 
             // Type names resolve against the search path the server reports; without it they would be guessed.
@@ -264,7 +272,7 @@ internal object OctaviusConnectionFactory {
 
             logger.debug {
                 "[PID: ${stream.processId}] Connected to $server/$databaseName as '$user' " +
-                    "(PostgreSQL ${serverVersion ?: "unknown"}, " +
+                    "(PostgreSQL $serverVersion, " +
                     "${if (stream.isSecure) "TLS" else "plaintext"}, sslmode=${sslConfiguration.mode.value})"
             }
             return Attempt.Connected(connection)
