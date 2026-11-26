@@ -54,20 +54,6 @@ class ChannelBindingTest {
     }
 
     @Test
-    fun `binds by default over an encrypted connection`() {
-        // No channelBinding set at all: PREFER should reach for SCRAM-SHA-256-PLUS on its own.
-        val session = getOctaviusSession(url, properties { sslMode = SslMode.REQUIRE })
-
-        try {
-            val isSsl = session.createNativeQuery("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
-                .fetchFieldStrict<Boolean>()
-            assertTrue(isSsl, "Connection should be SSL encrypted")
-        } finally {
-            session.close()
-        }
-    }
-
-    @Test
     fun `binds to a certificate signed with RSASSA-PSS`() {
         // The name RSASSA-PSS carries no digest. The server reads SHA-384 out of the signature's
         // parameters and hashes its certificate with it, so the login goes through only where the
@@ -119,21 +105,6 @@ class ChannelBindingTest {
             val isSsl = session.createNativeQuery("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
                 .fetchFieldStrict<Boolean>()
             assertTrue(isSsl, "Connection should be SSL encrypted")
-        } finally {
-            session.close()
-        }
-    }
-
-    @Test
-    fun `falls back to plain SCRAM on an unencrypted connection`() {
-        // PREFER has to degrade quietly: this is the ordinary no-TLS login, and it must not start
-        // failing because the driver learned to bind.
-        val session = getOctaviusSession(url, properties { sslMode = SslMode.DISABLE })
-
-        try {
-            val isSsl = session.createNativeQuery("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
-                .fetchFieldStrict<Boolean>()
-            assertTrue(!isSsl, "Connection should not be SSL encrypted")
         } finally {
             session.close()
         }

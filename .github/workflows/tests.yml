@@ -163,7 +163,7 @@ jobs:
           SSL_KEY_EC: ${{ github.workspace }}/.ssl/client-ec.key
           SSL_KEY_ENCRYPTED: ${{ github.workspace }}/.ssl/client-enc.key
           SSL_KEY_PASSWORD: senatus
-        run: ./gradlew :driver:test --tests "*SslTest*" --tests "*ChannelBindingTest*"
+        run: ./gradlew :driver:test --tests "*SslTest*" --tests "*ChannelBindingTest*" --tests "*CleartextPasswordTest*"
 
   test-oauth:
     runs-on: ubuntu-latest

@@ -1,6 +1,5 @@
 package io.github.octaviusframework.driver.ssl
 
-import io.github.octaviusframework.driver.auth.ChannelBinding
 import io.github.octaviusframework.driver.exception.ExecutionAbortedException
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
@@ -128,14 +127,12 @@ class SslTest {
         val properties = OctaviusProperties().apply {
             user = "postgres"
             password = "1234"
-            ssl = true
             sslMode = SslMode.VERIFY_CA
-            // Not providing trust store or CA certs on purpose
+            // No sslrootcert, so the JVM's trust store decides, and it does not know the test CA.
         }
 
-        assertThrows<Exception>("Should throw because we haven't configured a valid CA certificate") {
-            getOctaviusSession(url, properties)
-        }
+        val exception = assertThrows<InitializationException> { getOctaviusSession(url, properties) }
+        assertEquals(InitializationExceptionReason.SSL_ERROR, exception.reason)
     }
 
     @Test
@@ -329,64 +326,6 @@ class SslTest {
             exception.details!!.contains("sslpassword"),
             "The failure should name the property that is missing, was: ${exception.details}"
         )
-    }
-
-    @Test
-    fun `a cleartext password goes out over TLS`() {
-        val properties = OctaviusProperties().apply {
-            user = "cleartext_user"
-            password = "senatus"
-            ssl = true
-            sslMode = SslMode.REQUIRE
-        }
-
-        // `password` in pg_hba is what ldap, pam and radius all reduce to on the wire, so this is
-        // the exchange those deployments need and the only one the driver sends a bare password on.
-        val session = getOctaviusSession(url, properties)
-
-        try {
-            val who = session.createNativeQuery("SELECT current_user").fetchFieldStrict<String>()
-            assertEquals("cleartext_user", who)
-        } finally {
-            session.close()
-        }
-    }
-
-    @Test
-    fun `a cleartext password is refused without TLS, and the refusal says to raise sslmode`() {
-        val properties = OctaviusProperties().apply {
-            user = "cleartext_user"
-            password = "senatus"
-            ssl = false
-            sslMode = SslMode.DISABLE
-        }
-
-        // The server offers the same exchange over a plaintext connection - there is a `host` rule
-        // for this role as well - and the driver is what refuses, not the server.
-        val exception = assertFailsWith<InitializationException> { getOctaviusSession(url, properties) }
-
-        assertEquals(InitializationExceptionReason.WITHHELD_CREDENTIALS, exception.reason)
-        assertTrue(
-            exception.details!!.contains("sslmode"),
-            "The failure should say what to raise, was: ${exception.details}"
-        )
-    }
-
-    @Test
-    fun `a cleartext password is refused under channelBinding=require`() {
-        val properties = OctaviusProperties().apply {
-            user = "cleartext_user"
-            password = "senatus"
-            ssl = true
-            sslMode = SslMode.REQUIRE
-            channelBinding = ChannelBinding.REQUIRE
-        }
-
-        // Encrypted, so the password could have gone out - but a cleartext exchange can never be
-        // bound to the channel, so the login is already lost and the credential stays home.
-        val exception = assertFailsWith<InitializationException> { getOctaviusSession(url, properties) }
-
-        assertEquals(InitializationExceptionReason.UNSUPPORTED_MECHANISM, exception.reason)
     }
 
     @Test
