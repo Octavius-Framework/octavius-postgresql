@@ -362,6 +362,37 @@ jobs:
           TEST_REPLICATION: "true"
         run: ./gradlew :driver:test --tests "*ReplicationTest*"
 
+  test-logical-replication:
+    runs-on: ubuntu-latest
+    # A logical slot needs wal_level = logical, and a service container cannot be given server options, so this
+    # server is started by hand.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Start a server with wal_level = logical
+        run: |
+          docker run -d --name postgres-logical -p 5432:5432 \
+            -e POSTGRES_PASSWORD=1234 -e POSTGRES_USER=postgres -e POSTGRES_DB=octavius_test \
+            postgres:18 -c wal_level=logical
+
+          until docker exec postgres-logical pg_isready -h localhost; do sleep 1; done
+
+      - name: Run Logical Replication Tests
+        env:
+          TEST_LOGICAL_REPLICATION: "true"
+        run: ./gradlew :driver:test --tests "io.github.octaviusframework.driver.replication.*"
+
   test-spring-example:
     runs-on: ubuntu-latest
     # `examples/spring-app` has a build of its own and is not part of the root one, so nothing

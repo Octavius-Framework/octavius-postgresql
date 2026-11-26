@@ -24,6 +24,23 @@
   something that is not a bearer token, which is then not sent. A class named in `oauthTokenProviderClassName` that
   cannot be loaded fails every login, those that ask for no token too.
 
+- `startLogical(url, properties, slot, …)` opens a logical replication connection of the stream's own, through the
+  same server selection, TLS and login as any other connection, and with no type catalog loaded on it. The stream
+  closes the connection when it ends, by `close()` or by the server, so no connection is left that PostgreSQL would
+  end a second stream on as soon as it starts (BUG #18754). The connection runs no SQL: publications are made, and
+  slots dropped, in an ordinary session. The role needs the `REPLICATION` attribute, and a logical slot needs a server
+  with `wal_level = logical`.
+
+- `startLogical(url, properties, slot, options, startLsn, statusInterval)` streams the changes of a logical slot as its
+  output plugin writes them, one `ReplicationData` (`lsn`, `sentAt`, `payload`) at a time, through `read()` or
+  `poll(timeout)`. Its slot is made in SQL. `acknowledge(lsn)` moves the slot's confirmed position, so a later stream
+  from the slot resumes after it. The stream reports its position every `statusInterval`, whether it is read or not,
+  and whenever the server asks while it is read, so `wal_sender_timeout` does not end it however long a reader takes
+  over a message. `close()` from another thread ends a `read()` waiting for data.
+
+- `PgLsn` is a position in the write-ahead log: `parse` reads it and `toString` writes it as the server does
+  (`16/B374D848`), and positions are ordered as unsigned.
+
 - `transaction.required` and `nested` take a `snapshot`: the name of one another transaction exported with
   `pg_export_snapshot()`, which the new transaction then reads the database as of. It goes out as `SET TRANSACTION
   SNAPSHOT` among the other terms, behind the `BEGIN`, and needs `isolation` `REPEATABLE_READ` or `SERIALIZABLE`;

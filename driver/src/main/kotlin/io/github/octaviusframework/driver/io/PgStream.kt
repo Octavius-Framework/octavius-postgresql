@@ -254,9 +254,13 @@ internal class PgStream(
         return receiveMessageInternal(isPolling = false)!!
     }
 
-    /** The next message, or `null` if none starts within the read timeout. */
-    fun pollMessage(): BackendMessage? {
-        return receiveMessageInternal(isPolling = true)
+    /**
+     * The next message, or `null` if none starts within [startWithinMs], or within [networkTimeout] for `0`. Only
+     * the wait for its first byte is bounded so; the rest is read under [networkTimeout], so a large message that
+     * arrives slowly is not cut off.
+     */
+    fun pollMessage(startWithinMs: Int): BackendMessage? {
+        return receiveMessageInternal(isPolling = true, startWithinMs = startWithinMs)
     }
 
     /**
@@ -286,15 +290,25 @@ internal class PgStream(
      *
      * @param isPolling Returns `null` on a read timeout before the message starts.
      * @param pendingOnly Returns `null` rather than wait for a message that has not started.
+     * @param startWithinMs Where positive, the read timeout while waiting for a message to start, and the socket's
+     *   own one for the rest of it.
      */
-    private fun receiveMessageInternal(isPolling: Boolean = false, pendingOnly: Boolean = false): BackendMessage? {
+    private fun receiveMessageInternal(
+        isPolling: Boolean = false,
+        pendingOnly: Boolean = false,
+        startWithinMs: Int = 0
+    ): BackendMessage? {
         var readingTag = true
+        var bodyTimeout = 0
         try {
+            if (startWithinMs > 0) bodyTimeout = socket.soTimeout
             while (true) {
                 if (pendingOnly && !inputStream.hasPending()) return null
                 readingTag = true
+                if (startWithinMs > 0) socket.soTimeout = startWithinMs
                 val tag = inputStream.readByte().toInt().toChar()
                 readingTag = false
+                if (startWithinMs > 0) socket.soTimeout = bodyTimeout
                 val length = inputStream.readInt()
                 val payloadLength = length - 4
 
@@ -468,6 +482,14 @@ internal class PgStream(
             }
         } catch (e: SocketTimeoutException) {
             if (isPolling && readingTag) {
+                if (startWithinMs > 0) {
+                    try {
+                        socket.soTimeout = bodyTimeout
+                    } catch (failed: SocketException) {
+                        isBroken = true
+                        throw NetworkException(NetworkExceptionReason.CONNECTION_ERROR, cause = failed)
+                    }
+                }
                 return null
             }
             isBroken = true

@@ -45,14 +45,12 @@ class NotificationManager internal constructor(private val session: OctaviusSess
             val context = currentCoroutineContext()
             connection.stream.lock.withLock {
                 connection.stream.checkAvailable()
-                val originalTimeout = connection.stream.networkTimeout
                 try {
-                    connection.stream.networkTimeout = pollTimeoutMs
                     logger.debug { "$pid Polling listener loop started (timeout ${pollTimeoutMs}ms)" }
 
                     while (context.isActive && !connection.isClosedFlag) {
                         try {
-                            connection.stream.pollMessage()
+                            connection.stream.pollMessage(pollTimeoutMs)
                         } catch (e: NetworkException) {
                             if (connection.isClosedFlag || !context.isActive) {
                                 // Connection closed explicitly or coroutine cancelled
@@ -64,11 +62,6 @@ class NotificationManager internal constructor(private val session: OctaviusSess
                         }
                     }
                 } finally {
-                    try {
-                        if (!connection.isClosedFlag) connection.stream.networkTimeout = originalTimeout
-                    } catch (e: Exception) {
-                        logger.trace(e) { "$pid Could not restore the network timeout; the connection is already gone" }
-                    }
                     logger.debug { "$pid Polling listener loop stopped" }
                 }
             }

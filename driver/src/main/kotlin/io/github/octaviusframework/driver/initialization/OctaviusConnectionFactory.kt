@@ -50,14 +50,19 @@ internal object OctaviusConnectionFactory {
     private class Failure(val where: String, val error: Throwable)
 
     /** How a try at one address ended, where it did not end the whole search. */
-    private sealed interface Attempt {
-        class Connected(val connection: Connection) : Attempt
+    private sealed interface Attempt<out T> {
+        class Connected<T>(val connection: T) : Attempt<T>
 
         /** Nothing answered at the address, or not in time. The server's next address may. */
-        class Unreachable(val failure: Failure) : Attempt
+        class Unreachable(val failure: Failure) : Attempt<Nothing>
 
         /** A server answered and is not one to use. Its other addresses lead to the same server. */
-        class Unsuitable(val failure: Failure) : Attempt
+        class Unsuitable(val failure: Failure) : Attempt<Nothing>
+    }
+
+    /** What a logged-in socket becomes: a connection of one kind, or the reason the server is not one to use. */
+    private fun interface Completion<T> {
+        fun complete(stream: PgStream, databaseKey: DatabaseKey, server: ServerAddress, where: String): Attempt<T>
     }
 
     /**
@@ -80,7 +85,23 @@ internal object OctaviusConnectionFactory {
      * @throws InitializationException if no connection could be opened: the failure that ended the search, or
      *   `CONNECTION_ERROR` listing every address tried.
      */
-    fun createConnection(properties: OctaviusProperties): Connection {
+    fun createConnection(properties: OctaviusProperties): Connection =
+        search(properties, emptyMap()) { stream, databaseKey, server, where ->
+            catalogConnection(properties, stream, databaseKey, server, where)
+        }
+
+    /**
+     * Opens a logical replication connection, chosen among the listed servers as [createConnection] chooses. The
+     * server answers it only through the simple query protocol, so it neither reads the type catalog nor asks a
+     * server which cluster it belongs to.
+     *
+     * @throws InitializationException if no connection could be opened.
+     */
+    fun createReplicationStream(properties: OctaviusProperties): PgStream =
+        search(properties, mapOf("replication" to "database")) { stream, _, _, _ -> Attempt.Connected(stream) }
+
+    /** The search [createConnection] describes, logging in with [startup] on top of the usual parameters. */
+    private fun <T> search(properties: OctaviusProperties, startup: Map<String, String>, completion: Completion<T>): T {
         val servers = properties.servers()
         val databaseKey = DatabaseKey(servers.toSet(), properties.databaseName ?: "postgres")
         val target = properties.targetSessionAttrs ?: TargetSessionAttrs.ANY
@@ -128,7 +149,7 @@ internal object OctaviusConnectionFactory {
                     val attempt = try {
                         attempt(
                             properties, sslConfiguration, noticeHandler, tokenProvider, databaseKey, server, address,
-                            wanted, target
+                            wanted, target, startup, completion
                         )
                     } catch (e: Exception) {
                         failures.forEach { e.addSuppressed(it.error) }
@@ -149,10 +170,11 @@ internal object OctaviusConnectionFactory {
     }
 
     /**
-     * Logs into [server] at [address] and makes a connection of it if it is the kind [wanted] asks for. [target] is
-     * what the configuration named, for the messages.
+     * Logs into [server] at [address] with [startup] on top of the usual parameters, and has [completion] make a
+     * connection of it if it is the kind [wanted] asks for. [target] is what the configuration named, for the
+     * messages.
      */
-    private fun attempt(
+    private fun <T> attempt(
         properties: OctaviusProperties,
         sslConfiguration: SslConfiguration,
         noticeHandler: NoticeHandler?,
@@ -161,8 +183,10 @@ internal object OctaviusConnectionFactory {
         server: ServerAddress,
         address: InetAddress,
         wanted: TargetSessionAttrs,
-        target: TargetSessionAttrs
-    ): Attempt {
+        target: TargetSessionAttrs,
+        startup: Map<String, String>,
+        completion: Completion<T>
+    ): Attempt<T> {
         val where = "$server (${address.hostAddress})"
         val databaseName = databaseKey.database
         val user = properties.user ?: "postgres"
@@ -195,6 +219,7 @@ internal object OctaviusConnectionFactory {
             // The typed property beats one in additionalProperties, which beats the driver's own name.
             properties.applicationName?.let { startupParams["application_name"] = it }
             startupParams.putIfAbsent("application_name", DEFAULT_APPLICATION_NAME)
+            startupParams.putAll(startup)
 
             stream.writeMessage(StartupMessage(startupParams))
             stream.flush()
@@ -243,37 +268,54 @@ internal object OctaviusConnectionFactory {
                 )
             }
 
-            val connection = OctaviusConnection(
-                stream,
-                databaseKey,
-                properties.maxParameterWriterCapacity,
-                properties.initialParameterWriterCapacity,
-                properties.logParameterValues ?: false
-            )
-
-            foreignCluster(connection, databaseKey, server)?.let { reason ->
-                // Warned about: a server listed for a database it does not hold is a configuration to fix.
-                logger.warn { "$server $reason" }
-                stream.close()
-                return Attempt.Unsuitable(
-                    Failure(where, InitializationException(InitializationExceptionReason.CONNECTION_ERROR, "$server $reason"))
-                )
+            val attempt = completion.complete(stream, databaseKey, server, where)
+            if (attempt is Attempt.Connected) {
+                logger.debug {
+                    "[PID: ${stream.processId}] Connected to $server/$databaseName as '$user' " +
+                        "(PostgreSQL ${serverVersion ?: "unknown"}, " +
+                        "${if (stream.isSecure) "TLS" else "plaintext"}, sslmode=${sslConfiguration.mode.value}" +
+                        "${if (startup.containsKey("replication")) ", replication" else ""})"
+                }
             }
-
-            GlobalCatalogStore.ensureLoaded(databaseKey, connection.catalogHolder, connection.queryExecutor)
-
-            logger.debug {
-                "[PID: ${stream.processId}] Connected to $server/$databaseName as '$user' " +
-                    "(PostgreSQL ${serverVersion ?: "unknown"}, " +
-                    "${if (stream.isSecure) "TLS" else "plaintext"}, sslmode=${sslConfiguration.mode.value})"
-            }
-            return Attempt.Connected(connection)
+            return attempt
         } catch (e: Throwable) {
             stream.dropSocket()
             if (e.timedOut()) return Attempt.Unreachable(Failure(where, e))
             if ((e as? OctaviusException)?.sqlState == CANNOT_CONNECT_NOW) return Attempt.Unsuitable(Failure(where, e))
             throw e
         }
+    }
+
+    /**
+     * Makes a session's connection of [stream]: refuses a server of another cluster than the catalog's, and reads the
+     * catalog if no connection has yet.
+     */
+    private fun catalogConnection(
+        properties: OctaviusProperties,
+        stream: PgStream,
+        databaseKey: DatabaseKey,
+        server: ServerAddress,
+        where: String
+    ): Attempt<Connection> {
+        val connection = OctaviusConnection(
+            stream,
+            databaseKey,
+            properties.maxParameterWriterCapacity,
+            properties.initialParameterWriterCapacity,
+            properties.logParameterValues ?: false
+        )
+
+        foreignCluster(connection, databaseKey, server)?.let { reason ->
+            // Warned about: a server listed for a database it does not hold is a configuration to fix.
+            logger.warn { "$server $reason" }
+            stream.close()
+            return Attempt.Unsuitable(
+                Failure(where, InitializationException(InitializationExceptionReason.CONNECTION_ERROR, "$server $reason"))
+            )
+        }
+
+        GlobalCatalogStore.ensureLoaded(databaseKey, connection.catalogHolder, connection.queryExecutor)
+        return Attempt.Connected(connection)
     }
 
     /** Why the server [stream] logged into is not the kind [wanted] asks for, or `null`; read from the login. */

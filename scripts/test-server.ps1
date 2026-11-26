@@ -20,6 +20,9 @@
     in 29992a6a5, because walreceivers then missed the FD_CLOSE of a graceful close and hung. a8458f508 has since
     fixed those lost events, but the revert still stands and no release has the fix.
 
+    -LogicalReplication creates the instance with wal_level = logical, which a logical replication slot needs and
+    the everyday server does not have, and the instructions then set TEST_LOGICAL_REPLICATION as well.
+
 .PARAMETER Action
     start   Create the instance if needed, then start it and report how to run the suite against it.
     stop    Stop the server, keeping the instance for next time.
@@ -40,6 +43,10 @@
     Marks a build that closes its sockets gracefully on Windows. Given when the instance is created, and
     remembered after that.
 
+.PARAMETER LogicalReplication
+    Creates the instance with wal_level = logical, for the logical replication tests. Given when the instance is
+    created, and remembered after that.
+
 .PARAMETER Password
     Password for the `postgres` role. Defaults to the one the tests use.
 
@@ -48,6 +55,9 @@
 
 .EXAMPLE
     .\scripts\test-server.ps1 start graceful -Bin D:\postgresql\b\tmp_install\usr\local\pgsql\bin -GracefulClose
+
+.EXAMPLE
+    .\scripts\test-server.ps1 start logical -Bin "C:\Program Files\PostgreSQL\18\bin" -Port 5436 -LogicalReplication
 
 .EXAMPLE
     .\scripts\test-server.ps1 status
@@ -70,6 +80,8 @@ param(
     [int]$Port = 5434,
 
     [switch]$GracefulClose,
+
+    [switch]$LogicalReplication,
 
     [string]$Password = '1234'
 )
@@ -94,6 +106,7 @@ function Get-Instance {
         Record   = Join-Path $dir 'instance.txt'
         Port     = $Port
         Graceful = [bool]$GracefulClose
+        Logical  = [bool]$LogicalReplication
         Source   = $null
     }
     if (Test-Path $instance.Record) {
@@ -102,6 +115,7 @@ function Get-Instance {
             switch ($key) {
                 'port'     { $instance.Port = [int]$value }
                 'graceful' { $instance.Graceful = $value -eq 'true' }
+                'logical'  { $instance.Logical = $value -eq 'true' }
                 'source'   { $instance.Source = $value }
             }
         }
@@ -177,10 +191,14 @@ function New-Instance {
 port = $($Instance.Port)
 listen_addresses = 'localhost'
 "@
+    if ($Instance.Logical) {
+        Add-Content -Path (Join-Path $Instance.Data 'postgresql.conf') -Value "wal_level = logical"
+    }
 
     Set-Content -Path $Instance.Record -Value @(
         "port=$($Instance.Port)",
         "graceful=$(if ($Instance.Graceful) { 'true' } else { 'false' })",
+        "logical=$(if ($Instance.Logical) { 'true' } else { 'false' })",
         "source=$Bin"
     )
     $Instance.Source = $Bin
@@ -236,6 +254,10 @@ function Write-TestInstructions {
         Write-Host "  `$env:TEST_GRACEFUL_CLOSE = `"true`""
         $variables += 'Env:TEST_GRACEFUL_CLOSE'
     }
+    if ($Instance.Logical) {
+        Write-Host "  `$env:TEST_LOGICAL_REPLICATION = `"true`""
+        $variables += 'Env:TEST_LOGICAL_REPLICATION'
+    }
     Write-Host "  .\gradlew.bat test"
     Write-Host ""
     Write-Host "And when you are done, so it is not left running:"
@@ -260,8 +282,9 @@ function Write-Status {
     param($Instance)
 
     $graceful = if ($Instance.Graceful) { ', graceful close' } else { '' }
+    $logical = if ($Instance.Logical) { ', wal_level = logical' } else { '' }
     $state = if (Test-Running $Instance) { 'running' } else { 'stopped' }
-    Write-Host "$($Instance.Name): $state on port $($Instance.Port)$graceful - from $($Instance.Source)"
+    Write-Host "$($Instance.Name): $state on port $($Instance.Port)$graceful$logical - from $($Instance.Source)"
 }
 
 if (-not $Name -and $Action -ne 'status') {
@@ -273,9 +296,9 @@ switch ($Action) {
         $instance = Get-Instance $Name
         if (-not (Test-Path $instance.Data)) {
             New-Instance $instance
-        } elseif ($Bin -or $PSBoundParameters.ContainsKey('Port') -or $GracefulClose) {
-            Write-Warning ("'$Name' already exists and keeps what it was created with; -Bin, -Port and " +
-                "-GracefulClose apply only to a new instance. Remove it first to make it anew.")
+        } elseif ($Bin -or $PSBoundParameters.ContainsKey('Port') -or $GracefulClose -or $LogicalReplication) {
+            Write-Warning ("'$Name' already exists and keeps what it was created with; -Bin, -Port, " +
+                "-GracefulClose and -LogicalReplication apply only to a new instance. Remove it first to make it anew.")
         }
         Start-Instance $instance
         Write-TestInstructions $instance
