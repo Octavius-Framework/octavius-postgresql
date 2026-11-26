@@ -48,8 +48,9 @@ none has to present itself by name, the surveyor keeps the boundary stones and t
 the codex is the text every province reads, and the treaty sets the terms a foreign power works under.
 
 Not published: `hikari-integration-tests` (integration tests against a real pool), `benchmarks` (JMH against
-`pgjdbc`), and `examples/spring-app` (a runnable sample, its own build pulling the driver in through
-`includeBuild`).
+`pgjdbc`), and two runnable samples, each its own build pulling the libraries in through `includeBuild`:
+`examples/spring-app` (the driver under Spring Boot) and `examples/console-app` (a command-line application on
+the client, the scanner and the migrator).
 
 ## Coordinates
 

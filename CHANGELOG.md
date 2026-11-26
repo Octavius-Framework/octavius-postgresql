@@ -7,6 +7,11 @@
 - Every page of the API reference has a house icon in its header that leads back to the landing page, where
   the release and the snapshot reference are chosen. Before, the only way back was the browser's history.
   The link is Dokka's `homepageLink`, set for the root and every module.
+- `examples/console-app` is a command-line application on the client, the scanner and the migrator, with no
+  framework around them: a census that enrols a father and his sons as one transaction plan, lists citizens
+  through filters that drop out when not given, and marks them with notae of two shapes in one `dynamic_dto`
+  column. Its smoke test runs the installed distribution, so the migrations and the annotated classes are
+  found inside the application's jar, and CI runs it in a job of its own.
 
 ### Driver
 
