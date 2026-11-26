@@ -14,11 +14,14 @@ import kotlin.time.Duration
  * statement_timeout`. `null` leaves the server's setting.
  * @property transactionTimeout Aborts the transaction once it has been open longer than this, as `SET LOCAL
  * transaction_timeout`. `null` leaves the server's setting.
+ * @property snapshot A snapshot another transaction exported with `pg_export_snapshot()`, which this one reads the
+ * database as of, as `SET TRANSACTION SNAPSHOT`. It needs [isolation] `REPEATABLE_READ` or `SERIALIZABLE`.
  */
 data class TransactionDefinition(
     val propagation: TransactionPropagation = TransactionPropagation.REQUIRED,
     val isolation: TransactionIsolationLevel? = null,
     val readOnly: Boolean = false,
     val statementTimeout: Duration? = null,
-    val transactionTimeout: Duration? = null
+    val transactionTimeout: Duration? = null,
+    val snapshot: String? = null
 )

@@ -126,7 +126,7 @@ level is the design rather than an accident, so it is the one place to size a po
 `NESTED` is still the same transaction and the same connection, so the outer one failing later discards this
 work anyway.
 
-## Isolation, Read-Only and Timeouts
+## Isolation, Read-Only, Timeouts and a Snapshot
 
 ```kotlin
 db.transaction(
@@ -137,22 +137,32 @@ db.transaction(
 ) { … }
 ```
 
-**All four apply only where this call actually starts a transaction.** Joining one that is already running
+**All five apply only where this call actually starts a transaction.** Joining one that is already running
 cannot change the level it began at, and a timeout applied to somebody else's transaction would stand over the
 rest of it after this block returned — so under `REQUIRED` inside an existing transaction, and under `NESTED`
 on its savepoint path, they are ignored and a warning says which ones were dropped. `REQUIRES_NEW` is what to
 reach for where the terms have to hold. A `db.transaction { }` written inside a `db.execute { }` *is* starting
 one — `execute` binds a session, not a transaction — so there its terms apply in full.
 
-**All four are scoped to the transaction and travel right behind the `BEGIN`**, which goes out with the
-block's first statement: `SET TRANSACTION` for isolation and `readOnly`, `SET LOCAL` for the timeouts, at no
-round trip of their own. Nothing is left on the connection when the transaction ends, so nothing follows it
+**All five are scoped to the transaction and travel right behind the `BEGIN`**, which goes out with the
+block's first statement: `SET TRANSACTION` for isolation, `readOnly` and a snapshot, `SET LOCAL` for the
+timeouts, at no round trip of their own. Nothing is left on the connection when the transaction ends, so nothing follows it
 back into the pool.
 `statementTimeout` bounds any one statement; `transactionTimeout` bounds how long the whole thing may stay
 open. They fail differently: a statement past `statementTimeout` is cancelled and the session goes on, while
 `transactionTimeout` running out ends the session, connection and all — see
 [Terms for one transaction](../driver/transactions.md#terms-for-one-transaction). `null` leaves the server's own
 setting alone, and asking for none of them sends nothing at all.
+
+**`snapshot` has the transaction read the database as another one saw it.** It takes the name a transaction
+exported with `pg_export_snapshot()`, which works while that transaction is open, and needs `isolation`
+`REPEATABLE_READ` or `SERIALIZABLE`:
+
+```kotlin
+db.transaction(isolation = TransactionIsolationLevel.REPEATABLE_READ, readOnly = true, snapshot = exported) {
+    rawQuery("SELECT count(*) FROM senators").fetchFieldStrict<Long>()
+}
+```
 
 The rule and the warning both live in the driver's `TransactionBlocks`, which this delegates to — see
 [Terms for one transaction](../driver/transactions.md#terms-for-one-transaction).
@@ -272,7 +282,7 @@ interface SessionProvider : AutoCloseable {
 deciding when transactions begin and end.
 
 Where a framework owns transactions itself, implement this against it and pass it to
-`OctaviusClient.fromSessionProvider` — otherwise the two will each open one. For Spring that is under thirty
+`OctaviusClient.fromSessionProvider` — otherwise the two will each open one. For Spring that is some thirty-five
 lines over the driver's existing `OctaviusTemplate` and a `PlatformTransactionManager`:
 
 ```kotlin
@@ -293,7 +303,8 @@ class SpringSessionProvider(
             definition.isolation?.let { isolationLevel = it.jdbcValue }
             isReadOnly = definition.readOnly
         }
-        val timeouts = listOfNotNull(
+        val terms = listOfNotNull(
+            definition.snapshot?.let { "SET TRANSACTION SNAPSHOT '${it.replace("'", "''")}'" },
             definition.statementTimeout?.let { "SET LOCAL statement_timeout = ${it.inWholeMilliseconds}" },
             definition.transactionTimeout?.let {
                 "SET LOCAL transaction_timeout = 0; SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}"
@@ -301,8 +312,8 @@ class SpringSessionProvider(
         )
 
         return TransactionTemplate(transactionManager, spring).execute { status ->
-            if (status.isNewTransaction && timeouts.isNotEmpty()) {
-                template.execute { createNativeQuery(timeouts.joinToString("; ")).execute() }
+            if (status.isNewTransaction && terms.isNotEmpty()) {
+                template.execute { createNativeQuery(terms.joinToString("; ")).execute() }
             }
             block()
         }
@@ -315,12 +326,14 @@ and isolation maps straight across because `TransactionIsolationLevel.jdbcValue`
 constant. Failures need nothing either: the template and the transaction manager hand on the driver's own
 exceptions, which is what the client tells a failure it returns from one it throws by — see
 [Thrown or Returned](#thrown-or-returned) — so `asResult()`, `dbResult`, `transactionResult` and plans behave under
-Spring as they do without it. What is not delegation is the timeouts: Spring has one where the client has two, and
-`OctaviusJdbcTransactionManager` sends Spring's as whichever of the two settings its `timeoutScope` names — so the
-client's pair, which a Spring definition has no room for, are yours to issue as `SET LOCAL`s, and they account for
-about a third of the class. They go in one statement for the same reason the driver's own `required` sends them
+Spring as they do without it. What is not delegation is the timeouts and the snapshot: Spring has one timeout where
+the client has two, and `OctaviusJdbcTransactionManager` sends Spring's as whichever of the two settings its
+`timeoutScope` names — so the client's pair, which a Spring definition has no room for, are yours to issue as
+`SET LOCAL`s. A Spring definition has no room for a snapshot either, so it goes with them as `SET TRANSACTION
+SNAPSHOT`, before the block has read anything, which is when PostgreSQL takes one. Together they account for about
+a third of the class. They go in one statement for the same reason the driver's own `required` sends them
 that way: a script separated by `;` is one round trip, and there is nothing here to bind. And they go only where
-`isNewTransaction` says this call began the transaction — [the rule above](#isolation-read-only-and-timeouts):
+`isNewTransaction` says this call began the transaction — [the rule above](#isolation-read-only-timeouts-and-a-snapshot):
 joined, or under a savepoint, a `SET LOCAL` would stand over the rest of the outer transaction.
 
 `transaction_timeout` goes out as `0` first. PostgreSQL starts a transaction's clock with the value in force when

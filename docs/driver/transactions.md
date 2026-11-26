@@ -40,8 +40,8 @@ session.transaction.required {
 }
 ```
 
-Both blocks also take the terms the transaction runs under — isolation, read-only, and the two timeouts. See
-[Terms for one transaction](#terms-for-one-transaction).
+Both blocks also take the terms the transaction runs under — isolation, read-only, the two timeouts and a
+snapshot. See [Terms for one transaction](#terms-for-one-transaction).
 
 ### `nested { ... }`
 
@@ -193,9 +193,9 @@ session.transaction.required(
 }
 ```
 
-Whatever of the four is asked for travels **right behind the `BEGIN`**, so it costs no round trip of its
-own: `SET TRANSACTION` for the isolation level and the read-only flag, `SET LOCAL` for the timeouts. Ask for
-none of them — the default — and the `BEGIN` goes alone.
+Whatever of them is asked for travels **right behind the `BEGIN`**, so it costs no round trip of its
+own: `SET TRANSACTION` for the isolation level, the read-only flag and a snapshot, `SET LOCAL` for the
+timeouts. Ask for none of them — the default — and the `BEGIN` goes alone.
 
 The `BEGIN` goes out with the block's first statement, and so do the terms. A term the server refuses — a
 `statementTimeout` longer than PostgreSQL accepts, `SERIALIZABLE` on a hot standby — fails that statement, and
@@ -213,13 +213,30 @@ fires. See [Error Handling](exceptions.md#8-sessionterminatedexception). A `tran
 `transaction_timeout` the server would start the transaction with — set for the database, the role or the
 session — whether it is shorter or longer.
 
-All four end when the transaction ends. That is the difference from the session properties in the next
+**`snapshot` has the transaction read the database as another one saw it.** It takes the name a transaction
+exported with `pg_export_snapshot()`, and goes out as `SET TRANSACTION SNAPSHOT` behind the isolation level:
+
+```kotlin
+session.transaction.required(
+    isolation = TransactionIsolationLevel.REPEATABLE_READ,
+    readOnly = true,
+    snapshot = exported
+) {
+    createNativeQuery("SELECT count(*) FROM senators").fetchFieldStrict<Long>()
+}
+```
+
+PostgreSQL takes a snapshot only into a `REPEATABLE_READ` or `SERIALIZABLE` transaction, so ask for one of them
+alongside; under the session's `READ COMMITTED` the first statement fails. The name works while the transaction
+that exported it is open; after that the server answers that the snapshot does not exist.
+
+All of them end when the transaction ends. That is the difference from the session properties in the next
 section, and it is the reason to prefer this form: nothing is left on the connection, so there is nothing for
 a pool to clean up and nothing for the next borrower to inherit. The other side of it is that
 `session.transactionIsolationLevel` reads the *session*, so it will answer `READ_COMMITTED` while a
 `SERIALIZABLE` block is running — correctly, since that is what the session is on.
 
-**Where a transaction is already running, none of the four applies and a warning says so.** Isolation and
+**Where a transaction is already running, none of them applies and a warning says so.** Isolation and
 read-only cannot be changed once a transaction has begun, and a timeout would be worse than ignored: `SET
 LOCAL` binds to the transaction rather than to the block, so it would quietly stand over the rest of the outer
 transaction after the inner block returned. The same holds for `nested` on its savepoint path — a savepoint is

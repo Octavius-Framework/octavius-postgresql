@@ -29,16 +29,19 @@ class TransactionBlocks internal constructor(
      * @param isolation `null` for the session's.
      * @param statementTimeout Aborts any single statement running longer than this.
      * @param transactionTimeout Aborts the transaction once it has been open longer than this.
+     * @param snapshot A snapshot another transaction exported, which this one then reads the database as of. It
+     *   needs [isolation] `REPEATABLE_READ` or `SERIALIZABLE`.
      */
     inline fun <T> required(
         isolation: TransactionIsolationLevel? = null,
         readOnly: Boolean = false,
         statementTimeout: Duration? = null,
         transactionTimeout: Duration? = null,
+        snapshot: String? = null,
         crossinline block: OctaviusSessionOperations.() -> T
     ): T {
         if (!session.autoCommit) {
-            warnSettingsIgnored(isolation, readOnly, statementTimeout, transactionTimeout, "a transaction that is already running")
+            warnSettingsIgnored(isolation, readOnly, statementTimeout, transactionTimeout, snapshot, "a transaction that is already running")
             return session.block()
         }
 
@@ -46,7 +49,7 @@ class TransactionBlocks internal constructor(
         var failure: Throwable? = null
         try {
             // Inside the try: after a hand-written BEGIN the terms go out here, and a refusal has to roll back.
-            applySettings(isolation, readOnly, statementTimeout, transactionTimeout)
+            applySettings(isolation, readOnly, statementTimeout, transactionTimeout, snapshot)
             val result = session.block()
             session.commit()
             return result
@@ -73,10 +76,11 @@ class TransactionBlocks internal constructor(
         readOnly: Boolean = false,
         statementTimeout: Duration? = null,
         transactionTimeout: Duration? = null,
+        snapshot: String? = null,
         crossinline block: OctaviusSessionOperations.() -> T
     ): T {
         if (!session.autoCommit) {
-            warnSettingsIgnored(isolation, readOnly, statementTimeout, transactionTimeout, "a savepoint")
+            warnSettingsIgnored(isolation, readOnly, statementTimeout, transactionTimeout, snapshot, "a savepoint")
             val sp = session.setSavepoint()
             try {
                 val result = session.block()
@@ -92,7 +96,7 @@ class TransactionBlocks internal constructor(
             }
         }
 
-        return required(isolation, readOnly, statementTimeout, transactionTimeout, block)
+        return required(isolation, readOnly, statementTimeout, transactionTimeout, snapshot, block)
     }
 
     /**
@@ -104,9 +108,10 @@ class TransactionBlocks internal constructor(
         isolation: TransactionIsolationLevel?,
         readOnly: Boolean,
         statementTimeout: Duration?,
-        transactionTimeout: Duration?
+        transactionTimeout: Duration?,
+        snapshot: String?
     ) {
-        if (isolation == null && !readOnly && statementTimeout == null && transactionTimeout == null) return
+        if (isolation == null && !readOnly && statementTimeout == null && transactionTimeout == null && snapshot == null) return
 
         val statements = buildList {
             if (isolation != null || readOnly) {
@@ -118,6 +123,8 @@ class TransactionBlocks internal constructor(
                     }
                 )
             }
+            // After the isolation level, which the import is checked against.
+            snapshot?.let { add("SET TRANSACTION SNAPSHOT '${it.replace("'", "''")}'") }
             statementTimeout?.let { add("SET LOCAL statement_timeout = ${it.inWholeMilliseconds}") }
             // A running transaction_timeout clock ignores a new value; 0 stops it and the value starts it again.
             transactionTimeout?.let {
@@ -142,12 +149,14 @@ class TransactionBlocks internal constructor(
         readOnly: Boolean,
         statementTimeout: Duration?,
         transactionTimeout: Duration?,
+        snapshot: String?,
         scope: String
     ) {
-        if (isolation == null && !readOnly && statementTimeout == null && transactionTimeout == null) return
+        if (isolation == null && !readOnly && statementTimeout == null && transactionTimeout == null && snapshot == null) return
         logger.warn {
-            "Entering $scope, so isolation=$isolation, readOnly=$readOnly, statementTimeout=$statementTimeout " +
-                "and transactionTimeout=$transactionTimeout are ignored; the terms already in force stand. " +
+            "Entering $scope, so isolation=$isolation, readOnly=$readOnly, statementTimeout=$statementTimeout, " +
+                "transactionTimeout=$transactionTimeout and snapshot=$snapshot are ignored; the terms already in " +
+                "force stand. " +
                 "A block that needs its own terms needs its own transaction."
         }
     }

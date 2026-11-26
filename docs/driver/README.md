@@ -73,7 +73,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Manual Control](transactions.md#manual-control) — `begin()`, `commit()`, `rollback()`
 - [Savepoints](transactions.md#savepoints) — Partial rollback inside a transaction
 - [Transaction State](transactions.md#transaction-state) — Inspecting where the session stands
-- [Terms for One Transaction](transactions.md#terms-for-one-transaction) — Isolation, read-only and both timeouts, scoped to the block and sent in one round trip
+- [Terms for One Transaction](transactions.md#terms-for-one-transaction) — Isolation, read-only, both timeouts and an exported snapshot, scoped to the block and sent in one round trip
 - [Isolation Levels and Read-Only Mode](transactions.md#isolation-levels-and-read-only-mode) — The session-wide door, and what a pool does about it
 
 ### Type System

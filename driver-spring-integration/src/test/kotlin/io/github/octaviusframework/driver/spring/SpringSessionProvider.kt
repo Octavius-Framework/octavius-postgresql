@@ -31,7 +31,8 @@ class SpringSessionProvider(
             definition.isolation?.let { isolationLevel = it.jdbcValue }
             isReadOnly = definition.readOnly
         }
-        val timeouts = listOfNotNull(
+        val terms = listOfNotNull(
+            definition.snapshot?.let { "SET TRANSACTION SNAPSHOT '${it.replace("'", "''")}'" },
             definition.statementTimeout?.let { "SET LOCAL statement_timeout = ${it.inWholeMilliseconds}" },
             definition.transactionTimeout?.let {
                 "SET LOCAL transaction_timeout = 0; SET LOCAL transaction_timeout = ${it.inWholeMilliseconds}"
@@ -39,8 +40,8 @@ class SpringSessionProvider(
         )
 
         return TransactionTemplate(transactionManager, spring).execute { status ->
-            if (status.isNewTransaction && timeouts.isNotEmpty()) {
-                template.execute { createNativeQuery(timeouts.joinToString("; ")).execute() }
+            if (status.isNewTransaction && terms.isNotEmpty()) {
+                template.execute { createNativeQuery(terms.joinToString("; ")).execute() }
             }
             block()
         }

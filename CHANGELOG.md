@@ -24,6 +24,11 @@
   something that is not a bearer token, which is then not sent. A class named in `oauthTokenProviderClassName` that
   cannot be loaded fails every login, those that ask for no token too.
 
+- `transaction.required` and `nested` take a `snapshot`: the name of one another transaction exported with
+  `pg_export_snapshot()`, which the new transaction then reads the database as of. It goes out as `SET TRANSACTION
+  SNAPSHOT` among the other terms, behind the `BEGIN`, and needs `isolation` `REPEATABLE_READ` or `SERIALIZABLE`;
+  under `READ COMMITTED` the first statement fails.
+
 #### Changed
 
 - **[BREAKING]** `UNSUPPORTED_PASSWORD_ENCRYPTION` is renamed `WITHHELD_CREDENTIALS`, since it covers an OAuth token
@@ -45,6 +50,17 @@
   - Auto-commit left unrestored after a block committed:
     `io.github.octaviusframework.driver.transaction.TransactionBlocks`, where it was
     `io.github.octaviusframework.driver.transaction.TransactionManager`.
+
+### Client
+
+#### Added
+
+- `transaction`, `transactionResult` and `executeTransactionPlan` take a `snapshot`, which `TransactionDefinition`
+  carries to the `SessionProvider`: the name of one another transaction exported with `pg_export_snapshot()`, which
+  the new transaction then reads the database as of. `DefaultSessionProvider` hands it to the driver's
+  `transaction.required` and `nested` with the other terms, so it applies only where the call starts a transaction
+  and needs `isolation` `REPEATABLE_READ` or `SERIALIZABLE`. A `SessionProvider` of your own applies the snapshot
+  once it reads `definition.snapshot`; until then it starts the transaction without one.
 
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 

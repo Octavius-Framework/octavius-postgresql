@@ -577,6 +577,29 @@ class TransactionTest : AbstractIntegrationTest() {
     }
 
     @Test
+    fun `a transaction given a snapshot reads the database as the transaction that exported it saw it`() {
+        // A table every session sees, unlike the temporary one the other tests use.
+        openSession().use { it.createNativeQuery("CREATE TABLE IF NOT EXISTS fasti (consul text)").execute() }
+        openSession().use { exporter ->
+            exporter.createNativeQuery("BEGIN ISOLATION LEVEL REPEATABLE READ").execute()
+            val snapshot = exporter.createNativeQuery("SELECT pg_export_snapshot()").fetchFieldStrict<String>()
+            openSession().use { it.createNativeQuery("INSERT INTO fasti VALUES ('Cicero')").execute() }
+
+            val seen = session.transaction.required(
+                isolation = TransactionIsolationLevel.REPEATABLE_READ,
+                readOnly = true,
+                snapshot = snapshot
+            ) {
+                createNativeQuery("SELECT count(*) FROM fasti").fetchFieldStrict<Long>()
+            }
+
+            assertEquals(0L, seen, "The row written after the export is not in the snapshot")
+            assertEquals(1L, session.createNativeQuery("SELECT count(*) FROM fasti").fetchFieldStrict<Long>())
+            exporter.createNativeQuery("COMMIT").execute()
+        }
+    }
+
+    @Test
     fun `asking for nothing sends nothing`() {
         val inside = session.transaction.required { setting("transaction_isolation") }
 

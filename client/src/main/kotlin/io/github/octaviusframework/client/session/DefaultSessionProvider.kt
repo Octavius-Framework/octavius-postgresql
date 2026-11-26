@@ -56,14 +56,16 @@ class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvid
                 definition.isolation,
                 definition.readOnly,
                 definition.statementTimeout,
-                definition.transactionTimeout
+                definition.transactionTimeout,
+                definition.snapshot
             ) { block() }
         } else {
             active.session.transaction.nested(
                 definition.isolation,
                 definition.readOnly,
                 definition.statementTimeout,
-                definition.transactionTimeout
+                definition.transactionTimeout,
+                definition.snapshot
             ) { block() }
         }
     }
@@ -81,7 +83,8 @@ class DefaultSessionProvider(private val dataSource: DataSource) : SessionProvid
             definition.isolation,
             definition.readOnly,
             definition.statementTimeout,
-            definition.transactionTimeout
+            definition.transactionTimeout,
+            definition.snapshot
         ) { block() }
 
     /** Borrows a session, binds it for the duration of [body], and gives it back afterwards. */

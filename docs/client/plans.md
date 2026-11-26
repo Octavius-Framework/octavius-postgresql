@@ -269,9 +269,9 @@ it in place, and a block that carries on commits them. Where the block has to su
 `NESTED` gives the plan its boundary back: whatever fails in it rolls back to the
 savepoint, taking all of the plan and nothing the block did before it.
 
-What `executeTransactionPlan` is given for isolation, read-only and the timeouts reaches only a transaction it
-opens itself. Joined, or on `NESTED`'s savepoint path, the terms already in force stand, and a warning names
-what was dropped — see [Isolation, Read-Only and Timeouts](transactions-failures.md#isolation-read-only-and-timeouts).
+What `executeTransactionPlan` is given for isolation, read-only, the timeouts and a snapshot reaches only a
+transaction it opens itself. Joined, or on `NESTED`'s savepoint path, the terms already in force stand, and a
+warning names what was dropped — see [Isolation, Read-Only, Timeouts and a Snapshot](transactions-failures.md#isolation-read-only-timeouts-and-a-snapshot).
 
 A retry goes around whoever opened the transaction, which for a joined plan is the block — see
 [Running One Twice](#running-one-twice).

@@ -10,6 +10,7 @@ import io.github.octaviusframework.driver.exception.RoutineAssertionExceptionRea
 import io.github.octaviusframework.driver.exception.RoutineRaiseException
 import io.github.octaviusframework.driver.exception.StatementException
 import io.github.octaviusframework.driver.exception.StatementExceptionReason
+import io.github.octaviusframework.driver.session.TransactionIsolationLevel
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -155,6 +156,27 @@ class ClientTest : AbstractClientIntegrationTest() {
         }
 
         assertEquals(listOf("Audit"), cognomina(), "the inner transaction committed independently")
+    }
+
+    @Test
+    fun `a transaction given a snapshot reads the database as the transaction that exported it saw it`() {
+        val seen = db.transaction(isolation = TransactionIsolationLevel.REPEATABLE_READ, readOnly = true) {
+            val snapshot = rawQuery("SELECT pg_export_snapshot()").fetchFieldStrict<String>()
+            openSession().use {
+                it.createNativeQuery("INSERT INTO client_senators (cognomen, province_id) VALUES ('Cicero', 1)").execute()
+            }
+
+            // A transaction of its own: one that joined this would read through this snapshot anyway.
+            transaction(
+                propagation = TransactionPropagation.REQUIRES_NEW,
+                isolation = TransactionIsolationLevel.REPEATABLE_READ,
+                readOnly = true,
+                snapshot = snapshot
+            ) { countSenators() }
+        }
+
+        assertEquals(0L, seen, "the senator recorded after the export is not in the snapshot")
+        assertEquals(1L, countSenators())
     }
 
     // --- dbResult ---------------------------------------------------------------------------------

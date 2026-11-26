@@ -63,7 +63,7 @@ see [What a Scan Logs](scanner.md#what-a-scan-logs).
 - [One Session per Thread, Not One per Level](transactions-failures.md#one-session-per-thread-not-one-per-level) — Why nesting does not multiply connections
 - [Querying From Inside a Result](transactions-failures.md#querying-from-inside-a-result) — A nested query in a `forEach*` block, and the one limit on sharing
 - [Propagation](transactions-failures.md#propagation) — `REQUIRED`, `REQUIRES_NEW`, `NESTED`
-- [Isolation, Read-Only and Timeouts](transactions-failures.md#isolation-read-only-and-timeouts) — What applies where, and why
+- [Isolation, Read-Only, Timeouts and a Snapshot](transactions-failures.md#isolation-read-only-timeouts-and-a-snapshot) — What applies where, and why
 - [Thrown or Returned](transactions-failures.md#thrown-or-returned) — The split, and that it reads only the exception's type
 - [Three Doors, Three Widths](transactions-failures.md#three-doors-three-widths) — `asResult`, `dbResult`, `transactionResult`
 - [The Combination That Misleads](transactions-failures.md#the-combination-that-misleads) — `dbResult` inside a plain `transaction`

@@ -107,6 +107,25 @@ class OctaviusSpringClientTest {
     }
 
     @Test
+    fun `a snapshot reaches the transaction Spring begins`() {
+        val seen = db.transaction(isolation = TransactionIsolationLevel.REPEATABLE_READ, readOnly = true) {
+            val snapshot = rawQuery("SELECT pg_export_snapshot()").fetchFieldStrict<String>()
+            TestDatabase.openSession().use { it.createNativeQuery("INSERT INTO spring_client VALUES ('Cicero')").execute() }
+
+            // A transaction Spring begins: one that joined this would read through this snapshot anyway.
+            transaction(
+                propagation = TransactionPropagation.REQUIRES_NEW,
+                isolation = TransactionIsolationLevel.REPEATABLE_READ,
+                readOnly = true,
+                snapshot = snapshot
+            ) { rawQuery("SELECT name FROM spring_client").fetchFields<String>() }
+        }
+
+        assertEquals(emptyList<String>(), seen, "the row written after the export is not in the snapshot")
+        assertEquals(listOf("Cicero"), committedNames())
+    }
+
+    @Test
     fun `transactionResult rolls back over a returned failure and hands it back`() {
         val result = db.transactionResult {
             val insert = rawQuery("INSERT INTO spring_client (name) VALUES (@name)")

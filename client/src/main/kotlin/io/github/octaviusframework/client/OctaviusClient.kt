@@ -91,6 +91,8 @@ interface OctaviusClient : AutoCloseable {
      * @param isolation `null` for the server's. Ignored when joining a running transaction, as is [readOnly].
      * @param statementTimeout Aborts any single statement running longer than this.
      * @param transactionTimeout Aborts the transaction once it has been open longer than this.
+     * @param snapshot A snapshot another transaction exported, which this one then reads the database as of. It
+     *   needs [isolation] `REPEATABLE_READ` or `SERIALIZABLE`.
      */
     fun <T> transaction(
         propagation: TransactionPropagation = TransactionPropagation.REQUIRED,
@@ -98,6 +100,7 @@ interface OctaviusClient : AutoCloseable {
         readOnly: Boolean = false,
         statementTimeout: Duration? = null,
         transactionTimeout: Duration? = null,
+        snapshot: String? = null,
         block: OctaviusClient.() -> T
     ): T
 
@@ -130,9 +133,10 @@ interface OctaviusClient : AutoCloseable {
         readOnly: Boolean = false,
         statementTimeout: Duration? = null,
         transactionTimeout: Duration? = null,
+        snapshot: String? = null,
         block: OctaviusClient.() -> DataResult<T>
     ): DataResult<T> = try {
-        transaction(propagation, isolation, readOnly, statementTimeout, transactionTimeout) {
+        transaction(propagation, isolation, readOnly, statementTimeout, transactionTimeout, snapshot) {
             when (val result = block()) {
                 is DataResult.Success -> result
                 // Thrown so the transaction rolls back; caught below and handed back as it was.
@@ -170,7 +174,8 @@ interface OctaviusClient : AutoCloseable {
         isolation: TransactionIsolationLevel? = null,
         readOnly: Boolean = false,
         statementTimeout: Duration? = null,
-        transactionTimeout: Duration? = null
+        transactionTimeout: Duration? = null,
+        snapshot: String? = null
     ): TransactionPlanResult {
         val steps = plan.steps()
         // Nothing to run is not a transaction worth opening
@@ -180,7 +185,7 @@ interface OctaviusClient : AutoCloseable {
         // handle having no number of its own.
         val stepIndices = validatePlan(steps)
 
-        return transaction(propagation, isolation, readOnly, statementTimeout, transactionTimeout) {
+        return transaction(propagation, isolation, readOnly, statementTimeout, transactionTimeout, snapshot) {
             // The transaction's session, not each query's own client: a step built on another client would
             // otherwise find no transaction there and commit on its own.
             execute {

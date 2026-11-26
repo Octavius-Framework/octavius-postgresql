@@ -47,6 +47,7 @@ internal class OctaviusClientImpl(
         readOnly: Boolean,
         statementTimeout: Duration?,
         transactionTimeout: Duration?,
+        snapshot: String?,
         block: OctaviusClient.() -> T
     ): T {
         val definition = TransactionDefinition(
@@ -54,7 +55,8 @@ internal class OctaviusClientImpl(
             isolation = isolation,
             readOnly = readOnly,
             statementTimeout = statementTimeout,
-            transactionTimeout = transactionTimeout
+            transactionTimeout = transactionTimeout,
+            snapshot = snapshot
         )
 
         // The block gets this client; its queries find the bound session through the provider.
