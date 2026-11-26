@@ -1,4 +1,4 @@
-package com.example.demo.domain
+package com.roma.curia.domain
 
 import tools.jackson.core.JsonGenerator
 import tools.jackson.core.JsonParser
@@ -24,18 +24,18 @@ object UuidDeserializer : ValueDeserializer<Uuid>() {
 }
 
 // Example composite types
-data class Address(val city: String, val street: String, val buildingNumber: Int)
-data class UserProfile(val age: Int, val nickname: String, val settings: Map<String, String>)
+data class Estate(val province: String, val nearestTown: String, val iugera: Int)
+data class Dossier(val age: Int, val agnomen: String, val honours: Map<String, String>)
 
-data class User(
+data class Senator(
     @field:JsonSerialize(using = UuidSerializer::class)
     @field:JsonDeserialize(using = UuidDeserializer::class)
     val id: Uuid? = null,
-    val name: String,
-    val role: UserRole,
-    val primaryAddress: Address, // Single composite
-    val shippingAddresses: List<Address>, // Array of composites
-    val profile: UserProfile // Nested/another composite
+    val cognomen: String,
+    val magistracy: Magistracy,
+    val familySeat: Estate, // Single composite
+    val countryEstates: List<Estate>, // Array of composites
+    val dossier: Dossier // Nested/another composite
 )
 
-enum class UserRole { ADMIN, USER }
+enum class Magistracy { CONSUL, PRAETOR, AEDILE, QUAESTOR }

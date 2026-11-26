@@ -1,9 +1,9 @@
-package com.example.demo
+package com.roma.curia
 
-import com.example.demo.domain.Address
-import com.example.demo.domain.User
-import com.example.demo.domain.UserProfile
-import com.example.demo.domain.UserRole
+import com.roma.curia.domain.Dossier
+import com.roma.curia.domain.Estate
+import com.roma.curia.domain.Magistracy
+import com.roma.curia.domain.Senator
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -27,18 +27,18 @@ import kotlin.test.assertNotNull
  * are decided by the server and translated on the way out. Compiling the example proves none of it,
  * so these four requests do - one per contract.
  *
- * The schema is installed per test rather than once: [DemoSchema.install] drops what it creates, so
- * every test gets an empty table and none of them has to pick a name around the others. An
+ * The schema is installed per test rather than once: [CuriaSchema.install] drops what it creates, so
+ * every test gets an empty table and none of them has to pick a cognomen around the others. An
  * application calls it once, at startup, which is what the runner does.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class DemoApplicationTest {
+class CuriaApplicationTest {
 
     @field:LocalServerPort
     private var port: Int = 0
 
     @Autowired
-    private lateinit var schema: DemoSchema
+    private lateinit var schema: CuriaSchema
 
     private lateinit var client: RestTestClient
 
@@ -48,56 +48,56 @@ class DemoApplicationTest {
         client = RestTestClient.bindToServer().baseUrl("http://localhost:$port").build()
     }
 
-    private fun user(name: String) = User(
-        name = name,
-        role = UserRole.ADMIN,
-        primaryAddress = Address(city = "Roma", street = "Via Sacra", buildingNumber = 7),
-        shippingAddresses = listOf(
-            Address(city = "Ostia", street = "Decumanus", buildingNumber = 12),
-            Address(city = "Capua", street = "Via Appia", buildingNumber = 3)
+    private fun senator(cognomen: String) = Senator(
+        cognomen = cognomen,
+        magistracy = Magistracy.CONSUL,
+        familySeat = Estate(province = "Italia", nearestTown = "Arpinum", iugera = 200),
+        countryEstates = listOf(
+            Estate(province = "Italia", nearestTown = "Tusculum", iugera = 120),
+            Estate(province = "Campania", nearestTown = "Pompeii", iugera = 80)
         ),
-        profile = UserProfile(age = 44, nickname = "consul", settings = mapOf("theme" to "dark"))
+        dossier = Dossier(age = 44, agnomen = "Pater Patriae", honours = mapOf("supplicatio" to "Catilina"))
     )
 
-    private fun post(path: String, user: User) =
-        client.post().uri(path).contentType(MediaType.APPLICATION_JSON).body(user).exchange()
+    private fun post(path: String, senator: Senator) =
+        client.post().uri(path).contentType(MediaType.APPLICATION_JSON).body(senator).exchange()
 
     @Test
-    fun `a user round trips through the composite, the array of composites, the enum and the map`() {
-        val sent = user("cicero")
+    fun `a senator round trips through the composite, the array of composites, the enum and the map`() {
+        val sent = senator("Cicero")
 
-        val created = post("/users", sent)
+        val created = post("/senators", sent)
             .expectStatus().isOk()
-            .expectBody(User::class.java)
+            .expectBody(Senator::class.java)
             .returnResult().responseBody
 
         assertNotNull(created)
         assertNotNull(created.id, "the id comes from the column default, so the row was really written")
-        assertEquals(sent.role, created.role)
-        assertEquals(sent.primaryAddress, created.primaryAddress)
-        assertEquals(sent.shippingAddresses, created.shippingAddresses)
-        assertEquals(sent.profile, created.profile)
+        assertEquals(sent.magistracy, created.magistracy)
+        assertEquals(sent.familySeat, created.familySeat)
+        assertEquals(sent.countryEstates, created.countryEstates)
+        assertEquals(sent.dossier, created.dossier)
 
         // The same row through the other mapping the controller shows: row.get<T>() per column
         // rather than fetchObjectStrict<T>() over the whole row
-        val byId = client.get().uri("/users/${created.id}")
+        val byId = client.get().uri("/senators/${created.id}")
             .exchange()
             .expectStatus().isOk()
-            .expectBody(User::class.java)
+            .expectBody(Senator::class.java)
             .returnResult().responseBody
 
         assertEquals(created, byId)
     }
 
     @Test
-    fun `a duplicate name arrives as the driver's constraint violation`() {
-        val sent = user("cato")
+    fun `a duplicate cognomen arrives as the driver's constraint violation`() {
+        val sent = senator("Cato")
 
-        post("/users", sent).expectStatus().isOk()
+        post("/senators", sent).expectStatus().isOk()
 
         // ConstraintViolationException(UNIQUE_CONSTRAINT_VIOLATION) -> GlobalExceptionHandler, matched by
         // its own type. A 500 here would mean the reason did not survive the crossing.
-        post("/users", sent).expectStatus().isEqualTo(HttpStatus.CONFLICT)
+        post("/senators", sent).expectStatus().isEqualTo(HttpStatus.CONFLICT)
     }
 
     @Test
@@ -105,24 +105,24 @@ class DemoApplicationTest {
         // @Transactional(readOnly = true) has to reach the server as a real read-only transaction:
         // PostgreSQL is what refuses the insert, and the refusal comes back as
         // TransactionStateException(READ_ONLY_TRANSACTION)
-        post("/users/demo-readonly", user("brutus")).expectStatus().isForbidden()
+        post("/senators/demo-readonly", senator("Brutus")).expectStatus().isForbidden()
     }
 
     @Test
     fun `a failure after a write rolls the transaction back`() {
-        val sent = user("catilina")
+        val sent = senator("Catilina")
 
-        post("/users/demo-rollback", sent).expectStatus().is5xxServerError()
+        post("/senators/demo-rollback", sent).expectStatus().is5xxServerError()
 
-        val all = client.get().uri("/users")
+        val all = client.get().uri("/senators")
             .exchange()
             .expectStatus().isOk()
-            .expectBody(object : ParameterizedTypeReference<List<User>>() {})
+            .expectBody(object : ParameterizedTypeReference<List<Senator>>() {})
             .returnResult().responseBody
 
         assertNotNull(all)
         assertFalse(
-            all.any { it.name == sent.name },
+            all.any { it.cognomen == sent.cognomen },
             "the insert ran and the method then threw, so the transaction manager must have rolled it back"
         )
     }

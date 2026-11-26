@@ -13,6 +13,12 @@
   column. Its smoke test runs the installed distribution, so the migrations and the annotated classes are
   found inside the application's jar, and CI runs it in a job of its own.
 
+#### Changed
+
+- `examples/spring-app` keeps senators instead of users: package `com.roma.curia`, a `senators` table under
+  `/senators`, the composites `estate` and `dossier`, and the enum `magistracy`. What it demonstrates and what
+  its smoke test asserts are the same.
+
 ### Driver
 
 #### Added

@@ -1,8 +1,8 @@
-package com.example.demo
+package com.roma.curia
 
-import com.example.demo.domain.Address
-import com.example.demo.domain.UserProfile
-import com.example.demo.domain.UserRole
+import com.roma.curia.domain.Dossier
+import com.roma.curia.domain.Estate
+import com.roma.curia.domain.Magistracy
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
@@ -17,7 +17,7 @@ import kotlin.reflect.KClass
 import kotlin.reflect.KType
 
 /**
- * Writes a `Map` out as `jsonb`, so `UserProfile.settings` can be a plain `Map` in the class the
+ * Writes a `Map` out as `jsonb`, so `Dossier.honours` can be a plain `Map` in the class the
  * controller returns rather than a `JsonElement`.
  */
 class MapParameterConverter(private val objectMapper: ObjectMapper) : ParameterConverter<Map<*, *>> {
@@ -63,12 +63,12 @@ class MapResultConverter(private val objectMapper: ObjectMapper) : ResultConvert
  * under `@SpringBootTest`. [install] is idempotent - the DDL drops what it creates and the
  * registrations are keyed by name - so calling it twice costs a round trip and changes nothing.
  *
- * > **It drops what it creates.** `users` and the three types go before they are made, in whatever
+ * > **It drops what it creates.** `senators` and the three types go before they are made, in whatever
  * > database `spring.datasource.url` names - which defaults to `postgres`. Point it somewhere you do
  * > not mind losing.
  */
 @Component
-class DemoSchema(private val octaviusTemplate: OctaviusTemplate) {
+class CuriaSchema(private val octaviusTemplate: OctaviusTemplate) {
 
     // A local mapper for jsonb only, leaving Spring's own untouched
     private val dbObjectMapper: ObjectMapper = jacksonObjectMapper()
@@ -80,42 +80,42 @@ class DemoSchema(private val octaviusTemplate: OctaviusTemplate) {
             typeManager.registerResultConverter(MapResultConverter(dbObjectMapper))
 
             // These name their types rather than resolve them, which is why they can precede the DDL
-            typeManager.registerEnum<UserRole>()
+            typeManager.registerEnum<Magistracy>()
 
             // Reflection over the primary constructor: PascalCase class and camelCase properties are
-            // read as snake_case, so Address.buildingNumber finds building_number
-            typeManager.registerAutoComposite<Address>()
-            typeManager.registerAutoComposite<UserProfile>()
+            // read as snake_case, so Estate.nearestTown finds nearest_town
+            typeManager.registerAutoComposite<Estate>()
+            typeManager.registerAutoComposite<Dossier>()
 
             createNativeQuery(
                 """
-                DROP TABLE IF EXISTS users;
-                DROP TYPE IF EXISTS address CASCADE;
-                DROP TYPE IF EXISTS user_profile CASCADE;
-                DROP TYPE IF EXISTS user_role CASCADE;
+                DROP TABLE IF EXISTS senators;
+                DROP TYPE IF EXISTS estate CASCADE;
+                DROP TYPE IF EXISTS dossier CASCADE;
+                DROP TYPE IF EXISTS magistracy CASCADE;
 
-                CREATE TYPE user_role AS ENUM ('ADMIN', 'USER');
+                CREATE TYPE magistracy AS ENUM ('CONSUL', 'PRAETOR', 'AEDILE', 'QUAESTOR');
 
-                CREATE TYPE address AS (
-                    city text,
-                    street text,
-                    building_number int
+                CREATE TYPE estate AS (
+                    province text,
+                    nearest_town text,
+                    iugera int
                 );
 
                 -- jsonb for the map property, per MapParameterConverter above
-                CREATE TYPE user_profile AS (
+                CREATE TYPE dossier AS (
                     age int,
-                    nickname text,
-                    settings jsonb
+                    agnomen text,
+                    honours jsonb
                 );
 
-                CREATE TABLE users (
+                CREATE TABLE senators (
                     id uuid primary key default gen_random_uuid(),
-                    name varchar not null unique,
-                    role user_role not null,
-                    primary_address address not null,
-                    shipping_addresses address[] not null,
-                    profile user_profile not null
+                    cognomen varchar not null unique,
+                    magistracy magistracy not null,
+                    family_seat estate not null,
+                    country_estates estate[] not null,
+                    dossier dossier not null
                 );
             """
             ).execute()

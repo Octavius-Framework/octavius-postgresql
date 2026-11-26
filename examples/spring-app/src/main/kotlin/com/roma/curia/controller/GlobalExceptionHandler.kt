@@ -1,4 +1,4 @@
-package com.example.demo.controller
+package com.roma.curia.controller
 
 import io.github.octaviusframework.driver.exception.ConstraintViolationException
 import io.github.octaviusframework.driver.exception.ConstraintViolationExceptionReason
@@ -17,7 +17,7 @@ class GlobalExceptionHandler {
     fun handleConstraintViolation(ex: ConstraintViolationException): ResponseEntity<Map<String, String>> {
         if (ex.reason == ConstraintViolationExceptionReason.UNIQUE_CONSTRAINT_VIOLATION) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(
-                mapOf("error" to "A user with this name already exists.", "details" to ex.dbMessage)
+                mapOf("error" to "A senator with this cognomen already sits in the curia.", "details" to ex.dbMessage)
             )
         }
         return handleOctaviusException(ex)
