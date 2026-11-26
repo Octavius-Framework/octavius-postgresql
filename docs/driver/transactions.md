@@ -228,7 +228,9 @@ session.transaction.required(
 
 PostgreSQL takes a snapshot only into a `REPEATABLE_READ` or `SERIALIZABLE` transaction, so ask for one of them
 alongside; under the session's `READ COMMITTED` the first statement fails. The name works while the transaction
-that exported it is open; after that the server answers that the snapshot does not exist.
+that exported it is open; after that the server answers that the snapshot does not exist. The
+[copy](logical-replication.md#starting-from-a-copy-of-the-table) of a new logical slot runs in such a transaction
+without your asking.
 
 All of them end when the transaction ends. That is the difference from the session properties in the next
 section, and it is the reason to prefer this form: nothing is left on the connection, so there is nothing for

@@ -51,6 +51,9 @@ their own.
 | `io.github.octaviusframework.driver.registry.CodecDictionary`                 | A registered codec the catalog it was built against leaves bound to nothing                           |
 | `io.github.octaviusframework.driver.copy.CopyManager`                         | COPY transfers, with row and byte counts                                                              |
 | `io.github.octaviusframework.driver.notification.NotificationManager`         | `LISTEN` / `UNLISTEN` and the listener loops                                                          |
+| `io.github.octaviusframework.driver.replication.ReplicationConnection`        | Replication slots created, and dropped again after a failed start, and streams started                |
+| `io.github.octaviusframework.driver.replication.LogicalReplicationStream`     | Replication streams stopped, and each status sent to the server                                       |
+| `io.github.octaviusframework.driver.replication.ChangeStream`                 | A replication stream that did not stop cleanly after a failed stage                                   |
 | `io.github.octaviusframework.driver.ssl.SslNegotiator`                        | Whether the connection ended up encrypted, and under which cipher                                     |
 | `io.github.octaviusframework.driver.auth.Authenticator`                       | Handshake steps and session parameters                                                                |
 | `io.github.octaviusframework.driver.auth.ScramSha256Authenticator`            | The SCRAM mechanism actually negotiated                                                               |
@@ -74,8 +77,8 @@ The split is by how often a line appears, not by how important it sounds.
 | `error` | Practically never                              | Only a `NoticeHandler` of yours that threw                                                              |
 | `warn`  | Practically never                              | A connection on its way out, a registered codec bound to nothing, or a listed server of another cluster |
 | `info`  | Once per database, plus every `reloadTypes()`  | The type catalog load, with its type count and duration                                                 |
-| `debug` | Once per connection, per transaction, per COPY | Lifecycle: connections, transactions, savepoints, `LISTEN`, TLS, transfers                              |
-| `trace` | Twice per statement                            | Every statement, its duration, and session parameters that move                                         |
+| `debug` | Once per connection, per transaction, per COPY | Lifecycle: connections, transactions, savepoints, `LISTEN`, TLS, transfers, replication streams         |
+| `trace` | Twice per statement                            | Every statement, its duration, session parameters that move, and replication statuses                   |
 
 The table is the driver reporting on itself. [Server notices](#server-notices) take their level from the server's
 severity instead, so a schema that raises `NOTICE`s or `WARNING`s adds to `info` and `warn`.
@@ -108,13 +111,23 @@ The `sslmode` sits next to the outcome because `plaintext` alone does not say wh
 `sslmode=prefer` it means the server refused to encrypt.
 
 Beyond that, `debug` covers the lifecycle: `BEGIN` / `COMMIT` / `ROLLBACK`, savepoints, isolation and read-only changes,
-cancel requests, connections closed and aborted, `LISTEN` / `UNLISTEN`, listener loops starting and stopping, and COPY
-transfers:
+cancel requests, connections closed and aborted, `LISTEN` / `UNLISTEN`, listener loops starting and stopping, COPY
+transfers, and replication slots and streams:
 
 ```
 [PID: 41288] COPY IN started:
 COPY senators FROM STDIN (FORMAT csv)
 [PID: 41288] COPY IN finished: 4812 rows
+```
+
+A [replication connection](logical-replication.md)'s line ends in `replication`. A slot it makes gets a line, as does
+one it drops again after a failed start, and its stream one as it starts and one as it stops, with how far it got:
+
+```
+[PID: 41302] Connected to localhost:5432/curia as 'tabularius' (PostgreSQL 18.1, TLS, sslmode=verify-full, replication)
+[PID: 41302] Replication slot created: CREATE_REPLICATION_SLOT "curia_mirror" TEMPORARY LOGICAL "pgoutput" (SNAPSHOT 'export')
+[PID: 41302] Replication started: START_REPLICATION SLOT "curia_mirror" LOGICAL 0/0 ("proto_version" '1', "publication_names" '"curia_mirror"', "binary" 'true')
+[PID: 41302] Replication stopped at 0/54CEBB8, acknowledged 0/54CEBB8
 ```
 
 It also carries the failures nothing else records — see
@@ -200,6 +213,8 @@ What the driver logs is what it handled itself and carried on from, because that
 | `isValid()` answered `false` — with the reason it did              | `debug` |
 | A cancel request could not be opened or sent                       | `debug` |
 | A large object descriptor could not be closed                      | `debug` |
+| A replication stream did not stop cleanly                          | `debug` |
+| A replication status could not be sent                             | `debug` |
 | A network timeout could not be restored after a probe or poll loop | `debug` |
 | A socket refused to close, or `Terminate` could not be sent        | `trace` |
 
@@ -214,6 +229,7 @@ Three things are absent at every level, including `trace`:
 * **Passwords**, and every SCRAM intermediate — the client proof, the salted password, the server signature.
 * **OAuth tokens**, sent or refused.
 * **Anything a large object carried.**
+* **Anything a replication stream carried**: its rows, and the content of its logical messages.
 
 What is present, and worth knowing before turning a level up in production:
 
@@ -256,7 +272,7 @@ across virtual threads and coroutine dispatchers.
 With `trace` on, every statement writes two lines, which at a few thousand statements a second is real load on your
 appender. With it off, a statement reads the level once and stops: no clock read, no message, no allocation.
 
-Nothing is logged per row or per column, at any level.
+Nothing is logged per row, per column or per replicated change, at any level.
 
 ## Configuration recipes
 

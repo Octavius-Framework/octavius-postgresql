@@ -168,6 +168,8 @@ shortlist.
 - [Functions and Procedures](../docs/driver/queries.md#functions-and-procedures) — no `CallableStatement` required.
 - [COPY Protocol](../docs/driver/copy.md) — bulk import and export.
 - [Listen & Notify](../docs/driver/listen-notify.md) — asynchronous events as a flow.
+- [Logical Replication](../docs/driver/logical-replication.md) — the committed transactions of a slot, their rows
+  read as a query's are.
 - [Large Objects](../docs/driver/large-objects.md) — beyond what `bytea` can hold.
 - [Performance](../docs/driver/performance.md) — JMH benchmarks against `pgjdbc`.
 
@@ -183,6 +185,7 @@ shortlist.
 - **Session & Transaction** — `OctaviusSession`, transaction blocks and savepoints.
 - **COPY & LO** — bulk import and export, and Large Objects.
 - **Notification & Notice** — `LISTEN`/`NOTIFY` as a flow, and server notices routed to a `NoticeHandler`.
+- **Replication** — logical replication slots, and `pgoutput` streams decoded into changes with rows.
 - **Exception** — the SQLSTATE-keyed hierarchy, built from the server's own error fields.
 - **JDBC** — the compatibility layer that lets pools like HikariCP manage the connection.
 

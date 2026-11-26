@@ -26,6 +26,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 | [Concurrency and Virtual Threads](concurrency.md)   | What one session serializes, pinning, `OctaviusDispatchers`, the shared catalog, where the real limit is  |
 | [COPY Protocol](copy.md)                            | COPY IN and COPY OUT, data formats, operation lifecycle, cancelling, transactions                         |
 | [Listen & Notify](listen-notify.md)                 | Subscribing and emitting, when delivery actually happens, receiving as a flow, listener loops             |
+| [Logical Replication](logical-replication.md)       | Slots, committed transactions as rows, unsent TOAST values, messages, acknowledging, a copy to start from |
 | [Large Objects](large-objects.md)                   | Creating, reading, seeking, resizing and deleting data beyond what `bytea` can hold                       |
 | [Performance](performance.md)                       | JMH benchmarks against `pgjdbc`, every figure reported with its confidence interval                       |
 
@@ -169,6 +170,21 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Receiving Them](listen-notify.md#receiving-them) — The `SharedFlow`, and what triggers a read
 - [Listener Loops](listen-notify.md#listener-loops) — Polling and interruptible variants
 - [Practical Rules](listen-notify.md#practical-rules) — A dedicated connection, and what is never replayed
+
+### Logical Replication
+- [What the Server Needs](logical-replication.md#what-the-server-needs) — `wal_level`, the `REPLICATION` attribute, a publication
+- [Streaming Committed Transactions](logical-replication.md#streaming-committed-transactions) — `startPgOutput` on a connection of its own, and what comes
+- [Slots](logical-replication.md#slots) — Made in SQL or by `newSlot`, persistent and temporary, and the WAL a forgotten one keeps
+- [Reading a Transaction](logical-replication.md#reading-a-transaction) — One pass, inside its block
+- [Changes](logical-replication.md#changes) — Inserts, updates, deletes, truncates, and what the old row holds
+- [Columns an Update Did Not Send](logical-replication.md#columns-an-update-did-not-send) — `unchanged`, the `null` a nullable property gets, and `REPLICA IDENTITY FULL`
+- [Logical Messages](logical-replication.md#logical-messages) — `pg_logical_emit_message` as an outbox with no table
+- [Types and Converters](logical-replication.md#types-and-converters) — The catalog a stream reads with, and `typeSource`
+- [Acknowledging](logical-replication.md#acknowledging) — When a transaction is settled, and why delivery is at least once
+- [Processing Asynchronously](logical-replication.md#processing-asynchronously) — `forEachTransactionAsync`, in commit order
+- [Closing, and Staying Connected](logical-replication.md#closing-and-staying-connected) — `close()`, statuses, and quiet publications
+- [Starting from a Copy of the Table](logical-replication.md#starting-from-a-copy-of-the-table) — A new slot's copy, then the stream from where it ends
+- [Other Output Plugins](logical-replication.md#other-output-plugins) — `startLogical` and the bytes a plugin writes
 
 ### Large Objects
 - [Creating and Writing](large-objects.md#creating-and-writing) — `create()`, `open()`, and the transaction requirement
