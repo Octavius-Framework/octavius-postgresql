@@ -83,6 +83,13 @@ class LogicalReplicationStream internal constructor(
     @Volatile
     private var nextStatusAt = System.nanoTime() + statusIntervalNanos
 
+    /**
+     * Whether a keepalive's position counts as acknowledged as well as received: set where everything delivered
+     * is acknowledged, and nothing that could come after it is held unacknowledged.
+     */
+    @Volatile
+    internal var followKeepalives = false
+
     /** Sends the statuses that fall due while no thread reads, until the stream ends. */
     private val heartbeat: Thread = Thread.ofVirtual().name("octavius-replication-status").unstarted { beat() }
 
@@ -203,7 +210,9 @@ class LogicalReplicationStream internal constructor(
                                 }
                             }
                             'k' -> {
-                                advanceReceived(data.getLongBE(1))
+                                val end = data.getLongBE(1)
+                                advanceReceived(end)
+                                if (followKeepalives) acknowledge(PgLsn(end))
                                 if (data[17].toInt() != 0) writeLock.withLock { if (!copyDoneSent) sendStatus() }
                             }
                             else -> logger.trace { "[PID: ${stream.processId}] Ignoring replication message '${data[0].toInt().toChar()}'" }
@@ -278,7 +287,7 @@ class LogicalReplicationStream internal constructor(
 }
 
 /** A replication timestamp: microseconds since 2000-01-01 UTC. */
-private fun pgTimestamp(micros: Long): Instant {
+internal fun pgTimestamp(micros: Long): Instant {
     val unixMicros = micros + PG_EPOCH_OFFSET_MICROS
     return Instant.fromEpochSeconds(Math.floorDiv(unixMicros, 1_000_000L), Math.floorMod(unixMicros, 1_000_000L) * 1_000L)
 }

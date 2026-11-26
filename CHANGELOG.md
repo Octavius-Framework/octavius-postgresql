@@ -24,12 +24,22 @@
   something that is not a bearer token, which is then not sent. A class named in `oauthTokenProviderClassName` that
   cannot be loaded fails every login, those that ask for no token too.
 
-- `startLogical(url, properties, slot, …)` opens a logical replication connection of the stream's own, through the
-  same server selection, TLS and login as any other connection, and with no type catalog loaded on it. The stream
-  closes the connection when it ends, by `close()` or by the server, so no connection is left that PostgreSQL would
-  end a second stream on as soon as it starts (BUG #18754). The connection runs no SQL: publications are made, and
-  slots dropped, in an ordinary session. The role needs the `REPLICATION` attribute, and a logical slot needs a server
-  with `wal_level = logical`.
+- `startPgOutput(url, properties, slot, publications, …)` and `startLogical(url, properties, slot, …)` each open a
+  logical replication connection of the stream's own, through the same server selection, TLS and login as any other
+  connection, and with no type catalog loaded on it. The stream closes the connection when it ends, by `close()` or by
+  the server, so no connection is left that PostgreSQL would end a second stream on as soon as it starts (BUG #18754).
+  The connection runs no SQL: publications are made, and slots dropped, in an ordinary session. The role needs the
+  `REPLICATION` attribute, and a logical slot needs a server with `wal_level = logical`.
+
+- `startPgOutput(newSlot = NewSlot(temporary, copy))` creates the slot before the stream starts. A temporary slot goes
+  when the stream closes, and no other stream can read from it. The `copy` block runs once the slot is made and before
+  the stream starts, in a read-only `REPEATABLE READ` transaction that imports the snapshot the slot exports, on a
+  session of `typeSource` or one opened on the URL: it reads the database as of the slot's start, which the stream
+  carries on from. A copy that throws has a persistent slot dropped again, with `DROP_REPLICATION_SLOT` on the same
+  connection, before `startPgOutput` throws what it threw. A `newSlot` whose name a slot already has is refused with
+  the server's `StatementException`, and that slot is left; a `newSlot` with a `startLsn` is refused with
+  `InvalidOperationException(INVALID_ARGUMENT)` before anything is made. `IDENTIFY_SYSTEM` for the `typeSource` check
+  goes out before `CREATE_REPLICATION_SLOT`, since any command after it ends the snapshot it exports.
 
 - `startLogical(url, properties, slot, options, startLsn, statusInterval)` streams the changes of a logical slot as its
   output plugin writes them, one `ReplicationData` (`lsn`, `sentAt`, `payload`) at a time, through `read()` or
@@ -38,13 +48,55 @@
   and whenever the server asks while it is read, so `wal_sender_timeout` does not end it however long a reader takes
   over a message. `close()` from another thread ends a `read()` waiting for data.
 
+- `startPgOutput(url, properties, slot, publications, newSlot, startLsn, statusInterval, typeSource)` streams
+  the committed transactions of a slot made with `pgoutput`, decoded, as a `ChangeStream`. Each `ReplicatedTransaction`
+  (`xid`, `commitLsn`, `committedAt`) gives its `changes` as a sequence read from the connection as it is consumed,
+  so a transaction of any size takes the memory of one change. A change is a `Change.Insert`, `Update`, `Delete` or
+  `Truncate`; the first three are a `Change.OfRow` with their `PgRelation` (schema, name, replica identity, key
+  columns), and their rows are read by the same codecs and converters as the rows of a query, a domain column
+  described as the type under it. `Insert.new`, `Update.old` and `Delete.old` are `Row`s. `Update.old` is the whole
+  old row under `REPLICA IDENTITY FULL`, and otherwise the key columns alone, only when the update changed them;
+  `Delete.old` is the same, always there.
+
+- `ChangeStream.forEachTransaction { }` hands each transaction to the block and acknowledges it once the block
+  returns. A block that throws closes the stream, and its transaction comes again in the next stream from the slot;
+  so does a transaction the stream was closed inside, whose block's read of the changes then raises
+  `InvalidOperationException(RESOURCE_CLOSED)`, which `forEachTransaction` lets go. The changes can be read once, and
+  only inside the block.
+
+- `ChangeStream.forEachTransactionAsync(maxInFlight) { }` takes a `CompletionStage` from the block for each
+  transaction and acknowledges the transactions in commit order, each once its stage and those of every transaction
+  before it have completed. At most `maxInFlight` transactions wait for their stages, and the next waits for room. A
+  failed stage closes the stream, and its failure is thrown.
+
+- `ChangeStream.registerResultConverter(converter)` registers a converter for the stream alone, asked ahead of the
+  catalog's and of those registered before it, as a query's own converter is. A `forEach` reads with the converters
+  registered when it starts.
+
+- A pgoutput stream reads rows with the type catalog of `typeSource`'s sessions, or without one, of the sessions on
+  its URL, read through a session opened for it where the JVM has not read it yet. The stream does not read the
+  catalog again by itself: a relation that names a type it does not describe, such as one created after it was read,
+  ends the stream with `TypeException(TYPE_NOT_FOUND)`, as such a type fails a query, and the transaction comes again
+  in the next stream once `reloadTypes()` has read the catalog. A `typeSource` that reaches another database than the
+  URL is refused with `InvalidOperationException(INVALID_ARGUMENT)` before a slot is made or the stream starts.
+
+- With every transaction it handed out acknowledged, a `ChangeStream` also acknowledges the positions the server
+  reports without data, so writes to tables outside its publications move the slot on instead of holding its WAL
+  back.
+
+- `Change.Update.new` is a `Row` of the columns the server sent, and `Change.Update.unchanged` names those it did
+  not: TOASTed values the update left as they were. Under `REPLICA IDENTITY FULL` the stream takes them from the old
+  row, so none is left. Reading an unchanged column by name raises `MappingException(COLUMN_NOT_FOUND)`, and the row
+  maps as a query's row without the column does: onto a class with no property for it, onto a `Map` of the columns
+  that came, and a nullable property for it gets `null`.
+
 - `PgLsn` is a position in the write-ahead log: `parse` reads it and `toString` writes it as the server does
   (`16/B374D848`), and positions are ordered as unsigned.
 
 - `transaction.required` and `nested` take a `snapshot`: the name of one another transaction exported with
-  `pg_export_snapshot()`, which the new transaction then reads the database as of. It goes out as `SET TRANSACTION
-  SNAPSHOT` among the other terms, behind the `BEGIN`, and needs `isolation` `REPEATABLE_READ` or `SERIALIZABLE`;
-  under `READ COMMITTED` the first statement fails.
+  `pg_export_snapshot()`, which the new transaction then reads the database as of; a new logical slot's copy runs in
+  one. It goes out as `SET TRANSACTION SNAPSHOT` among the other terms, behind the `BEGIN`, and needs
+  `isolation` `REPEATABLE_READ` or `SERIALIZABLE`; under `READ COMMITTED` the first statement fails.
 
 #### Changed
 
