@@ -32,7 +32,8 @@ private val logger = KotlinLogging.logger {}
  *
  * With [newSlot] the slot is created first, and its copy runs before the stream starts; a persistent slot whose copy
  * or start fails is dropped again. Otherwise the stream starts at [startLsn], or where the slot was last acknowledged
- * where that is later - always, for [PgLsn.INVALID].
+ * where that is later - always, for [PgLsn.INVALID]. With [messages], what a transaction writes with
+ * `pg_logical_emit_message(true, …)` comes in its [ReplicatedTransaction.messages].
  *
  * The rows, and the copy, are read through [typeSource]'s sessions and its type catalog, or without one, through
  * sessions opened on [url]. A type the catalog does not describe, such as one created after it was read, ends the
@@ -52,6 +53,7 @@ fun startPgOutput(
     publications: List<String>,
     newSlot: NewSlot? = null,
     startLsn: PgLsn = PgLsn.INVALID,
+    messages: Boolean = false,
     statusInterval: Duration = 10.seconds,
     typeSource: DataSource? = null
 ): ChangeStream {
@@ -72,6 +74,7 @@ fun startPgOutput(
         put("proto_version", "1")
         put("publication_names", publications.joinToString(",") { it.quoteAsPgIdentifier() })
         put("binary", "true")
+        if (messages) put("messages", "true")
     }
     return ReplicationConnection.open(url, properties).streaming { connection ->
         // Before the slot: any command after it ends the snapshot it exports.

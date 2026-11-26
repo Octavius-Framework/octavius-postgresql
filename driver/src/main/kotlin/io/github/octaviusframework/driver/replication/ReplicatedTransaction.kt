@@ -5,10 +5,12 @@ import io.github.octaviusframework.driver.exception.InvalidOperationExceptionRea
 import kotlin.time.Instant
 
 /**
- * A committed transaction of a [ChangeStream]: its [xid], where and when it committed, and its [changes].
+ * A committed transaction of a [ChangeStream]: its [xid], where and when it committed, and what it holds, the
+ * changes it made and the messages it wrote.
  *
- * The changes are read from the connection as they are consumed, so a transaction of any size takes no more
- * memory than the change being read. They can be read once, and only in the block the transaction was handed to.
+ * They are read from the connection as they are consumed, so a transaction of any size takes no more memory than
+ * the one being read. [changes], [messages] and [entries] are three views of one pass over the transaction: one of
+ * them can be read, once, and only in the block the transaction was handed to.
  */
 class ReplicatedTransaction internal constructor(
     val xid: Long,
@@ -30,68 +32,96 @@ class ReplicatedTransaction internal constructor(
     private var iterated = false
 
     /**
-     * The transaction's changes, in the order it made them.
+     * The transaction's changes, in the order it made them, without the messages it wrote; [entries] has both.
      *
      * @throws InvalidOperationException `RESOURCE_CLOSED` from the iteration if the stream ends before the
-     *   transaction's commit, or if the changes are read again or after the block; `UNEXPECTED_RESULT` if the
+     *   transaction's commit, or if the transaction is read again or after the block; `UNEXPECTED_RESULT` if the
      *   server sends what a transaction cannot hold.
      */
-    val changes: Sequence<Change> = Sequence {
+    val changes: Sequence<Change> = view { (it as? PgOutputFrame.Of)?.change }
+
+    /**
+     * The messages the transaction wrote with `pg_logical_emit_message(true, …)`, in the order it wrote them,
+     * without its changes; [entries] has both. Empty unless `startPgOutput` was asked for messages.
+     *
+     * @throws InvalidOperationException as [changes] does.
+     */
+    val messages: Sequence<LogicalMessage> = view { (it as? PgOutputFrame.Message)?.message }
+
+    /**
+     * The transaction's changes and messages together, in the order it made and wrote them.
+     *
+     * @throws InvalidOperationException as [changes] does.
+     */
+    val entries: Sequence<TransactionEntry> = view {
+        when (it) {
+            is PgOutputFrame.Of -> it.change
+            is PgOutputFrame.Message -> it.message
+            else -> null
+        }
+    }
+
+    /** A view of the one pass over the transaction, of what [pick] takes from its frames. */
+    private fun <T : Any> view(pick: (PgOutputFrame) -> T?): Sequence<T> = Sequence {
         if (!open || iterated) {
             throw InvalidOperationException(
                 InvalidOperationExceptionReason.RESOURCE_CLOSED,
-                "A transaction's changes can be read once, inside the block it was handed to."
+                "A transaction's changes, messages and entries are one pass over it: read one of them, once, " +
+                    "inside the block it was handed to."
             )
         }
         iterated = true
-        Changes()
+        View(pick)
     }
 
-    private inner class Changes : Iterator<Change> {
-        private var pending: Change? = null
+    private inner class View<T : Any>(private val pick: (PgOutputFrame) -> T?) : Iterator<T> {
+        private var pending: T? = null
 
         override fun hasNext(): Boolean {
-            if (pending != null) return true
-            if (endLsn != null) return false
-            if (!open) {
-                throw InvalidOperationException(
-                    InvalidOperationExceptionReason.RESOURCE_CLOSED,
-                    "A transaction's changes can only be read inside the block it was handed to."
-                )
+            while (pending == null) {
+                if (endLsn != null) return false
+                if (!open) {
+                    throw InvalidOperationException(
+                        InvalidOperationExceptionReason.RESOURCE_CLOSED,
+                        "A transaction can only be read inside the block it was handed to."
+                    )
+                }
+                pending = pick(advance() ?: return false)
             }
-            pending = advance() ?: return false
             return true
         }
 
-        override fun next(): Change {
+        override fun next(): T {
             if (!hasNext()) throw NoSuchElementException()
             return pending!!.also { pending = null }
         }
     }
 
-    /** The next change, or `null` at the commit. */
-    private fun advance(): Change? = when (val frame = next()) {
+    /** The transaction's next frame, a change or a message, or `null` at the commit. */
+    private fun advance(): PgOutputFrame? = when (val frame = next()) {
         null -> {
             val ended = InvalidOperationException(
                 InvalidOperationExceptionReason.RESOURCE_CLOSED,
                 "The stream ended before the commit of transaction $xid. It was not acknowledged, and comes again " +
-                    "in the next stream from the slot."
+                        "in the next stream from the slot."
             )
             endedEarly = ended
             throw ended
         }
-        is PgOutputFrame.Of -> frame.change
+
+        is PgOutputFrame.Of, is PgOutputFrame.Message -> frame
         is PgOutputFrame.Commit -> {
             endLsn = frame.endLsn
             null
         }
+
         is PgOutputFrame.Begin -> throw InvalidOperationException(
             InvalidOperationExceptionReason.UNEXPECTED_RESULT,
             "pgoutput began transaction ${frame.xid} inside transaction $xid."
         )
     }
 
-    /** Reads what the block left up to the commit, and closes the changes: where the commit ends, or `null`. */
+    /** Reads what the block left up to the commit, and closes the transaction: where the commit ends, or `null`. */
     internal fun finish(): PgLsn? {
         try {
             while (endLsn == null) {
@@ -109,7 +139,7 @@ class ReplicatedTransaction internal constructor(
         }
     }
 
-    /** Closes the changes, where the block failed. */
+    /** Closes the transaction, where the block failed. */
     internal fun close() {
         open = false
     }

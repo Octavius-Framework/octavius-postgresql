@@ -153,12 +153,13 @@ class PgOutputTest : AbstractIntegrationTest() {
     /** A stream of the class's slot. */
     private fun start(
         url: String = TestDatabase.URL,
+        messages: Boolean = false,
         statusInterval: Duration = 10.seconds,
         typeSource: DataSource? = null,
         configure: OctaviusProperties.() -> Unit = {}
     ): ChangeStream = startPgOutput(
         url, TestDatabase.properties(configure), slot, publications,
-        statusInterval = statusInterval, typeSource = typeSource
+        messages = messages, statusInterval = statusInterval, typeSource = typeSource
     )
 
     /** Whether the slot [name] exists, and is temporary; `null` where it does not exist. */
@@ -340,6 +341,44 @@ class PgOutputTest : AbstractIntegrationTest() {
             assertIs<Change.Insert>(inserted.single()).new.get<String>("provincia"),
             "The transaction the stream ended in comes again"
         )
+    }
+
+    @Test
+    fun `a transaction's messages, changes and entries are views of one pass, and a message outside one does not come`() {
+        run("SELECT pg_logical_emit_message(false, 'curia', 'ave')")
+        run(
+            "BEGIN; SELECT pg_logical_emit_message(true, 'curia', 'vale'); " +
+                "INSERT INTO senator VALUES (1, 'Cicero', NULL, NULL); COMMIT"
+        )
+        val messages = mutableListOf<LogicalMessage>()
+        val changesAfter = AtomicReference<Throwable>()
+
+        start(messages = true).use { stream ->
+            stream.forEachTransaction { transaction ->
+                messages += transaction.messages.toList()
+                changesAfter.set(runCatching { transaction.changes.toList() }.exceptionOrNull())
+                stream.close()
+            }
+        }
+        assertEquals(listOf("curia" to "vale"), messages.map { it.prefix to it.content.decodeToString() })
+        val e = assertIs<InvalidOperationException>(changesAfter.get(), "The views are one pass")
+        assertEquals(InvalidOperationExceptionReason.RESOURCE_CLOSED, e.reason)
+
+        // Stopped before it was acknowledged, the transaction comes again, and its changes leave the message out.
+        val changes = start(messages = true).use { it.collect(1).single() }
+        assertIs<Change.Insert>(changes.single())
+
+        // And once more, its entries hold both, in the order they were written.
+        val entries = mutableListOf<TransactionEntry>()
+        start(messages = true).use { stream ->
+            stream.forEachTransaction { transaction ->
+                entries += transaction.entries.toList()
+                stream.close()
+            }
+        }
+        assertEquals(2, entries.size)
+        assertEquals("vale", assertIs<LogicalMessage>(entries[0]).content.decodeToString())
+        assertIs<Change.Insert>(entries[1])
     }
 
     @Test

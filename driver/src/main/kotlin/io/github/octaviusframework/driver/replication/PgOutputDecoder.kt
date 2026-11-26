@@ -26,6 +26,9 @@ internal sealed interface PgOutputFrame {
     /** A change of the transaction begun. */
     class Of(val change: Change) : PgOutputFrame
 
+    /** A message the transaction begun wrote. */
+    class Message(val message: LogicalMessage) : PgOutputFrame
+
     /** The commit of the transaction begun, ending at [endLsn]. */
     class Commit(val endLsn: PgLsn) : PgOutputFrame
 }
@@ -43,7 +46,8 @@ internal class PgOutputDecoder(val types: StreamTypes) {
 
     /**
      * The frame [data] carries, or `null` for a message the decoder keeps to itself: a relation, the names of its
-     * types, a transaction's origin, the abort of a transaction never sent.
+     * types, a transaction's origin, a logical message written outside a transaction, the abort of a transaction
+     * never sent.
      *
      * @throws TypeException if a column's type is not in the catalog, or its value came as text.
      */
@@ -66,6 +70,14 @@ internal class PgOutputDecoder(val types: StreamTypes) {
             }
             // The relation that follows names its types by OID, and a transaction's origin is not asked about.
             'Y', 'O' -> null
+            'M' -> {
+                val transactional = reader.byte().toInt() and 1 != 0
+                reader.long() // the message's position
+                val prefix = reader.cstring()
+                val content = reader.bytes(reader.int())
+                // One outside a transaction belongs to none of those handed out, and is not.
+                if (transactional) PgOutputFrame.Message(LogicalMessage(prefix, content)) else null
+            }
             'I' -> {
                 val relation = relationOf(reader.int())
                 reader.expect('N')
@@ -253,6 +265,8 @@ private class Reader(val data: ByteArray) {
         while (data[end] != 0.toByte()) end++
         return String(data, position, end - position, Charsets.UTF_8).also { position = end + 1 }
     }
+
+    fun bytes(count: Int): ByteArray = data.copyOfRange(position, position + count).also { position += count }
 
     fun skip(count: Int) {
         position += count

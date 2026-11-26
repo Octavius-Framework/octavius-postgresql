@@ -3,7 +3,7 @@ package io.github.octaviusframework.driver.replication
 import io.github.octaviusframework.driver.row.Row
 
 /** A change a replicated transaction made: to rows of a table, or a truncate of tables. */
-sealed interface Change {
+sealed interface Change : TransactionEntry {
 
     /** A change to rows of [relation], whose rows are read as the rows of a query are. */
     sealed interface OfRow : Change {

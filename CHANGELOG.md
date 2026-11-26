@@ -48,7 +48,7 @@
   and whenever the server asks while it is read, so `wal_sender_timeout` does not end it however long a reader takes
   over a message. `close()` from another thread ends a `read()` waiting for data.
 
-- `startPgOutput(url, properties, slot, publications, newSlot, startLsn, statusInterval, typeSource)` streams
+- `startPgOutput(url, properties, slot, publications, newSlot, startLsn, messages, statusInterval, typeSource)` streams
   the committed transactions of a slot made with `pgoutput`, decoded, as a `ChangeStream`. Each `ReplicatedTransaction`
   (`xid`, `commitLsn`, `committedAt`) gives its `changes` as a sequence read from the connection as it is consumed,
   so a transaction of any size takes the memory of one change. A change is a `Change.Insert`, `Update`, `Delete` or
@@ -68,6 +68,12 @@
   transaction and acknowledges the transactions in commit order, each once its stage and those of every transaction
   before it have completed. At most `maxInFlight` transactions wait for their stages, and the next waits for room. A
   failed stage closes the stream, and its failure is thrown.
+
+- With `messages = true`, a pgoutput stream also carries what a transaction writes with
+  `pg_logical_emit_message(true, prefix, content)`: `ReplicatedTransaction.messages` gives those `LogicalMessage`s,
+  acknowledged with the transaction, as a view beside `changes`, which leaves them out, and `entries` gives both as
+  `TransactionEntry`s, in the order the transaction made and wrote them. The three are one pass over the
+  transaction, so one of them is read. A message written outside a transaction does not come.
 
 - `ChangeStream.registerResultConverter(converter)` registers a converter for the stream alone, asked ahead of the
   catalog's and of those registered before it, as a query's own converter is. A `forEach` reads with the converters
