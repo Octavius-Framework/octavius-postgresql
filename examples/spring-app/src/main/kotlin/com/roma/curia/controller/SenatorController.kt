@@ -3,6 +3,7 @@ package com.roma.curia.controller
 import com.roma.curia.domain.Senator
 import io.github.octaviusframework.driver.spring.OctaviusTemplate
 import io.github.octaviusframework.driver.type.withPgType
+import io.github.octaviusframework.driver.util.reflection.toDataMap
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.*
 import kotlin.uuid.Uuid
@@ -83,14 +84,10 @@ class SenatorController(private val octaviusTemplate: OctaviusTemplate) {
     }
 
     /**
-     * What each insert above binds. `country_estates` states its type because an empty list has no element
-     * to take one from, and would fail with `MappingException` instead of going in as `estate[]`.
+     * What each insert above binds: the senator's properties under their column names, without the `id` the
+     * table generates. `country_estates` is replaced with the same list stating its type, because an empty one
+     * has no element to take it from and would fail with `MappingException` instead of going in as `estate[]`.
      */
-    private fun insertParams(senator: Senator): Map<String, Any?> = mapOf(
-        "cognomen" to senator.cognomen,
-        "magistracy" to senator.magistracy,
-        "family_seat" to senator.familySeat,
-        "country_estates" to senator.countryEstates.withPgType("estate", isArray = true),
-        "dossier" to senator.dossier
-    )
+    private fun insertParams(senator: Senator): Map<String, Any?> =
+        senator.toDataMap("id") + ("country_estates" to senator.countryEstates.withPgType("estate", isArray = true))
 }
