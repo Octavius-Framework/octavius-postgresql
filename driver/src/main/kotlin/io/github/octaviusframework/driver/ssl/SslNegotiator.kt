@@ -59,6 +59,8 @@ internal object SslNegotiator {
     /**
      * Starts TLS on [stream] before the startup message. Under `sslnegotiation=direct` the handshake begins at once;
      * otherwise an `SSLRequest` asks first, and under `PREFER` a refusal goes on in plaintext. `DISABLE` asks nothing.
+     * On failure [stream] is left for the caller to drop: a Terminate before the startup message is a packet the
+     * server logs as malformed.
      *
      * @throws InitializationException `SSL_ERROR` if the server refuses under a mode that requires TLS, answers
      *   with neither yes nor no, or fails the handshake.
@@ -77,16 +79,12 @@ internal object SslNegotiator {
             'S' -> stream.upgradeToSSL(host, port, config)
             'N' -> {
                 if (config.mode != SslMode.PREFER) {
-                    stream.close()
                     throw InitializationException(InitializationExceptionReason.SSL_ERROR, "Server does not support SSL, but sslmode=${config.mode.value} was specified.")
                 }
                 // For a cancel request's connection, which gets no connection line of its own.
                 logger.trace { "Server declined SSL; continuing in plaintext under sslmode=prefer" }
             }
-            else -> {
-                stream.close()
-                throw InitializationException(InitializationExceptionReason.SSL_ERROR, "Unexpected SSL negotiation response: $response")
-            }
+            else -> throw InitializationException(InitializationExceptionReason.SSL_ERROR, "Unexpected SSL negotiation response: $response")
         }
     }
 

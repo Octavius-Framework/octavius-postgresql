@@ -87,6 +87,10 @@
   `MappingException(CONVERSION_ERROR)` naming it for an array element too, with the element's index on the path. The
   element went into the list as it was, and the caller got a `ClassCastException` at the first read.
 
+- A server that refuses TLS under `sslmode=require` or stronger, or answers the `SSLRequest` with neither yes nor no,
+  gets the socket closed with nothing more sent. The driver sent a Terminate first, which the server read as a startup
+  packet and logged as one of invalid length, once for every refused connection.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project
