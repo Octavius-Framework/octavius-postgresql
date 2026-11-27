@@ -44,15 +44,14 @@ object SqlScript {
             }
 
             val c = sql[i]
+            val wordEnd = SqlScanner.nameEnd(sql, i)
             if (c == ';' && parenDepth == 0 && !body.isOpen) {
                 if (contentStart >= 0) addStatement(sql, start, i, contentStart, statements)
                 start = i + 1
                 contentStart = -1
                 body.reset()
-            } else if (isWordStart(c)) {
-                // Read whole, so a word is never entered halfway: `legend` holds no END.
-                var wordEnd = i + 1
-                while (wordEnd < sql.length && isWordPart(sql[wordEnd])) wordEnd++
+            } else if (wordEnd > i) {
+                // Read whole, so a word is never entered halfway: `legend` holds no END, nor does `end$1`.
                 if (contentStart < 0) contentStart = i
                 if (parenDepth == 0) body.word(sql.substring(i, wordEnd), afterDot = i > 0 && sql[i - 1] == '.')
                 i = wordEnd
@@ -95,12 +94,6 @@ object SqlScript {
 
         into.add(SqlStatement(sql.substring(from, to), from, keyword))
     }
-
-    /** What starts a word the way PostgreSQL's lexer starts an identifier or keyword. */
-    private fun isWordStart(c: Char): Boolean = c.isLetter() || c == '_' || (c.code >= 0x80 && !c.isWhitespace())
-
-    /** What continues one: a `$` included, so `end$1` is a single name and not END. */
-    private fun isWordPart(c: Char): Boolean = isWordStart(c) || c.isDigit() || c == '$'
 }
 
 /**

@@ -41,6 +41,12 @@ internal object SqlParameterParser {
                 continue
             }
 
+            val nameEnd = SqlScanner.nameEnd(sql, i)
+            if (nameEnd > i) {
+                i = nameEnd
+                continue
+            }
+
             if (sql[i] == '@') {
                 i = processAt(sql, i, foundParameters)
             }

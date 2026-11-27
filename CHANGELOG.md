@@ -108,6 +108,19 @@
   does. It was let through with the version unknown, so a server older than PostgreSQL 18 behind a pooler or proxy that
   dropped the parameter got a connection.
 
+- The scan for `@name` parameters and `SqlScript.split`, with which migrations cut a script into statements, read
+  names and quotes as PostgreSQL's lexer does in four places where they did not:
+  - A dollar-quote tag may hold any character outside ASCII, such as `$€$`, an emoji or a letter outside the BMP.
+    Only letters were taken, so inside a body tagged with anything else a `@name` was replaced, a lone quote failed
+    the statement with `UNCLOSED_TOKEN` and a `;` cut it in two.
+  - An `E` that ends a name, as in `name'C:\'` or `LIKE'C:\'`, does not make the literal after it an escaped one. The
+    backslash before its closing quote kept the literal open, and the statement failed with `UNCLOSED_TOKEN`.
+  - An `E'...'` literal continued on the next line is escaped in every part, as the server reads it. The parts after
+    the first were read as plain literals, so a `\'` in one of them closed it.
+  - A name is read whole, the `$` and digits after its first character included, so `a$b$` is one name. The `@name`
+    scan went through it a character at a time, took the first `$` for the start of a dollar quote and failed with
+    `UNCLOSED_TOKEN`.
+
 ### Migrations
 
 #### Fixed

@@ -118,6 +118,15 @@ class SqlScriptTest {
     }
 
     @Test
+    fun `semicolons inside a dollar quote tagged outside ASCII are not separators`() {
+        val script = $$$"""DO $€$ BEGIN PERFORM 1; PERFORM 2; END $€$; SELECT 1"""
+        assertEquals(
+            listOf($$$"""DO $€$ BEGIN PERFORM 1; PERFORM 2; END $€$""", "SELECT 1"),
+            sqlOf(script)
+        )
+    }
+
+    @Test
     fun `a positional parameter is not the start of a dollar quote`() {
         assertEquals(listOf("SELECT $1", "SELECT $2"), sqlOf("SELECT $1; SELECT $2"))
     }
