@@ -16,7 +16,7 @@ import io.github.octaviusframework.driver.query.NamedParameterQuery
 import io.github.octaviusframework.driver.query.NativeQuery
 import io.github.octaviusframework.driver.registry.GlobalCatalogStore
 import io.github.octaviusframework.driver.transaction.OctaviusSavepoint
-import io.github.octaviusframework.driver.transaction.TransactionManager
+import io.github.octaviusframework.driver.transaction.TransactionBlocks
 import io.github.octaviusframework.driver.registry.TypeManager
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.sql.Connection
@@ -42,7 +42,7 @@ internal class OctaviusSessionImpl(
      * session opened. That transaction is the owner's, and [close] leaves it open.
      */
     private val inheritedTransaction: Boolean =
-        !ownsConnection && octaviusConnection.transactionState != TransactionState.IDLE
+        !ownsConnection && octaviusConnection.transactionControl.state != TransactionState.IDLE
 
     /**
      * Whether [close] or [abort] has run. [octaviusConnection] may already be the next borrower's, and this keeps a
@@ -67,13 +67,13 @@ internal class OctaviusSessionImpl(
     override val largeObjects: LargeObjectManager = LargeObjectManager(this)
         get() { checkOpen(); return field }
 
-    override val transaction: TransactionManager = TransactionManager(this, octaviusConnection)
+    override val transaction: TransactionBlocks = TransactionBlocks(this, octaviusConnection)
         get() { checkOpen(); return field }
 
     override val transactionState: TransactionState
         get() {
             checkOpen()
-            return octaviusConnection.transactionState
+            return octaviusConnection.transactionControl.state
         }
 
     /**
@@ -235,7 +235,7 @@ internal class OctaviusSessionImpl(
      * back only work that went through its own proxies.
      */
     private fun rollbackUnfinishedTransaction() {
-        if (octaviusConnection.serverTransactionState == TransactionState.IDLE) return
+        if (octaviusConnection.transactionControl.serverState == TransactionState.IDLE) return
         octaviusConnection.queryExecutor.control("ROLLBACK")
     }
 

@@ -1,5 +1,6 @@
 package io.github.octaviusframework.driver.converter.parameter.range
 
+import io.github.octaviusframework.driver.container.PgRange
 import io.github.octaviusframework.driver.converter.parameter.mapper.ParameterConverter
 import io.github.octaviusframework.driver.converter.parameter.mapper.SerializationContext
 import io.github.octaviusframework.driver.exception.TypeException
@@ -31,22 +32,20 @@ internal object RangeParameterConverter : ParameterConverter<Range<*>> {
             context.types.dictionary.getRangeType(elementOid)
         }
 
-        val elementOid = pgType.subtypeOid
-        val boundConverter = context.findConverterByClass(source.elementClass, elementOid)
-
-        val convertedLower = source.lowerBound?.let { boundConverter?.convert(it, elementOid, context) ?: it }
-        val convertedUpper = source.upperBound?.let { boundConverter?.convert(it, elementOid, context) ?: it }
-
-        if (source.isEmpty) {
-            return context.types.containers.createEmptyRange(pgType.oid)
-        }
-
-        return context.types.containers.createRange(
-            oid = pgType.oid,
-            lower = convertedLower,
-            upper = convertedUpper,
-            isLowerInclusive = source.isLowerInclusive,
-            isUpperInclusive = source.isUpperInclusive
-        )
+        return pgRangeOf(source, pgType, context)
     }
+}
+
+/** [range] as a range of [rangeType], each bound converted for its subtype with `lower` or `upper` as its path. */
+internal fun pgRangeOf(range: Range<*>, rangeType: PgType.Range, context: SerializationContext): PgRange {
+    if (range.isEmpty) return context.types.containers.createEmptyRange(rangeType.oid)
+
+    val subtypeOid = rangeType.subtypeOid
+    return context.types.containers.createRange(
+        oid = rangeType.oid,
+        lower = range.lowerBound?.let { context.convert(it, subtypeOid, "lower") },
+        upper = range.upperBound?.let { context.convert(it, subtypeOid, "upper") },
+        isLowerInclusive = range.isLowerInclusive,
+        isUpperInclusive = range.isUpperInclusive
+    )
 }

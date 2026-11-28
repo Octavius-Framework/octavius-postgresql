@@ -385,8 +385,8 @@ session.createNativeQuery("SELECT levy($1, $2)").fetchField<String>(7, null.with
 **from a different thread**, since the one that issued the query is blocked inside it. The request does not wait behind
 the running statement: it travels over a separate short-lived connection.
 
-That connection is negotiated under the session's own [`sslmode`](initialization.md#ssl), so the cancel key it carries
-is encrypted wherever the session is. Under `REQUIRE` or stronger, a server that will not encrypt means the request is
+That connection is negotiated under the session's own [`sslmode` and `sslnegotiation`](initialization.md#ssl), so the
+cancel key it carries is encrypted wherever the session is. Under `REQUIRE` or stronger, a server that will not encrypt means the request is
 *not sent* rather than sent in plaintext. Its connect and its reads are bounded by
 [`cancelSignalTimeout`](initialization.md#network-and-limits), 10 seconds by default. `cancelQuery()` returns once the
 server has closed that connection, which is how it acknowledges having read the request.

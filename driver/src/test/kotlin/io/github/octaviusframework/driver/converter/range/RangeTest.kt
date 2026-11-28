@@ -1,6 +1,7 @@
 package io.github.octaviusframework.driver.converter.range
 
 import io.github.octaviusframework.driver.exception.MappingException
+import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.exception.TypeException
 import io.github.octaviusframework.driver.exception.TypeExceptionReason
 import io.github.octaviusframework.driver.type.PgStandardType
@@ -147,5 +148,51 @@ class RangeTest : AbstractIntegrationTest() {
         val multirange = typeExceptionFor(MultiRange.empty<Milestone>())
         assertEquals(TypeExceptionReason.TYPE_NOT_FOUND, multirange.reason)
         assertContains(multirange.details!!, "multirange bounds of $milestone")
+    }
+
+    private fun refusedParameter(param: Any): MappingException = openSession().use { session ->
+        assertFailsWith<MappingException> { session.createNativeQuery("SELECT $1").fetchRowStrict(param) }
+    }
+
+    @Test
+    fun `a bound that cannot be sent is named by its side`() {
+        val lower = refusedParameter(rangeOf("V", "X").withPgType("int4range"))
+        assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, lower.reason)
+        assertEquals(listOf("\$1", "lower"), lower.path.asReversed())
+
+        val upper = refusedParameter(rangeOf<String>(upperBound = "X").withPgType("int4range"))
+        assertEquals(listOf("\$1", "upper"), upper.path.asReversed())
+    }
+
+    @Test
+    fun `a bound that cannot be sent in a multirange is named by its range and its side`() {
+        val refused = refusedParameter(
+            multiRangeOf(rangeOf<String>(upperBound = "III"), rangeOf("V", "X")).withPgType("int4multirange")
+        )
+
+        assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, refused.reason)
+        assertEquals(listOf("\$1", "[0]", "upper"), refused.path.asReversed())
+    }
+
+    private inline fun <reified T> refusedColumn(sql: String): MappingException = openSession().use { session ->
+        assertFailsWith<MappingException> { session.createNativeQuery(sql).fetchFieldStrict<T>() }
+    }
+
+    @Test
+    fun `a bound that cannot be read is named by its side`() {
+        val lower = refusedColumn<Range<String>>("SELECT '[1,5)'::int4range AS term")
+        assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, lower.reason)
+        assertEquals(listOf("term", "lower"), lower.path.asReversed())
+
+        val upper = refusedColumn<Range<String>>("SELECT '(,5)'::int4range AS term")
+        assertEquals(listOf("term", "upper"), upper.path.asReversed())
+    }
+
+    @Test
+    fun `a bound that cannot be read in a multirange is named by its range and its side`() {
+        val refused = refusedColumn<MultiRange<String>>("SELECT '{(,3), [7,9)}'::int4multirange AS terms")
+
+        assertEquals(MappingExceptionReason.NO_CONVERTER_FOUND, refused.reason)
+        assertEquals(listOf("terms", "[0]", "upper"), refused.path.asReversed())
     }
 }

@@ -18,8 +18,8 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Several servers that really are what [MultiHostTest] can only play: a primary, its streaming standby,
- * and a server of another cluster.
+ * Several servers that the one test database [MultiHostTest] runs against cannot be: a primary, its streaming
+ * standby, and a server of another cluster.
  *
  * Runs only where all three are listening - `TEST_REPLICATION=true`, on 5442, 5443 and 5444, each with the test
  * database and the test credentials. `scripts/replication-test-servers.ps1` stands them up.

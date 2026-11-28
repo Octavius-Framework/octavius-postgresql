@@ -30,8 +30,7 @@ internal object MapCompositeConverter : ResultConverter<PgComposite, Map<String,
 internal fun PgComposite.attributesAsMap(valueType: KType, context: DeserializationContext): Map<String, Any?> {
     val result = mutableMapOf<String, Any?>()
     for ((index, attributeName) in attributeNames.withIndex()) {
-        val rawValue = get<Any?>(index)
-        result[attributeName] = if (rawValue == null) null else context.convert(rawValue, valueType, getAttributeOid(index), attributeName)
+        result[attributeName] = context.convert(get<Any?>(index), valueType, getAttributeOid(index), attributeName)
     }
     return result
 }

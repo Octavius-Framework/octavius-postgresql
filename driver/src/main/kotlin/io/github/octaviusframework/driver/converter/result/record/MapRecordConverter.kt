@@ -38,12 +38,7 @@ internal object MapRecordConverter : ResultConverter<PgRecord, Map<Any, Any?>> {
 
         for ((key, index) in valueIndexes) {
             // A value's path names its key.
-            val valueRaw = source.fields[index]
-            result[key] = if (valueRaw == null) {
-                null
-            } else {
-                context.convert(valueRaw, valueType, source.getAttributeOid(index), key.toString())
-            }
+            result[key] = context.convert(source.fields[index], valueType, source.getAttributeOid(index), key.toString())
         }
 
         return result

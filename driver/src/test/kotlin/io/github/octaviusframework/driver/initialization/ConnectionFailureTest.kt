@@ -5,7 +5,6 @@ import io.github.octaviusframework.driver.exception.InitializationExceptionReaso
 import io.github.octaviusframework.driver.jdbc.getOctaviusSession
 import io.github.octaviusframework.testsupport.AbstractIntegrationTest
 import io.github.octaviusframework.testsupport.TestDatabase
-import io.github.oshai.kotlinlogging.KotlinLogging
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -13,16 +12,11 @@ import kotlin.test.assertFailsWith
 /** A session that could not be opened, against the one real server there is. */
 class ConnectionFailureTest : AbstractIntegrationTest() {
 
-    companion object {
-        private val logger = KotlinLogging.logger {}
-    }
-
     @Test
     fun `a password the server rejects is SERVER_REJECTED_CREDENTIALS`() {
         val exception = assertFailsWith<InitializationException> {
             openSession { password = "wrong_password" }
         }
-        logger.error(exception) { "" }
         assertEquals(InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS, exception.reason)
         assertEquals("28P01", exception.sqlState)
     }
@@ -44,7 +38,6 @@ class ConnectionFailureTest : AbstractIntegrationTest() {
         val exception = assertFailsWith<InitializationException> {
             getOctaviusSession("jdbc:octavius://${TestDatabase.HOST}:54321/${TestDatabase.DATABASE}", TestDatabase.properties())
         }
-        logger.error(exception) { "" }
         assertEquals(InitializationExceptionReason.CONNECTION_ERROR, exception.reason)
     }
 }

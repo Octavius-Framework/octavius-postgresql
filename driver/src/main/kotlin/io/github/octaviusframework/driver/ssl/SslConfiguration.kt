@@ -7,11 +7,13 @@ package io.github.octaviusframework.driver.ssl
  * @property certPath The client certificate, presented only together with [keyPath].
  * @property keyPath The private key of [certPath]: PKCS#8 in PEM form, RSA or EC, encrypted or not.
  * @property keyPassword Decrypts [keyPath]; an encrypted key without it raises `InitializationException(SSL_ERROR)`.
+ * @property negotiation How TLS is started: after an `SSLRequest`, or with the handshake straight away.
  */
 data class SslConfiguration(
     val mode: SslMode,
     val rootCertPath: String? = null,
     val certPath: String? = null,
     val keyPath: String? = null,
-    val keyPassword: String? = null
+    val keyPassword: String? = null,
+    val negotiation: SslNegotiation = SslNegotiation.POSTGRES
 )

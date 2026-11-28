@@ -145,6 +145,9 @@ Those four driver lines are the driver's ordinary [`transaction.required`](../dr
 one migration. The migrator's own lines carry no prefix; the driver lines after an `Applying` line belong to
 the migration it named, until the next one.
 
+A [server notice](../driver/logging.md#server-notices) logged during a run is a migration's: the migrator's own
+statements draw none.
+
 At the driver's `trace` you get the statements themselves:
 
 * **In a transaction — the default.** The whole file is one traced statement carrying every line of it.

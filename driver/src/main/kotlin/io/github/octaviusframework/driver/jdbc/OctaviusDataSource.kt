@@ -1,14 +1,17 @@
 package io.github.octaviusframework.driver.jdbc
 
 import io.github.octaviusframework.driver.auth.ChannelBinding
+import io.github.octaviusframework.driver.auth.OAuthTokenProvider
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.exception.wrapSqlException
+import io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory
 import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.properties.LoadBalanceHosts
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.properties.TargetSessionAttrs
 import io.github.octaviusframework.driver.ssl.SslMode
+import io.github.octaviusframework.driver.ssl.SslNegotiation
 import java.io.PrintWriter
 import java.sql.Connection
 import java.util.logging.Logger
@@ -79,6 +82,11 @@ class OctaviusDataSource : DataSource {
         get() = octaviusProperties.sslMode
         set(value) { octaviusProperties.sslMode = value }
 
+    /** How TLS is started. Defaults to [SslNegotiation.POSTGRES]; [SslNegotiation.DIRECT] needs `REQUIRE` or stronger. */
+    var sslNegotiation: SslNegotiation?
+        get() = octaviusProperties.sslNegotiation
+        set(value) { octaviusProperties.sslNegotiation = value }
+
     /** Path to the CA certificate the server is verified against. Defaults to the JVM's trust store. */
     var sslRootCert: String?
         get() = octaviusProperties.sslRootCert
@@ -103,6 +111,16 @@ class OctaviusDataSource : DataSource {
     var channelBinding: ChannelBinding?
         get() = octaviusProperties.channelBinding
         set(value) { octaviusProperties.channelBinding = value }
+
+    /** Fully-qualified class name of an [OAuthTokenProvider], used where [oauthTokenProvider] is not set. */
+    var oauthTokenProviderClassName: String?
+        get() = octaviusProperties.oauthTokenProviderClassName
+        set(value) { octaviusProperties.oauthTokenProviderClassName = value }
+
+    /** The [OAuthTokenProvider] asked for a token where the server logs in with OAuth, shared by every connection. */
+    var oauthTokenProvider: OAuthTokenProvider?
+        get() = octaviusProperties.oauthTokenProvider
+        set(value) { octaviusProperties.oauthTokenProvider = value }
 
     /** Seconds to wait on a socket read before failing. `0` waits forever. */
     var socketTimeout: Int

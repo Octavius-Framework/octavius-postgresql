@@ -26,8 +26,7 @@ internal object MapRowConverter : ResultConverter<Row, Map<String, Any?>> {
         val columns = source.metadata.columns
         for (index in columns.indices) {
             val column = columns[index]
-            val rawValue = source.getRaw(index)
-            result[column.name] = if (rawValue == null) null else context.convert<Any>(rawValue, valueType, column.type, column.name)
+            result[column.name] = context.convert<Any?>(source.getRaw(index), valueType, column.type, column.name)
         }
         return result
     }

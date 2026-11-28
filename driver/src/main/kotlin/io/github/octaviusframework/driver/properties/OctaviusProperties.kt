@@ -1,10 +1,12 @@
 package io.github.octaviusframework.driver.properties
 
 import io.github.octaviusframework.driver.auth.ChannelBinding
+import io.github.octaviusframework.driver.auth.OAuthTokenProvider
 import io.github.octaviusframework.driver.exception.InvalidOperationException
 import io.github.octaviusframework.driver.exception.InvalidOperationExceptionReason
 import io.github.octaviusframework.driver.notice.NoticeHandler
 import io.github.octaviusframework.driver.ssl.SslMode
+import io.github.octaviusframework.driver.ssl.SslNegotiation
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.*
@@ -96,6 +98,12 @@ class OctaviusProperties {
     /** How much protection the connection demands. Defaults to [SslMode.PREFER]. */
     var sslMode: SslMode? = null
 
+    /**
+     * How TLS is started. Defaults to [SslNegotiation.POSTGRES]; [SslNegotiation.DIRECT] needs [sslMode] at
+     * [SslMode.REQUIRE] or stronger.
+     */
+    var sslNegotiation: SslNegotiation? = null
+
     /** Path to the CA certificate the server is verified against. Defaults to the JVM's trust store. */
     var sslRootCert: String? = null
 
@@ -110,6 +118,19 @@ class OctaviusProperties {
 
     /** How hard to insist that authentication is bound to the TLS channel. Defaults to [ChannelBinding.PREFER]. */
     var channelBinding: ChannelBinding? = null
+
+    /**
+     * The [OAuthTokenProvider] asked for a token where the server logs in with OAuth, shared by every connection
+     * opened with these properties. Wins over [oauthTokenProviderClassName]. Only code can set it: [setProperty] does
+     * not reach it and [toUrl] leaves it out.
+     */
+    var oauthTokenProvider: OAuthTokenProvider? = null
+
+    /**
+     * Fully-qualified class name of an [OAuthTokenProvider]. A Kotlin `object` is shared by every connection; a class
+     * is instantiated per connection through its no-arg constructor.
+     */
+    var oauthTokenProviderClassName: String? = null
 
     /**
      * Everything the driver does not recognise, sent to the server as startup parameters: `search_path`,
@@ -144,11 +165,13 @@ class OctaviusProperties {
             "logparametervalues" -> logParameterValues = booleanValue(key, value)
             "ssl" -> ssl = booleanValue(key, value)
             "sslmode" -> sslMode = SslMode.of(value)
+            "sslnegotiation" -> sslNegotiation = SslNegotiation.of(value)
             "sslrootcert" -> sslRootCert = value
             "sslcert" -> sslCert = value
             "sslkey" -> sslKey = value
             "sslpassword" -> sslPassword = value
             "channelbinding", "channel_binding" -> channelBinding = ChannelBinding.of(value)
+            "oauthtokenproviderclassname" -> oauthTokenProviderClassName = value
             else -> additionalProperties[key] = value
         }
     }
@@ -189,11 +212,14 @@ class OctaviusProperties {
         other.logParameterValues?.let { logParameterValues = it }
         other.ssl?.let { ssl = it }
         other.sslMode?.let { sslMode = it }
+        other.sslNegotiation?.let { sslNegotiation = it }
         other.sslRootCert?.let { sslRootCert = it }
         other.sslCert?.let { sslCert = it }
         other.sslKey?.let { sslKey = it }
         other.sslPassword?.let { sslPassword = it }
         other.channelBinding?.let { channelBinding = it }
+        other.oauthTokenProvider?.let { oauthTokenProvider = it }
+        other.oauthTokenProviderClassName?.let { oauthTokenProviderClassName = it }
         additionalProperties.putAll(other.additionalProperties)
     }
 
@@ -281,8 +307,8 @@ class OctaviusProperties {
     }
 
     /**
-     * These properties as a JDBC URL, for logs: [password], [sslPassword] and [noticeHandler] are left out. [copy]
-     * is the complete duplicate.
+     * These properties as a JDBC URL, for logs: [password], [sslPassword], [noticeHandler] and [oauthTokenProvider]
+     * are left out. [copy] is the complete duplicate.
      */
     fun toUrl(): String {
         val db = databaseName ?: "postgres"
@@ -312,10 +338,12 @@ class OctaviusProperties {
         logParameterValues?.let { queryParams["logParameterValues"] = it.toString() }
         ssl?.let { queryParams["ssl"] = it.toString() }
         sslMode?.let { queryParams["sslmode"] = it.value }
+        sslNegotiation?.let { queryParams["sslnegotiation"] = it.value }
         sslRootCert?.let { queryParams["sslrootcert"] = it }
         sslCert?.let { queryParams["sslcert"] = it }
         sslKey?.let { queryParams["sslkey"] = it }
         channelBinding?.let { queryParams["channelBinding"] = it.value }
+        oauthTokenProviderClassName?.let { queryParams["oauthTokenProviderClassName"] = it }
 
         queryParams.putAll(additionalProperties)
 

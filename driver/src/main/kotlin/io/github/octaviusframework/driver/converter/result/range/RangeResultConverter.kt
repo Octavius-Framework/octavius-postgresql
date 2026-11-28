@@ -19,23 +19,23 @@ internal object RangeResultConverter : ResultConverter<PgRange, Range<*>> {
     }
 
     override fun convert(source: PgRange, expectedType: KType, sourceType: PgType, context: DeserializationContext): Range<*> {
-        val ktElementType = expectedType.arguments.firstOrNull()?.type 
-            ?: typeOf<Any>()
-        @Suppress("UNCHECKED_CAST")
-        val elementClass = (ktElementType.classifier as? KClass<Any>) ?: Any::class
-        
-        val pgElementType = context.types.dictionary.getBaseType(source.elementOid)
-
-        val lower = source.lowerBound?.let { context.convert<Any>(it, ktElementType, pgElementType) }
-        val upper = source.upperBound?.let { context.convert<Any>(it, ktElementType, pgElementType) }
-
-        return Range(
-            elementClass = elementClass,
-            lowerBound = lower,
-            upperBound = upper,
-            isLowerInclusive = source.isLowerInclusive,
-            isUpperInclusive = source.isUpperInclusive,
-            isEmpty = source.isEmpty
-        )
+        val elementType = expectedType.arguments.firstOrNull()?.type ?: typeOf<Any>()
+        return rangeFrom(source, elementType, context)
     }
+}
+
+/** [source] as a `Range` of [elementType], each bound converted with `lower` or `upper` as its path. */
+internal fun rangeFrom(source: PgRange, elementType: KType, context: DeserializationContext): Range<Any> {
+    @Suppress("UNCHECKED_CAST")
+    val elementClass = (elementType.classifier as? KClass<Any>) ?: Any::class
+    val pgElementType = context.types.dictionary.getBaseType(source.elementOid)
+
+    return Range(
+        elementClass = elementClass,
+        lowerBound = source.lowerBound?.let { context.convert<Any>(it, elementType, pgElementType, "lower") },
+        upperBound = source.upperBound?.let { context.convert<Any>(it, elementType, pgElementType, "upper") },
+        isLowerInclusive = source.isLowerInclusive,
+        isUpperInclusive = source.isUpperInclusive,
+        isEmpty = source.isEmpty
+    )
 }

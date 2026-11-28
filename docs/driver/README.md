@@ -46,8 +46,9 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [Adding HikariCP](initialization.md#adding-hikaricp-connection-pooling) — Via URL, via `OctaviusDataSource`, via a configured instance
 - [What Survives a Return to the Pool](initialization.md#what-survives-a-return-to-the-pool) — Session state a pooled connection carries forward
 - [What Happens When a Session Opens](initialization.md#what-happens-when-a-session-opens) — Handshake, authentication, catalog load
-- [Authentication](initialization.md#authentication-is-scram-sha-256-or-a-password-inside-tls) — What the driver answers, what it refuses, and why a server asks for it
+- [Authentication](initialization.md#authentication-is-scram-sha-256-or-a-password-or-token-inside-tls) — What the driver answers, what it refuses, and why a server asks for it
 - [Channel Binding](initialization.md#channel-binding) — Tying the login to the certificate on the wire, and when to demand it
+- [OAuth](initialization.md#oauth) — `OAuthTokenProvider`, when it is asked, and what it takes to send a token
 - [Several Servers](initialization.md#several-servers) — `target_session_attrs`, `load_balance_hosts`, and what moves the search on
 - [Startup Parameters](initialization.md#startup-parameters) — Unrecognized keys sent to the server
 - [Notices from the Server](initialization.md#notices-from-the-server) — `NoticeHandler`, `PgNotice`, and the thread it runs on
@@ -131,7 +132,7 @@ Detailed documentation for Octavius Driver — a PostgreSQL driver for Kotlin th
 - [What Each Level Says](logging.md#what-each-level-says) — Split by how often a line appears, not by how grave it sounds
 - [Server Notices](logging.md#server-notices) — Their own logger name, and a level taken from the server's severity
 - [The Driver Does Not Log What It Throws](logging.md#the-driver-does-not-log-what-it-throws) — And the failures it does log, because nothing else would
-- [What Never Reaches the Log](logging.md#what-never-reaches-the-log) — Passwords, SCRAM proofs, parameter values
+- [What Never Reaches the Log](logging.md#what-never-reaches-the-log) — Passwords, SCRAM proofs, OAuth tokens, parameter values
 - [Following One Connection](logging.md#following-one-connection) — The backend process id, and joining to `pg_stat_activity`
 - [What Tracing Costs](logging.md#what-tracing-costs) — When it is on, and when it is off
 - [Configuration Recipes](logging.md#configuration-recipes) — Logback snippets for the usual questions

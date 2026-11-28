@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.jdbc
 import io.github.octaviusframework.driver.exception.InitializationException
 import io.github.octaviusframework.driver.exception.InitializationExceptionReason
 import io.github.octaviusframework.driver.exception.findOctaviusCause
+import io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.driver.session.OctaviusSessionImpl

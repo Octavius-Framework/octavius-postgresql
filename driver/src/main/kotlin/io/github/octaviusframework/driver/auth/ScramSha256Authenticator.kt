@@ -94,11 +94,17 @@ internal object ScramSha256Authenticator {
         val serverFirst = attributesOf(serverFirstMessage)
 
         val serverNonce = serverFirst.attribute("r", "serverFirstMessage")
-        val salt = Base64.getDecoder().decode(serverFirst.attribute("s", "serverFirstMessage"))
-        val iterations = serverFirst.attribute("i", "serverFirstMessage").toIntOrNull()
+        val encodedSalt = serverFirst.attribute("s", "serverFirstMessage")
+        val salt = try { Base64.getDecoder().decode(encodedSalt) } catch (_: IllegalArgumentException) { null }
+            ?.takeIf { it.isNotEmpty() }
             ?: throw InitializationException(
                 InitializationExceptionReason.PROTOCOL_VIOLATION,
-                details = "Iteration count in serverFirstMessage is not a number: ${serverFirst["i"]}"
+                details = "Salt in serverFirstMessage is empty or not base64: $encodedSalt"
+            )
+        val iterations = serverFirst.attribute("i", "serverFirstMessage").toIntOrNull()?.takeIf { it > 0 }
+            ?: throw InitializationException(
+                InitializationExceptionReason.PROTOCOL_VIOLATION,
+                details = "Iteration count in serverFirstMessage is not a positive number: ${serverFirst["i"]}"
             )
 
         // The server nonce must extend the client's, or a replayed message would pass.
@@ -135,8 +141,9 @@ internal object ScramSha256Authenticator {
             )
         }
 
-        // What makes the exchange mutual: the server proves it knows the stored key.
-        if (serverFinal.attribute("v", "serverFinalMessage") != scramResult.expectedServerSignature) {
+        // What makes the exchange mutual: the server proves it knows the stored key. Compared in constant time.
+        val serverSignature = serverFinal.attribute("v", "serverFinalMessage")
+        if (!MessageDigest.isEqual(serverSignature.toByteArray(), scramResult.expectedServerSignature.toByteArray())) {
             throw InitializationException(
                 InitializationExceptionReason.SERVER_REJECTED_CREDENTIALS,
                 details = "Invalid server signature"
@@ -180,17 +187,17 @@ internal object ScramSha256Authenticator {
             details = "Missing $name in $messageName"
         )
 
-    /** A random alphanumeric client nonce. */
+    /** A random client nonce: 18 bytes in base64, which has no comma, the separator of SCRAM attributes. */
     fun generateClientNonce(): String {
         val bytes = ByteArray(18)
         SecureRandom().nextBytes(bytes)
-        return Base64.getEncoder().encodeToString(bytes).replace(Regex("[^a-zA-Z0-9]"), "")
+        return Base64.getEncoder().encodeToString(bytes)
     }
 
     /** The client proof and expected server signature, as RFC 5802 computes them. */
     fun computeSignatures(password: String, salt: ByteArray, iterations: Int, clientFirstMessageBare: String, serverFirstMessage: String, clientFinalMessageWithoutProof: String): ScramResult {
         // 1. SaltedPassword = Hi(Normalize(password), salt, i)
-        val saltedPassword = pbkdf2(password, salt, iterations)
+        val saltedPassword = pbkdf2(SaslPrep.prepare(password), salt, iterations)
 
         // 2. ClientKey = HMAC(SaltedPassword, "Client Key")
         val clientKey = hmac(saltedPassword, "Client Key".toByteArray())

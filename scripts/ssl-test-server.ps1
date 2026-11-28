@@ -40,7 +40,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# SslTest and ChannelBindingTest log in with this password and connect to the ports below,
+# SslTest, ChannelBindingTest and CleartextPasswordTest log in with this password and connect to the ports below,
 # so none of them can change here alone.
 $Password = '1234'
 
@@ -328,7 +328,7 @@ function Write-TestInstructions {
     Write-Host "  `$env:SSL_KEY_EC = `"$(Join-Path $certDir 'client-ec.key')`""
     Write-Host "  `$env:SSL_KEY_ENCRYPTED = `"$(Join-Path $certDir 'client-enc.key')`""
     Write-Host "  `$env:SSL_KEY_PASSWORD = `"senatus`""
-    Write-Host "  .\gradlew.bat :driver:test --tests `"*SslTest*`" --tests `"*ChannelBindingTest*`""
+    Write-Host "  .\gradlew.bat :driver:test --tests `"*SslTest*`" --tests `"*ChannelBindingTest*`" --tests `"*CleartextPasswordTest*`""
     Write-Host ""
     Write-Host "And when you are done, so it is not left running:"
     Write-Host "  .\scripts\ssl-test-server.ps1 remove"

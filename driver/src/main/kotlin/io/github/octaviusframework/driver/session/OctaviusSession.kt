@@ -19,7 +19,7 @@ import io.github.octaviusframework.driver.notification.NotificationManager
 import io.github.octaviusframework.driver.query.NamedParameterQuery
 import io.github.octaviusframework.driver.query.NativeQuery
 import io.github.octaviusframework.driver.transaction.OctaviusSavepoint
-import io.github.octaviusframework.driver.transaction.TransactionManager
+import io.github.octaviusframework.driver.transaction.TransactionBlocks
 import io.github.octaviusframework.driver.registry.TypeManager
 
 /** What a session offers apart from its transaction lifecycle: no commit, rollback or auto-commit. */
@@ -38,7 +38,7 @@ interface OctaviusSessionOperations {
     val largeObjects: LargeObjectManager
 
     /** Runs blocks in transaction scopes, committing or rolling back on how they end. */
-    val transaction: TransactionManager
+    val transaction: TransactionBlocks
 
     /** Re-reads the type catalog of this session's database. */
     fun reloadTypes()
@@ -70,7 +70,7 @@ interface OctaviusSessionOperations {
     val transactionState: TransactionState
 
     /**
-     * The session's isolation level. A level given to [TransactionManager.required] belongs to that transaction
+     * The session's isolation level. A level given to [TransactionBlocks.required] belongs to that transaction
      * and does not show here.
      */
     var transactionIsolationLevel: TransactionIsolationLevel

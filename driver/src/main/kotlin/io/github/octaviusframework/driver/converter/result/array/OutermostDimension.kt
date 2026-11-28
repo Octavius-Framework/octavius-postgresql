@@ -3,6 +3,7 @@ package io.github.octaviusframework.driver.converter.result.array
 import io.github.octaviusframework.driver.container.PgArray
 import io.github.octaviusframework.driver.converter.result.mapper.DeserializationContext
 import io.github.octaviusframework.driver.converter.result.mapper.ResultConverter
+import io.github.octaviusframework.driver.converter.result.mapper.wrongConverterResult
 import io.github.octaviusframework.driver.exception.MappingException
 import io.github.octaviusframework.driver.exception.MappingExceptionReason
 import io.github.octaviusframework.driver.type.PgType
@@ -70,8 +71,13 @@ internal fun convertOutermostDimension(
                     throw e
                 }
             } else {
+                val converter = elementConverter!!
                 try {
-                    elementConverter!!.convert(value, elementType, pgElementType, context)
+                    val converted = converter.convert(value, elementType, pgElementType, context)
+                    if (kClassForCast != null && !kClassForCast.isInstance(converted)) {
+                        throw wrongConverterResult(converter, converted, elementType)
+                    }
+                    converted
                 } catch (e: MappingException) {
                     e.path.add("[$i]")
                     throw e

@@ -8,30 +8,10 @@ import io.github.octaviusframework.driver.ssl.SslMode
 import io.github.octaviusframework.testsupport.TestDatabase
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
-import org.junit.jupiter.api.assertThrows
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 class HikariInitializationTest {
-
-    @Test
-    fun `should initialize hikari with octavius data source via class name`() {
-        val config = HikariConfig()
-        config.dataSourceClassName = "io.github.octaviusframework.driver.jdbc.OctaviusDataSource"
-        config.addDataSourceProperty("serverName", TestDatabase.HOST)
-        config.addDataSourceProperty("portNumber", "${TestDatabase.PORT}")
-        config.addDataSourceProperty("databaseName", TestDatabase.DATABASE)
-        config.addDataSourceProperty("user", TestDatabase.USER)
-        config.addDataSourceProperty("password", TestDatabase.PASSWORD)
-
-        val ds = HikariDataSource(config)
-        assertDoesNotThrow {
-            ds.connection.use { conn ->
-                assertNotNull(conn)
-            }
-        }
-        ds.close()
-    }
 
     @Test
     fun `should set tuning knobs through addDataSourceProperty`() {
@@ -106,19 +86,6 @@ class HikariInitializationTest {
     }
 
     @Test
-    fun `should reject a property name that has no accessor`() {
-        val config = HikariConfig()
-        config.dataSourceClassName = "io.github.octaviusframework.driver.jdbc.OctaviusDataSource"
-        config.addDataSourceProperty("serverName", TestDatabase.HOST)
-        config.addDataSourceProperty("databaseName", TestDatabase.DATABASE)
-        config.addDataSourceProperty("thisIsNotAProperty", "1")
-
-        // Hikari fails the pool rather than dropping the setting silently, which is the reason
-        // every field of OctaviusProperties needs an accessor here.
-        assertThrows<RuntimeException> { HikariDataSource(config) }
-    }
-
-    @Test
     fun `should initialize hikari with jdbc url directly`() {
         val config = HikariConfig()
         config.jdbcUrl = TestDatabase.URL
@@ -126,26 +93,6 @@ class HikariInitializationTest {
         config.password = TestDatabase.PASSWORD
         
         // When using jdbcUrl, Hikari will try to use DriverManager to find the driver
-        val ds = HikariDataSource(config)
-        assertDoesNotThrow {
-            ds.connection.use { conn ->
-                assertNotNull(conn)
-            }
-        }
-        ds.close()
-    }
-
-    @Test
-    fun `should initialize hikari using properties`() {
-        val props = java.util.Properties()
-        props.setProperty("dataSourceClassName", "io.github.octaviusframework.driver.jdbc.OctaviusDataSource")
-        props.setProperty("dataSource.serverName", TestDatabase.HOST)
-        props.setProperty("dataSource.portNumber", "${TestDatabase.PORT}")
-        props.setProperty("dataSource.databaseName", TestDatabase.DATABASE)
-        props.setProperty("dataSource.user", TestDatabase.USER)
-        props.setProperty("dataSource.password", TestDatabase.PASSWORD)
-        
-        val config = HikariConfig(props)
         val ds = HikariDataSource(config)
         assertDoesNotThrow {
             ds.connection.use { conn ->

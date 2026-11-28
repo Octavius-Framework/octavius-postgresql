@@ -27,9 +27,10 @@ import kotlin.test.assertTrue
  * Choosing among several servers: which failures move the search on, which end it, and which kind of server
  * `target_session_attrs` settles for.
  *
- * The test database is a primary, and it is the only real server there is. A standby, a server not taking
- * connections yet, and one that refuses the password are played by a [ScriptedServer], each only ever passed over -
- * a scripted server cannot answer the queries a connection that settled on it would send.
+ * The test database is a primary, and it is the only real server there is. A server not taking connections yet, one
+ * that refuses the password, and one that leaves `in_hot_standby` out are played by a [ScriptedServer], each only ever
+ * passed over - a scripted server cannot answer the queries a connection that settled on it would send. A real
+ * standby is in [ReplicationTest].
  */
 class MultiHostTest {
 
@@ -70,16 +71,6 @@ class MultiHostTest {
         val port = onSession(url("127.0.0.1:${closedPort()},$database")) { it.serverPort() }
 
         assertEquals(TestDatabase.PORT, port)
-    }
-
-    @Test
-    fun `should pass a standby over for primary`() {
-        loginReporting(inHotStandby = "on").use { standby ->
-            val port = onSession(url("127.0.0.1:${standby.port},$database", "&target_session_attrs=primary")) { it.serverPort() }
-
-            assertNotEquals(-1, standby.startupVersion, "the standby was never asked")
-            assertEquals(TestDatabase.PORT, port)
-        }
     }
 
     @Test

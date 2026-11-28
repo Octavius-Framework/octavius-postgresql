@@ -1,3 +1,3 @@
-rootProject.name = "spring-example"
+rootProject.name = "curia"
 
 includeBuild("../..")

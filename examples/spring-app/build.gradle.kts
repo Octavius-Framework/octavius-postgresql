@@ -5,7 +5,7 @@ plugins {
     kotlin("plugin.spring") version "2.4.20"
 }
 
-group = "com.example"
+group = "com.roma"
 version = "0.0.1-SNAPSHOT"
 
 repositories {
@@ -19,7 +19,7 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
     // The smoke test boots this application against a real PostgreSQL 18 - see
-    // DemoApplicationTest for why compiling the example would prove nothing.
+    // CuriaApplicationTest for why compiling the example would prove nothing.
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation(kotlin("test"))
 }

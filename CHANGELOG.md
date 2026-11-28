@@ -1,3 +1,135 @@
+## Version 2.13.0 (v2.13.0)
+
+### Project
+
+#### Added
+
+- Every page of the API reference has a house icon in its header that leads back to the landing page, where
+  the release and the snapshot reference are chosen. Before, the only way back was the browser's history.
+  The link is Dokka's `homepageLink`, set for the root and every module.
+- `examples/console-app` is a command-line application on the client, the scanner and the migrator, with no
+  framework around them: a census that enrols a father and his sons as one transaction plan, lists citizens
+  through filters that drop out when not given, and marks them with notae of two shapes in one `dynamic_dto`
+  column. Its smoke test runs the installed distribution, so the migrations and the annotated classes are
+  found inside the application's jar, and CI runs it in a job of its own.
+
+#### Changed
+
+- `examples/spring-app` keeps senators instead of users: package `com.roma.curia`, a `senators` table under
+  `/senators`, the composites `estate` and `dossier`, and the enum `magistracy`. What it demonstrates and what
+  its smoke test asserts are the same. A README gives its endpoints and how to run it. `POST /senators`
+  takes an empty `countryEstates`, the list sent with `withPgType("estate", isArray = true)`, where an empty
+  list had no element to take its type from and came back as a 500.
+
+### Driver
+
+#### Added
+
+- A server that logs a role in with OAuth, under an `oauth` line of `pg_hba.conf`, gets the bearer token an
+  `OAuthTokenProvider` gives, set as `oauthTokenProvider` or named in `oauthTokenProviderClassName`. The provider is
+  asked at every login that asks for a token, with the server, user and database of the login in an
+  `OAuthTokenRequest`, and the driver never asks the server for its issuer and scope. The token goes only over TLS: in
+  plaintext or with no provider configured the login fails with `WITHHELD_CREDENTIALS`, and under
+  `channelBinding=require` with `UNSUPPORTED_MECHANISM`, both before the provider is asked. A refused token fails it
+  with `SERVER_REJECTED_CREDENTIALS`.
+
+- `TOKEN_PROVIDER_FAILED` in `InitializationExceptionReason`: the provider could not be loaded, threw, or returned
+  something that is not a bearer token, which is then not sent. A class named in `oauthTokenProviderClassName` that
+  cannot be loaded fails every login, those that ask for no token too.
+
+- `sslNegotiation = DIRECT`, `sslnegotiation=direct` in a URL, starts the TLS handshake as soon as the socket connects
+  instead of asking with an `SSLRequest` first, as libpq's option of that name does. That is a round trip less for every
+  connection and every cancel request, and a stream that a proxy routing TLS by SNI can pass on. The handshake offers
+  ALPN `postgresql` and fails with `SSL_ERROR` where the other end completes it without agreeing to it; after an
+  `SSLRequest` no ALPN is offered, as before. It needs `sslMode` of `REQUIRE` or stronger, and below that the connection
+  fails with `InvalidOperationException(INVALID_ARGUMENT)` before anything connects. A pooler or proxy that expects an
+  `SSLRequest` drops the handshake, which fails with `SSL_ERROR` pointing to `sslnegotiation=postgres`, the default.
+
+#### Changed
+
+- **[BREAKING]** `UNSUPPORTED_PASSWORD_ENCRYPTION` is renamed `WITHHELD_CREDENTIALS`, since it covers an OAuth token
+  as well as a password: the driver withheld the credentials the server asked for, an MD5 password, or a cleartext
+  password or a token outside TLS or with none configured. A `catch` or `when` on the old name needs the new one.
+
+- **[BREAKING]** `TransactionManager`, the type of `session.transaction`, is renamed `TransactionBlocks`: it runs the
+  `required { }` and `nested { }` blocks, and the old name was also that of Spring's `TransactionManager` interface.
+  Code that names the type needs the new name; `session.transaction.required { }` is unchanged.
+
+- **[BREAKING]** Three loggers have new names. A logger configured by an old name needs the new one; the
+  `io.github.octaviusframework.driver` entry that configures the lot is unaffected.
+  - The line for each physical connection opened:
+    `io.github.octaviusframework.driver.initialization.OctaviusConnectionFactory`, where it was
+    `io.github.octaviusframework.driver.jdbc.OctaviusConnectionFactory`.
+  - Transactions, savepoints, isolation and read only:
+    `io.github.octaviusframework.driver.transaction.TransactionControl`, where they were under
+    `io.github.octaviusframework.driver.jdbc.OctaviusConnection`, which keeps cancellation, abort and validation probes.
+  - Auto-commit left unrestored after a block committed:
+    `io.github.octaviusframework.driver.transaction.TransactionBlocks`, where it was
+    `io.github.octaviusframework.driver.transaction.TransactionManager`.
+
+- **[BREAKING]** A bound of a `Range` or `MultiRange` parameter goes through the converter chain as an array element
+  does, so a bound of a class the range's subtype does not take, such as a `String` sent as an `int4range`, fails
+  with `MappingException(NO_CONVERTER_FOUND)`. It reached the subtype's codec as it was and failed there as a
+  `CodecException` caused by a `ClassCastException`.
+
+#### Fixed
+
+- A SCRAM login with a password that SASLprep changes now succeeds. That covers a non-ASCII space such as a
+  no-break space, a soft hyphen or another character SASLprep removes, and anything NFKC rewrites, such as a
+  ligature, a full-width letter or an accent typed as a combining mark. PostgreSQL derives the key it stores from
+  the SASLprep form of the password, while the driver derived its key from the password as given, so such a login
+  failed with `SERVER_REJECTED_CREDENTIALS`. A password SASLprep refuses is used as given, as the server does with
+  it.
+
+- A SCRAM server-first message with an iteration count below one, or with a salt that is empty or not base64, fails
+  the login with `PROTOCOL_VIOLATION`. Before, it escaped as an `IllegalArgumentException`. PostgreSQL never sends
+  such a message.
+
+- The server's final SCRAM signature is compared in constant time, as libpq has compared it since CVE-2026-6478.
+  The comparison that stopped at the first differing byte leaked nothing a server could use, since the expected
+  signature changes with every login.
+
+- A row, a composite or a `ROW(...)` read as a `Map` whose value type is not nullable fails with
+  `MappingException(REQUIRED_ATTRIBUTE_MISSING)` at a `NULL`, its path naming the column, attribute or key. The
+  `NULL` went into the map as it was, so a `Map<String, Int>` could hold a `null`.
+
+- A failure converting a range bound, read or sent, has `lower` or `upper` on its path, under `[i]` for the range's
+  position in a multirange. The path stopped at the column or the parameter.
+
+- A result converter that returns something other than the class asked for fails with
+  `MappingException(CONVERSION_ERROR)` naming it for an array element too, with the element's index on the path. The
+  element went into the list as it was, and the caller got a `ClassCastException` at the first read.
+
+- A server that refuses TLS under `sslmode=require` or stronger, or answers the `SSLRequest` with neither yes nor no,
+  gets the socket closed with nothing more sent. The driver sent a Terminate first, which the server read as a startup
+  packet and logged as one of invalid length, once for every refused connection.
+
+- A login that does not report `server_version` fails with `MISSING_PROTOCOL_PARAMETER`, as one without `search_path`
+  does. It was let through with the version unknown, so a server older than PostgreSQL 18 behind a pooler or proxy that
+  dropped the parameter got a connection.
+
+- The scan for `@name` parameters and `SqlScript.split`, with which migrations cut a script into statements, read
+  names and quotes as PostgreSQL's lexer does in four places where they did not:
+  - A dollar-quote tag may hold any character outside ASCII, such as `$€$`, an emoji or a letter outside the BMP.
+    Only letters were taken, so inside a body tagged with anything else a `@name` was replaced, a lone quote failed
+    the statement with `UNCLOSED_TOKEN` and a `;` cut it in two.
+  - An `E` that ends a name, as in `name'C:\'` or `LIKE'C:\'`, does not make the literal after it an escaped one. The
+    backslash before its closing quote kept the literal open, and the statement failed with `UNCLOSED_TOKEN`.
+  - An `E'...'` literal continued on the next line is escaped in every part, as the server reads it. The parts after
+    the first were read as plain literals, so a `\'` in one of them closed it.
+  - A name is read whole, the `$` and digits after its first character included, so `a$b$` is one name. The `@name`
+    scan went through it a character at a time, took the first `$` for the start of a dollar quote and failed with
+    `UNCLOSED_TOKEN`.
+
+### Migrations
+
+#### Fixed
+
+- `migrate()` draws no notices from the server for its history table. Every start after the first logged an
+  "already exists, skipping" notice for the table's schema, the table and both its indexes, four lines at `info`
+  under `io.github.octaviusframework.driver.Notice`, and the first start on `public` logged the one for the schema.
+  The statements that create the table are sent with `client_min_messages` at `warning`, for that one query.
+
 ## Version 2.12.0 (v2.12.0) (2026-11-19)
 
 ### Project

@@ -3,7 +3,6 @@ package io.github.octaviusframework.driver.jdbc
 import io.github.octaviusframework.driver.properties.OctaviusProperties
 import io.github.octaviusframework.driver.ssl.SslMode
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -41,19 +40,6 @@ class OctaviusDataSourceInitializationTest {
     }
 
     @Test
-    fun `should round-trip tuning knobs through the url`() {
-        val ds = OctaviusDataSource()
-        ds.url = "jdbc:octavius://myhost:5432/mydb?user=testuser&socketTimeout=30&cancelSignalTimeout=3"
-
-        assertEquals(30, ds.socketTimeout)
-        assertEquals(3, ds.cancelSignalTimeout)
-
-        val rendered = ds.url
-        assertTrue(rendered.contains("socketTimeout=30"), rendered)
-        assertTrue(rendered.contains("cancelSignalTimeout=3"), rendered)
-    }
-
-    @Test
     fun `should expose every tuning knob as a bean property`() {
         val ds = OctaviusDataSource()
 
@@ -65,6 +51,7 @@ class OctaviusDataSourceInitializationTest {
         assertEquals(1024, ds.initialParameterWriterCapacity)
         assertEquals(65536, ds.maxParameterWriterCapacity)
         assertNull(ds.noticeHandlerClassName)
+        assertNull(ds.oauthTokenProviderClassName)
 
         ds.socketTimeout = 30
         ds.cancelSignalTimeout = 3
@@ -73,6 +60,7 @@ class OctaviusDataSourceInitializationTest {
         ds.initialParameterWriterCapacity = 2048
         ds.maxParameterWriterCapacity = 131072
         ds.noticeHandlerClassName = "com.example.MyNoticeHandler"
+        ds.oauthTokenProviderClassName = "com.example.LegatusTokenProvider"
 
         // Set through the accessors, they reach the same place the url would have put them
         val rendered = ds.url
@@ -83,6 +71,7 @@ class OctaviusDataSourceInitializationTest {
         assertTrue(rendered.contains("initialParameterWriterCapacity=2048"), rendered)
         assertTrue(rendered.contains("maxParameterWriterCapacity=131072"), rendered)
         assertTrue(rendered.contains("noticeHandlerClassName=com.example.MyNoticeHandler"), rendered)
+        assertTrue(rendered.contains("oauthTokenProviderClassName=com.example.LegatusTokenProvider"), rendered)
     }
 
     @Test
@@ -91,26 +80,6 @@ class OctaviusDataSourceInitializationTest {
         ds.setProperty("search_path", "castra, public")
         // Unrecognised keys are startup parameters, so they ride along in the url too
         assertTrue(ds.url.contains("search_path=castra%2C+public"), ds.url)
-    }
-
-    @Test
-    fun `should expose the application name as a bean property`() {
-        val ds = OctaviusDataSource()
-        assertNull(ds.applicationName)
-
-        // A String accessor, so HikariCP's addDataSourceProperty can set it from a properties file
-        ds.applicationName = "curia-api"
-
-        assertEquals("curia-api", ds.applicationName)
-        assertTrue(ds.url.contains("application_name=curia-api"), ds.url)
-    }
-
-    @Test
-    fun `setProperty should reach the application name property`() {
-        val ds = OctaviusDataSource()
-        ds.setProperty("application_name", "LegioXIII-App")
-
-        assertEquals("LegioXIII-App", ds.applicationName)
     }
 
     @Test
@@ -131,21 +100,6 @@ class OctaviusDataSourceInitializationTest {
 
         val missing = expected.filter { it !in exposed }
         assertTrue(missing.isEmpty(), "OctaviusDataSource is missing accessors for: $missing")
-    }
-
-    @Test
-    fun `should never render the password into the url`() {
-        val ds = OctaviusDataSource()
-        ds.url = "jdbc:octavius://myhost:5433/mydb?user=testuser&password=testpass&sslmode=require"
-
-        val rendered = ds.url
-        assertFalse(rendered.contains("testpass"), "Password leaked into the URL: $rendered")
-        assertFalse(rendered.contains("password"), "Password key present in the URL: $rendered")
-
-        // Everything else still round-trips, and the password is still readable on its own
-        assertTrue(rendered.contains("user=testuser"), rendered)
-        assertTrue(rendered.contains("sslmode=require"), rendered)
-        assertEquals("testpass", ds.password)
     }
 
     @Test

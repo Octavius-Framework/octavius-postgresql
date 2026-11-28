@@ -128,7 +128,7 @@ class NotificationManager internal constructor(private val session: OctaviusSess
      * Reads the server's state, so a `BEGIN` still waiting does not count.
      */
     private fun refuseOpenTransaction() {
-        if (connection.serverTransactionState == TransactionState.IDLE) return
+        if (connection.transactionControl.serverState == TransactionState.IDLE) return
         throw InvalidOperationException(
             InvalidOperationExceptionReason.CONNECTION_BUSY,
             details = "A transaction is open on this connection, and PostgreSQL delivers no notification to it until " +

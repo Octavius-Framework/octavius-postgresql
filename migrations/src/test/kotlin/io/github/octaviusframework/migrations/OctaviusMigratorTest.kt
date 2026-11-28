@@ -1,5 +1,7 @@
 package io.github.octaviusframework.migrations
 
+import io.github.octaviusframework.driver.notice.NoticeHandler
+import io.github.octaviusframework.driver.notice.PgNotice
 import io.github.octaviusframework.driver.session.OctaviusSession
 import io.github.octaviusframework.migrations.execution.MigrationInfo
 import io.github.octaviusframework.migrations.execution.MigrationReport
@@ -75,6 +77,27 @@ class OctaviusMigratorTest {
         val second = migrate(config(dir))
 
         assertTrue(second.isEmpty(), "the second run should have found the database up to date")
+    }
+
+    @Test
+    fun `a run draws no notices from the server, the first or any after it`(@TempDir dir: Path) {
+        // The history schema is already there before the first run, as public is, so both runs meet objects
+        // the bootstrap creates IF NOT EXISTS.
+        dir.resolve("V1__first.sql").writeText(creates("first"))
+        val notices = mutableListOf<PgNotice>()
+        val dataSource = MigrationTestDatabase.dataSource().apply {
+            noticeHandler = object : NoticeHandler {
+                override fun handleNotice(notice: PgNotice) {
+                    notices += notice
+                }
+            }
+        }
+        val migrator = OctaviusMigrator(dataSource, config(dir))
+
+        migrator.migrate()
+        migrator.migrate()
+
+        assertEquals(emptyList<String>(), notices.map { "${it.code} ${it.message}" })
     }
 
     @Test
