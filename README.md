@@ -57,11 +57,11 @@ the client, the scanner and the migrator).
 All six live under `io.github.octavius-framework` and are released together on the same version:
 
 ```kotlin
-implementation("io.github.octavius-framework:driver:2.12.0")
-implementation("io.github.octavius-framework:client:2.12.0")
-implementation("io.github.octavius-framework:client-scanner:2.12.0")
-implementation("io.github.octavius-framework:migrations:2.12.0")
-implementation("io.github.octavius-framework:driver-spring-integration:2.12.0")
+implementation("io.github.octavius-framework:driver:2.13.0")
+implementation("io.github.octavius-framework:client:2.13.0")
+implementation("io.github.octavius-framework:client-scanner:2.13.0")
+implementation("io.github.octavius-framework:migrations:2.13.0")
+implementation("io.github.octavius-framework:driver-spring-integration:2.13.0")
 ```
 
 Take the ones you want and no more — each brings what it sits on. `client` brings the driver,

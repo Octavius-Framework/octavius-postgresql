@@ -12,9 +12,9 @@ repositories {
 }
 
 dependencies {
-    implementation("io.github.octavius-framework:client:2.12.0")
-    implementation("io.github.octavius-framework:client-scanner:2.12.0")
-    implementation("io.github.octavius-framework:migrations:2.12.0")
+    implementation("io.github.octavius-framework:client:2.13.0")
+    implementation("io.github.octavius-framework:client-scanner:2.13.0")
+    implementation("io.github.octavius-framework:migrations:2.13.0")
     implementation("com.zaxxer:HikariCP:7.1.0")
 
     // Log lines go to stderr, so stdout carries only what a command prints

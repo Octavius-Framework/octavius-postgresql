@@ -24,7 +24,7 @@ Contents:
 ```kotlin
 dependencies {
     // Brings the driver in transitively
-    implementation("io.github.octavius-framework:driver-spring-integration:2.12.0")
+    implementation("io.github.octavius-framework:driver-spring-integration:2.13.0")
 }
 ```
 
